@@ -1,0 +1,56 @@
+# ---- Build output ----
+/ghist
+/dist/
+/build/
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# ---- Go test & coverage artifacts ----
+*.out
+*.test
+coverage.txt
+coverage.html
+coverage.*
+profile.cov
+
+# ---- Go workspace / vendoring ----
+# Keep go.mod and go.sum tracked; ignore the rest.
+/vendor/
+go.work
+go.work.sum
+
+# ---- AI assistant working files ----
+# Claude / Serena and any plans, notes, analysis, or context written for models.
+.claude/
+.serena/
+.remember/
+.vb
+.aider*
+.cursor/
+*.plan.md
+plans/
+notes/
+analysis/
+scratch/
+
+# ---- Editor / IDE ----
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ---- OS cruft ----
+.DS_Store
+.DS_Store?
+Thumbs.db
+desktop.ini
+
+# ---- Environment / local config ----
+.env
+.env.local
+*.local
