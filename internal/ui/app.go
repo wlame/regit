@@ -27,7 +27,6 @@ type mode int
 const (
 	modeMain mode = iota
 	modePalette
-	modeParams
 	modeEditor
 	modePreview
 	modeConfirm
@@ -39,6 +38,7 @@ type focusArea int
 const (
 	focusList focusArea = iota
 	focusCalendar
+	focusParams // the strategy/params pane below the calendar
 )
 
 type statusKind int
@@ -96,7 +96,7 @@ func New(repo *gitio.Repo, mgr *safety.Manager, cfg config.Config, state model.R
 		cursor = commits[len(commits)-1].OrigAuthorDate.In(loc)
 	}
 
-	return Model{
+	m := Model{
 		repo:       repo,
 		mgr:        mgr,
 		cfg:        cfg,
@@ -111,6 +111,10 @@ func New(repo *gitio.Repo, mgr *safety.Manager, cfg config.Config, state model.R
 		strategies: strategy.Strategies(),
 		st:         newStyles(),
 	}
+	// The strategy pane always shows a configurable form; seed it with the
+	// default strategy so it is usable before the palette is ever opened.
+	m.form = newParamsForm(m.strategies[m.defaultStrategyIndex()], cfg, cursor)
+	return m
 }
 
 // Init satisfies tea.Model; ghist needs no startup command.
@@ -141,8 +145,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateMain(msg)
 	case modePalette:
 		return m.updatePalette(msg)
-	case modeParams:
-		return m.updateParams(msg)
 	case modeEditor:
 		return m.updateEditor(msg)
 	case modePreview:
@@ -161,6 +163,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // --- Main view -------------------------------------------------------------
 
 func (m Model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// While the strategy pane is focused, keys belong to its form fields, so
+	// global shortcuts are suspended (tab/esc leave the pane).
+	if m.focus == focusParams {
+		return m.updateParamsPane(msg)
+	}
 	switch msg.String() {
 	case "q":
 		m.quitting = true
@@ -168,19 +175,28 @@ func (m Model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.mode = modeHelp
 	case "tab":
-		if m.focus == focusList {
+		switch m.focus {
+		case focusList:
 			m.focus = focusCalendar
-		} else {
-			m.focus = focusList
+		case focusCalendar:
+			m.focus = focusParams
 		}
 	case "s":
 		m.mode = modePalette
 		m.paletteCursor = m.defaultStrategyIndex()
 	case "e", "enter":
 		if m.focus == focusList && len(m.plan.Commits) > 0 {
+			if m.plan.IsFrozen(m.storageIndexAtCursor()) {
+				m.setStatus("Commit is frozen (before the base) — press b on it to move the base", statusWarn)
+				return m, nil
+			}
 			c := m.commitAtCursor()
 			m.editor = newEditorState(c, m.plan, m.loc)
 			m.mode = modeEditor
+		}
+	case "b":
+		if m.focus == focusList && len(m.plan.Commits) > 0 {
+			m.setBaseAtCursor()
 		}
 	case "p":
 		m.mode = modePreview
@@ -216,29 +232,78 @@ func (m *Model) moveCursor(msg tea.KeyMsg) {
 		}
 		return
 	}
-	// Calendar focus.
+	// Calendar focus. The heatmap is GitHub-style: weekdays run top-to-bottom
+	// within a week column, weeks run left-to-right — so vertical arrows move
+	// by one day and horizontal arrows jump a whole week.
+	moved := false
 	switch msg.String() {
-	case "left", "h":
-		m.calCursor = m.calCursor.AddDate(0, 0, -1)
-	case "right", "l":
-		m.calCursor = m.calCursor.AddDate(0, 0, 1)
 	case "up", "k":
-		m.calCursor = m.calCursor.AddDate(0, 0, -7)
+		m.calCursor = m.calCursor.AddDate(0, 0, -1)
+		moved = true
 	case "down", "j":
+		m.calCursor = m.calCursor.AddDate(0, 0, 1)
+		moved = true
+	case "left", "h":
+		m.calCursor = m.calCursor.AddDate(0, 0, -7)
+		moved = true
+	case "right", "l":
 		m.calCursor = m.calCursor.AddDate(0, 0, 7)
+		moved = true
 	case "[":
 		m.calYear--
 		m.calCursor = m.calCursor.AddDate(-1, 0, 0)
+		moved = true
 	case "]":
 		m.calYear++
 		m.calCursor = m.calCursor.AddDate(1, 0, 0)
+		moved = true
 	default:
 		if d := digit(msg.String()); d >= 0 {
-			m.quotas[m.calCursor.Format("2006-01-02")] = d
-			m.setStatus(fmt.Sprintf("Set quota %d on %s (press g to apply)", d, m.calCursor.Format("2006-01-02")), statusOK)
+			// Quotas apply immediately so the commit list reflects the pin
+			// as soon as the digit is pressed ('g' re-applies manually).
+			m.quotas[m.calCursor.Format(dateLayout)] = d
+			m.applyQuotasNow()
 		}
 	}
 	m.calYear = m.calCursor.Year()
+	if moved {
+		m.selectFirstCommitOfDay()
+	}
+}
+
+// storageIndexAtCursor converts the list cursor (display order, newest first)
+// to the root-first storage index used by the plan.
+func (m Model) storageIndexAtCursor() int {
+	return len(m.plan.Commits) - 1 - m.listCursor
+}
+
+// setBaseAtCursor toggles the frozen-history boundary at the selected commit:
+// it becomes the first (oldest) editable commit and everything older is
+// frozen. Pressing b on the current base commit unfreezes the whole history.
+func (m *Model) setBaseAtCursor() {
+	idx := m.storageIndexAtCursor()
+	if idx == m.plan.Base && m.plan.Base > 0 {
+		m.plan.SetBase(0)
+		m.setStatus("Base cleared — editing the whole history", statusOK)
+		return
+	}
+	m.plan.SetBase(idx)
+	m.setStatus(fmt.Sprintf("Base set at %s — editing %d commit(s), %d older frozen",
+		short(m.plan.Commits[m.plan.Base].Hash), len(m.plan.Active()), m.plan.Base), statusOK)
+}
+
+// selectFirstCommitOfDay moves the list cursor to the newest commit whose
+// effective date falls on the calendar-cursor day, so navigating the calendar
+// drives the commit list. The cursor stays put when the day has no commits.
+func (m *Model) selectFirstCommitOfDay() {
+	key := m.calCursor.In(m.loc).Format(dateLayout)
+	for i := 0; i < len(m.plan.Commits); i++ {
+		c := m.commitAtDisplayIndex(i)
+		if m.plan.EffectiveAuthorDate(c).In(m.loc).Format(dateLayout) == key {
+			m.listCursor = i
+			return
+		}
+	}
 }
 
 // --- Palette ---------------------------------------------------------------
@@ -256,22 +321,33 @@ func (m Model) updatePalette(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.paletteCursor++
 		}
 	case "enter":
+		// Chosen: load the strategy into the params pane and focus it there.
 		m.form = newParamsForm(m.strategies[m.paletteCursor], m.cfg, m.calCursor)
-		m.mode = modeParams
+		m.mode = modeMain
+		m.focus = focusParams
 	}
 	return m, nil
 }
 
-// --- Params form -----------------------------------------------------------
+// --- Params pane -------------------------------------------------------------
 
-func (m Model) updateParams(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+// updateParamsPane routes keys while the strategy pane is focused: up/down
+// move between fields, enter applies, tab/esc return focus to the list.
+func (m Model) updateParamsPane(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "esc":
-		m.mode = modePalette
+	case "tab", "esc":
+		m.focus = focusList
 		return m, nil
 	case "enter":
 		return m.applyStrategy()
+	case "up", "shift+tab":
+		m.form.moveFocus(-1)
+		return m, nil
+	case "down":
+		m.form.moveFocus(1)
+		return m, nil
 	}
+	m.form.errMsg = "" // any edit invalidates the previous apply error
 	cmd := m.form.update(msg)
 	return m, cmd
 }
@@ -279,23 +355,32 @@ func (m Model) updateParams(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) applyStrategy() (tea.Model, tea.Cmd) {
 	params, err := m.form.buildParams(m.cfg, m.quotas)
 	if err != nil {
-		m.setStatus(err.Error(), statusErr)
+		m.form.errMsg = err.Error()
 		return m, nil
 	}
 	tm := pickTimeModel(m.form)
 	if err := strategy.Apply(m.plan, m.form.strat, tm, params, m.cfg.LinkDates); err != nil {
-		m.setStatus(err.Error(), statusErr)
+		m.form.errMsg = err.Error()
 		return m, nil
 	}
-	m.mode = modeMain
+	// Success: hand focus back to the list so global keys (A, p, u…) work
+	// again immediately; tab twice returns here for further tweaking.
+	m.focus = focusList
 	m.reportPlan(m.form.strat.Name())
 	return m, nil
 }
 
 func (m Model) applyQuotas() (tea.Model, tea.Cmd) {
+	m.applyQuotasNow()
+	return m, nil
+}
+
+// applyQuotasNow re-runs the Manual Pin strategy over the current quota map,
+// so quota edits are reflected in the commit list immediately.
+func (m *Model) applyQuotasNow() {
 	if len(m.quotas) == 0 {
 		m.setStatus("No quotas set — focus the calendar and press 0-9 on days first", statusWarn)
-		return m, nil
+		return
 	}
 	start, end := quotaRange(m.quotas, m.loc)
 	params := strategy.Params{
@@ -311,10 +396,9 @@ func (m Model) applyQuotas() (tea.Model, tea.Cmd) {
 	tm := timeModelByName(m.cfg.DefaultTimeModel)
 	if err := strategy.Apply(m.plan, strategy.ManualPin{}, tm, params, m.cfg.LinkDates); err != nil {
 		m.setStatus(err.Error(), statusErr)
-		return m, nil
+		return
 	}
 	m.reportPlan("Manual Pin")
-	return m, nil
 }
 
 // --- Editor ----------------------------------------------------------------
@@ -592,8 +676,6 @@ func (m Model) View() string {
 	switch m.mode {
 	case modePalette:
 		overlay = viewPalette(m.strategies, m.paletteCursor, m.st)
-	case modeParams:
-		overlay = m.form.view(m.st)
 	case modeEditor:
 		overlay = m.editor.view(m.commitByHash(m.editor.hash), m.st)
 	case modePreview:

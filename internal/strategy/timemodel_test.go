@@ -97,6 +97,39 @@ func TestApply_endToEndProducesValidLinkedEdits(t *testing.T) {
 	}
 }
 
+// With a base boundary set, Apply must leave frozen commits unedited and date
+// the first active commit after its frozen parent, even when the requested
+// range starts earlier.
+func TestApply_respectsBaseBoundary(t *testing.T) {
+	commits := makeCommits(4)
+	parentDate := ts("2026-06-05T14:00:00Z")
+	commits[1].OrigAuthorDate = parentDate
+	plan := model.NewPlan(commits)
+	plan.SetBase(2) // freeze commits[0] and commits[1]
+
+	// Range deliberately starts three months BEFORE the frozen parent's date.
+	p := paramsRange("2026-03-01", "2026-03-31")
+	if err := Apply(plan, EvenSpread{}, UniformModel{}, p, true); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, c := range commits[:2] {
+		if _, ok := plan.Edits[c.Hash]; ok {
+			t.Errorf("frozen commit %s must not be edited", c.Hash)
+		}
+	}
+	if len(plan.Edits) != 2 {
+		t.Fatalf("expected 2 edits for the active commits, got %d", len(plan.Edits))
+	}
+	first := plan.EffectiveAuthorDate(commits[2])
+	if !first.After(parentDate) {
+		t.Errorf("first active commit (%v) must be dated after its frozen parent (%v)", first, parentDate)
+	}
+	if !plan.IsValid() {
+		t.Errorf("plan should be sequence-valid, has %d violations", len(plan.Violations))
+	}
+}
+
 func TestApply_unlinkedLeavesCommitterDateAlone(t *testing.T) {
 	commits := makeCommits(2)
 	plan := model.NewPlan(commits)

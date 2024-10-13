@@ -158,7 +158,9 @@ type TimeModel interface {
 // It mutates plan.Edits and plan.Violations and returns an error only when a
 // layer cannot produce a valid assignment (e.g. an empty weekday mask).
 func Apply(plan *model.Plan, s Strategy, tm TimeModel, p Params, linkCommitter bool) error {
-	commits := plan.Commits
+	// Only the active suffix is rewritten; commits before the plan's base
+	// boundary are frozen and must keep their dates (and hashes).
+	commits := plan.Active()
 	if len(commits) == 0 {
 		return nil
 	}
@@ -179,6 +181,16 @@ func Apply(plan *model.Plan, s Strategy, tm TimeModel, p Params, linkCommitter b
 		times, err = tm.AssignTimes(commits, days, p, rng)
 		if err != nil {
 			return err
+		}
+	}
+
+	// The first active commit must still land after its frozen parent, whose
+	// date can no longer move. Clamping before EnforceSequential lets the
+	// usual push-forward cascade absorb the correction.
+	if plan.Base > 0 {
+		floor := plan.Commits[plan.Base-1].OrigAuthorDate
+		if times[0].Before(floor.Add(minGap)) {
+			times[0] = floor.Add(minGap)
 		}
 	}
 

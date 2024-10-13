@@ -20,13 +20,17 @@ const (
 
 // logFormat lists the fields we read per commit, in order, joined by fieldSep
 // and terminated by recordSep. %H hash, %T tree, %P parents, author/committer
-// identity and ISO dates, %G? signature status, %s subject, %b body.
+// identity and ISO dates, %G? signature status, %B raw message.
+//
+// The message is read as raw %B on purpose: git's %s folds a multi-line first
+// paragraph into one space-joined line and %b drops everything before the
+// first blank line, which silently corrupted messages on rewrite.
 var logFormat = strings.Join([]string{
 	"%H", "%T", "%P",
 	"%an", "%ae", "%cn", "%ce",
 	"%aI", "%cI",
 	"%G?",
-	"%s", "%b",
+	"%B",
 }, fieldSep) + recordSep
 
 // ReadState gathers the repository status the safety guards need.
@@ -107,8 +111,8 @@ func (r *Repo) pushedHashes() (map[string]bool, error) {
 // parseCommitRecord turns one fieldSep-joined log record into a model.Commit.
 func parseCommitRecord(record string) (model.Commit, error) {
 	f := strings.Split(record, fieldSep)
-	if len(f) < 12 {
-		return model.Commit{}, fmt.Errorf("malformed log record: expected 12 fields, got %d", len(f))
+	if len(f) < 11 {
+		return model.Commit{}, fmt.Errorf("malformed log record: expected 11 fields, got %d", len(f))
 	}
 
 	authorDate, err := time.Parse(time.RFC3339, f[7])
@@ -125,6 +129,9 @@ func parseCommitRecord(record string) (model.Commit, error) {
 		parents = strings.Fields(p)
 	}
 
+	message := strings.TrimRight(f[10], "\n")
+	subject, body := model.SplitMessage(message)
+
 	return model.Commit{
 		Hash:           f[0],
 		TreeHash:       f[1],
@@ -136,8 +143,9 @@ func parseCommitRecord(record string) (model.Commit, error) {
 		OrigAuthorDate: authorDate,
 		OrigCommitDate: commitDate,
 		IsSigned:       signatureStatus(f[9]),
-		Subject:        f[10],
-		Body:           strings.TrimRight(f[11], "\n"),
+		Message:        message,
+		Subject:        subject,
+		Body:           body,
 		IsMerge:        len(parents) > 1,
 	}, nil
 }

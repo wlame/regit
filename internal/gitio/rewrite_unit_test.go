@@ -10,22 +10,36 @@ import (
 func strptr(s string) *string { return &s }
 
 func TestBuildMessage(t *testing.T) {
-	c := model.Commit{Subject: "Fix bug", Body: "details here"}
+	c := model.Commit{
+		Message: "Fix bug\n\ndetails here",
+		Subject: "Fix bug",
+		Body:    "details here",
+	}
+	// A message whose comment lines follow the title without a blank line:
+	// untouched edits must replay it verbatim, never re-structured.
+	tricky := model.Commit{
+		Message: "Fix bug\nfirst comment line\nsecond comment line",
+		Subject: "Fix bug",
+		Body:    "first comment line\nsecond comment line",
+	}
 
 	cases := []struct {
-		name string
-		edit model.Edit
-		want string
+		name   string
+		commit model.Commit
+		edit   model.Edit
+		want   string
 	}{
-		{"unchanged", model.Edit{}, "Fix bug\n\ndetails here\n"},
-		{"drop body", model.Edit{DropBody: true}, "Fix bug\n"},
-		{"new subject", model.Edit{NewSubject: strptr("New title")}, "New title\n\ndetails here\n"},
-		{"new body", model.Edit{NewBody: strptr("rewritten")}, "Fix bug\n\nrewritten\n"},
-		{"drop wins over new body", model.Edit{DropBody: true, NewBody: strptr("ignored")}, "Fix bug\n"},
+		{"unchanged", c, model.Edit{}, "Fix bug\n\ndetails here\n"},
+		{"unchanged tricky message is verbatim", tricky, model.Edit{},
+			"Fix bug\nfirst comment line\nsecond comment line\n"},
+		{"drop body", c, model.Edit{DropBody: true}, "Fix bug\n"},
+		{"new subject", c, model.Edit{NewSubject: strptr("New title")}, "New title\n\ndetails here\n"},
+		{"new body", c, model.Edit{NewBody: strptr("rewritten")}, "Fix bug\n\nrewritten\n"},
+		{"drop wins over new body", c, model.Edit{DropBody: true, NewBody: strptr("ignored")}, "Fix bug\n"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := buildMessage(c, tc.edit); got != tc.want {
+			if got := buildMessage(tc.commit, tc.edit); got != tc.want {
 				t.Errorf("buildMessage = %q, want %q", got, tc.want)
 			}
 		})

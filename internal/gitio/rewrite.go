@@ -2,6 +2,7 @@ package gitio
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/wlame/ghist/internal/model"
@@ -40,9 +41,18 @@ func (r *Repo) Replay(plan *model.Plan, sign SignMode) (newHead string, err erro
 		return "", fmt.Errorf("nothing to replay: plan has no commits")
 	}
 
-	remap := make(map[string]string, len(plan.Commits)) // old hash -> new hash
+	// Commits before the plan's base boundary are not replayed at all. The
+	// first rebuilt commit finds no remap entry for its parent and therefore
+	// keeps pointing at the original, untouched ancestor — which is the hard
+	// guarantee that frozen history never changes.
+	active := plan.Active()
+	if len(active) == 0 {
+		return "", fmt.Errorf("nothing to replay: every commit is frozen")
+	}
 
-	for _, c := range plan.Commits {
+	remap := make(map[string]string, len(active)) // old hash -> new hash
+
+	for _, c := range active {
 		edit, _ := plan.EditFor(c.Hash)
 
 		newParents := remapParents(c.ParentHashes, remap)
@@ -85,7 +95,16 @@ func remapParents(parents []string, remap map[string]string) []string {
 
 // buildMessage assembles the commit message from the original commit and any
 // edit, honoring the "drop body, keep subject" action.
+//
+// When the edit does not touch the message at all, the original raw message is
+// replayed verbatim (modulo a single trailing newline) — rebuilding it from a
+// subject/body split would re-structure messages whose first paragraph spans
+// several lines or that lack a blank line after the title.
 func buildMessage(c model.Commit, e model.Edit) string {
+	if e.NewSubject == nil && e.NewBody == nil && !e.DropBody {
+		return strings.TrimRight(c.Message, "\n") + "\n"
+	}
+
 	subject := c.Subject
 	if e.NewSubject != nil {
 		subject = *e.NewSubject

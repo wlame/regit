@@ -7,7 +7,10 @@
 // dependency graph pointing inward toward these plain data types.
 package model
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // Commit is an immutable snapshot of a single commit as read from the
 // repository. ghist never mutates a Commit; instead it produces an Edit (see
@@ -29,8 +32,9 @@ type Commit struct {
 	OrigAuthorDate time.Time // author date as originally recorded
 	OrigCommitDate time.Time // committer date as originally recorded
 
-	Subject string // first line of the commit message
-	Body    string // remaining message after the subject (may be empty)
+	Message string // full raw commit message, exactly as stored (%B)
+	Subject string // first line of the commit message, for display/editing
+	Body    string // message after the first line and its blank separator
 
 	IsSigned bool // true if the commit carried a GPG/SSH signature
 	IsPushed bool // true if this commit also exists on the upstream branch
@@ -41,4 +45,17 @@ type Commit struct {
 // line. The TUI uses this to decide whether the "drop body" action is available.
 func (c Commit) HasBody() bool {
 	return c.Body != ""
+}
+
+// SplitMessage splits a raw commit message into its first line (the display
+// subject) and the rest (the body), trimming the conventional blank separator
+// line but otherwise preserving the body's formatting.
+//
+// Note this is a display-oriented split: unlike git's own %s/%b, it never
+// folds a multi-line first paragraph into the subject, so no message content
+// can hide in (or vanish from) the subject line.
+func SplitMessage(raw string) (subject, body string) {
+	raw = strings.TrimRight(raw, "\n")
+	subject, body, _ = strings.Cut(raw, "\n")
+	return subject, strings.TrimLeft(body, "\n")
 }

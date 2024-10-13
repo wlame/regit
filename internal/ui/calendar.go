@@ -1,21 +1,26 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 )
 
-// calendar renders a GitHub-style contribution heatmap for a single year: weeks
+// calendar renders a GitHub-style contribution heatmap for half a year: weeks
 // run left-to-right as columns, days of the week run top-to-bottom as seven
-// rows, and each cell's color encodes how many commits land on that day.
+// rows. Each cell is two characters wide so a day can show a pinned quota
+// number (0-99) in place of its heat glyph.
 //
-// The grid starts on the Sunday on or before Jan 1 so every column is a full
-// week, exactly like GitHub's graph.
+// The grid starts on the Sunday on or before the half-year's first day so
+// every column is a full week, exactly like GitHub's graph.
 
 const (
 	cellFilled = "▇"
 	cellEmpty  = "·"
-	gridCols   = 53 // up to 53 week-columns cover any year
+	cellWidth  = 2  // every day cell is two characters: "▇▇", "··", or "%2d"
+	halfCols   = 27 // a half-year spans at most 27 Sunday-aligned week columns
+	// 4-space left gutter matching the weekday-label column ("Mon " == 4 chars).
+	calGutter = 4
 )
 
 // heatLevel maps a commit count to one of five intensity buckets (0..4).
@@ -34,18 +39,30 @@ func heatLevel(count int) int {
 	}
 }
 
-// gridStart returns the Sunday on or before Jan 1 of the given year, in loc.
-func gridStart(year int, loc *time.Location) time.Time {
-	jan1 := time.Date(year, time.January, 1, 0, 0, 0, 0, loc)
-	offset := int(jan1.Weekday()) // Sunday == 0
-	return jan1.AddDate(0, 0, -offset)
+// halfRange returns the inclusive date range and label of the half-year
+// containing day: Jan–Jun or Jul–Dec.
+func halfRange(day time.Time, loc *time.Location) (start, end time.Time, label string) {
+	y := day.Year()
+	if day.Month() <= time.June {
+		return time.Date(y, time.January, 1, 0, 0, 0, 0, loc),
+			time.Date(y, time.June, 30, 23, 59, 59, 0, loc), "Jan–Jun"
+	}
+	return time.Date(y, time.July, 1, 0, 0, 0, 0, loc),
+		time.Date(y, time.December, 31, 23, 59, 59, 0, loc), "Jul–Dec"
 }
 
-// renderCalendar draws the heatmap for year, using counts keyed by "2006-01-02".
-// The cursor day is highlighted. focused tints the active state.
-func renderCalendar(year int, counts map[string]int, cursor time.Time, loc *time.Location, st styles) string {
-	start := gridStart(year, loc)
-	cursorKey := cursor.In(loc).Format("2006-01-02")
+// sundayOnOrBefore returns the Sunday on or before t.
+func sundayOnOrBefore(t time.Time) time.Time {
+	return t.AddDate(0, 0, -int(t.Weekday())) // Sunday == 0
+}
+
+// renderCalendar draws the half-year heatmap around cursor, using counts and
+// quotas keyed by "2006-01-02". Days with a pinned quota show the number
+// instead of a heat glyph; the cursor day is highlighted.
+func renderCalendar(cursor time.Time, counts, quotas map[string]int, loc *time.Location, st styles) string {
+	rangeStart, rangeEnd, _ := halfRange(cursor.In(loc), loc)
+	start := sundayOnOrBefore(rangeStart)
+	cursorKey := cursor.In(loc).Format(dateLayout)
 
 	// Build the seven weekday rows.
 	rows := make([]strings.Builder, 7)
@@ -54,34 +71,35 @@ func renderCalendar(year int, counts map[string]int, cursor time.Time, loc *time
 		rows[r].WriteString(st.dim.Render(dowLabels[r] + " "))
 	}
 
-	for col := 0; col < gridCols; col++ {
+	for col := 0; col < halfCols; col++ {
 		for r := 0; r < 7; r++ {
 			day := start.AddDate(0, 0, col*7+r)
-			if day.Year() > year {
-				rows[r].WriteString(" ")
+			if day.Before(rangeStart) || day.After(rangeEnd) {
+				rows[r].WriteString(strings.Repeat(" ", cellWidth))
 				continue
 			}
-			if day.Year() < year {
-				rows[r].WriteString(" ")
-				continue
-			}
-			key := day.Format("2006-01-02")
+			key := day.Format(dateLayout)
+
+			cell := strings.Repeat(cellEmpty, cellWidth)
 			level := heatLevel(counts[key])
-			glyph := cellFilled
-			if level == 0 {
-				glyph = cellEmpty
-			}
 			style := st.heatLevels[level]
+			if level > 0 {
+				cell = strings.Repeat(cellFilled, cellWidth)
+			}
+			if q, ok := quotas[key]; ok {
+				// A pinned quota replaces the glyph so the number is visible
+				// right on the day it applies to.
+				cell = fmt.Sprintf("%*d", cellWidth, q)
+				style = st.marker
+			}
 			if key == cursorKey {
 				style = st.heatCursor
-				glyph = cellFilled
 			}
-			rows[r].WriteString(style.Render(glyph))
+			rows[r].WriteString(style.Render(cell))
 		}
 	}
 
-	// Month header aligned to the week-columns where each month begins.
-	header := renderMonthHeader(year, start, loc, st)
+	header := renderMonthHeader(rangeStart, start, loc, st)
 
 	var b strings.Builder
 	b.WriteString(header + "\n")
@@ -94,17 +112,15 @@ func renderCalendar(year int, counts map[string]int, cursor time.Time, loc *time
 	return b.String()
 }
 
-// renderMonthHeader builds the row of month abbreviations placed above the week
-// column where each month's first day falls.
-func renderMonthHeader(year int, start time.Time, loc *time.Location, st styles) string {
-	// 4-space left gutter to match the weekday-label column ("Mon " == 4 chars).
-	const gutter = 4
-	line := []byte(strings.Repeat(" ", gutter+gridCols))
+// renderMonthHeader builds the row of month abbreviations placed above the
+// week column where each of the half-year's six months begins.
+func renderMonthHeader(rangeStart, gridStart time.Time, loc *time.Location, st styles) string {
+	line := []byte(strings.Repeat(" ", calGutter+halfCols*cellWidth))
 
-	for m := time.January; m <= time.December; m++ {
-		first := time.Date(year, m, 1, 0, 0, 0, 0, loc)
-		col := int(first.Sub(start).Hours()/24) / 7
-		pos := gutter + col
+	for i := 0; i < 6; i++ {
+		first := rangeStart.AddDate(0, i, 0)
+		col := int(first.Sub(gridStart).Hours()/24) / 7
+		pos := calGutter + col*cellWidth
 		label := first.Format("Jan")
 		if pos+len(label) <= len(line) && spaceFree(line, pos, len(label)) {
 			copy(line[pos:], label)

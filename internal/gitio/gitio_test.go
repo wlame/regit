@@ -174,6 +174,132 @@ func TestReplay_dropBodyKeepsSubject(t *testing.T) {
 	}
 }
 
+// Replay must preserve unedited commit messages byte-for-byte. Reading them
+// via %s/%b used to fold multi-line first paragraphs into one subject line
+// and swallow comment lines that lacked a blank separator after the title.
+func TestReplay_preservesTrickyMessages(t *testing.T) {
+	dir := t.TempDir()
+	run := func(stdin string, args ...string) string {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_DATE=2026-06-05T14:00:00+00:00",
+			"GIT_COMMITTER_DATE=2026-06-05T14:00:00+00:00")
+		if stdin != "" {
+			cmd.Stdin = strings.NewReader(stdin)
+		}
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	run("", "init", "-q")
+	run("", "symbolic-ref", "HEAD", "refs/heads/main")
+	run("", "config", "user.name", "wlame")
+	run("", "config", "user.email", "vvlame@gmail.com")
+	run("", "config", "commit.gpgsign", "false")
+
+	messages := []string{
+		"Normal commit\n\nWith a separated body.\n",
+		"No blank line after title\nthis comment line is in the first paragraph\nand this one too\n",
+		"Multiline first paragraph\ncontinued on a second line\n\nReal body after the break.\n",
+	}
+	for i, msg := range messages {
+		name := filepath.Join(dir, "f"+string(rune('0'+i))+".txt")
+		if err := os.WriteFile(name, []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		run("", "add", ".")
+		run(msg, "commit", "-q", "-F", "-", "--cleanup=verbatim")
+	}
+
+	repo, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The display subject is the first line only — never a folded paragraph.
+	if got := commits[1].Subject; got != "No blank line after title" {
+		t.Errorf("subject should be the first line, got %q", got)
+	}
+	if !strings.Contains(commits[1].Body, "and this one too") {
+		t.Errorf("comment lines after the title should land in Body, got %q", commits[1].Body)
+	}
+
+	// Rewrite all commits with a date-only edit; messages are untouched.
+	plan := model.NewPlan(commits)
+	for _, c := range commits {
+		nd := c.OrigAuthorDate.Add(-time.Hour)
+		plan.Edits[c.Hash] = model.Edit{NewAuthorDate: &nd, NewCommitDate: &nd}
+	}
+	newHead, err := repo.Replay(plan, DropSignatures)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := repo.gitRaw("log", "--reverse", "--format=%B%x1e", newHead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, m := range strings.Split(out, "\x1e") {
+		if m = strings.Trim(m, "\n"); m != "" {
+			got = append(got, m+"\n")
+		}
+	}
+	if len(got) != len(messages) {
+		t.Fatalf("expected %d rewritten messages, got %d", len(messages), len(got))
+	}
+	for i, want := range messages {
+		if got[i] != want {
+			t.Errorf("message %d corrupted:\nwant %q\ngot  %q", i, want, got[i])
+		}
+	}
+}
+
+// With a base boundary, Replay must not touch the frozen prefix: those
+// commits keep their exact hashes, and the first rewritten commit stays
+// chained onto the original frozen ancestor.
+func TestReplay_baseBoundaryFreezesPriorCommits(t *testing.T) {
+	repo, _ := testRepo(t) // alpha, beta, gamma (root-first)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plan := model.NewPlan(commits)
+	plan.SetBase(1) // freeze alpha
+	for _, c := range plan.Active() {
+		nd := c.OrigAuthorDate.AddDate(0, 1, 0)
+		plan.Edits[c.Hash] = model.Edit{NewAuthorDate: &nd, NewCommitDate: &nd}
+	}
+
+	newHead, err := repo.Replay(plan, DropSignatures)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := repo.gitRaw("rev-list", "--reverse", newHead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hashes := strings.Fields(out)
+	if len(hashes) != 3 {
+		t.Fatalf("rewritten history should still have 3 commits, got %d", len(hashes))
+	}
+	if hashes[0] != commits[0].Hash {
+		t.Errorf("frozen root must keep its hash: want %s, got %s", commits[0].Hash, hashes[0])
+	}
+	if hashes[1] == commits[1].Hash || hashes[2] == commits[2].Hash {
+		t.Error("active commits should have been rewritten to new hashes")
+	}
+}
+
 func TestReadState_reportsCleanRepo(t *testing.T) {
 	repo, _ := testRepo(t)
 	st, err := repo.ReadState()

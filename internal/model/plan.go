@@ -15,6 +15,11 @@ type Plan struct {
 	Commits    []Commit            // root-first (oldest -> newest)
 	Edits      map[string]Edit     // commit hash -> pending edit
 	Violations []SequenceViolation // populated by the strategy engine's check
+
+	// Base is the index into Commits of the first editable commit. Everything
+	// before it is frozen: strategies skip those commits and the rewrite
+	// engine never replays them, so their hashes are guaranteed unchanged.
+	Base int
 }
 
 // SequenceViolation records a place where a child commit's effective date is
@@ -64,6 +69,34 @@ func (p *Plan) EffectiveAuthorDate(c Commit) time.Time {
 // HasChanges reports whether the plan contains any pending edits at all.
 func (p *Plan) HasChanges() bool {
 	return len(p.Edits) > 0
+}
+
+// Active returns the editable suffix of the history: the commits from the
+// base boundary (inclusive) to HEAD, in root-first order.
+func (p *Plan) Active() []Commit {
+	return p.Commits[p.Base:]
+}
+
+// IsFrozen reports whether the commit at storage index i lies before the base
+// boundary and must therefore never be modified.
+func (p *Plan) IsFrozen(i int) bool {
+	return i < p.Base
+}
+
+// SetBase moves the frozen/editable boundary to storage index i (clamped so
+// at least one commit stays editable) and drops any pending edits on commits
+// that became frozen.
+func (p *Plan) SetBase(i int) {
+	if i < 0 {
+		i = 0
+	}
+	if last := len(p.Commits) - 1; i > last {
+		i = last
+	}
+	p.Base = i
+	for _, c := range p.Commits[:p.Base] {
+		delete(p.Edits, c.Hash)
+	}
 }
 
 // IsValid reports whether the plan is free of sequence violations.

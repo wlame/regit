@@ -7,17 +7,23 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// viewMain composes the three-pane main screen: title bar, then the commit list
-// beside the calendar, then the status bar and keybar.
+// viewMain composes the main screen: title bar, then the commit list beside
+// the right column (calendar over strategy form), then status bar and keybar.
 func (m Model) viewMain() string {
 	title := m.viewTitle()
 	list := m.viewCommitList()
-	cal := m.viewCalendarPane()
+	right := lipgloss.JoinVertical(lipgloss.Left, m.viewCalendarPane(), m.viewStrategyPane())
 
-	body := lipgloss.JoinHorizontal(lipgloss.Top, list, cal)
+	// Never let the right column drive the frame past the terminal height:
+	// bubbletea tail-clips oversized frames, hiding the title bar.
+	if avail := m.height - 3; m.height > 0 && lipgloss.Height(right) > avail {
+		right = lipgloss.NewStyle().MaxHeight(max(8, avail)).Render(right)
+	}
+
+	body := lipgloss.JoinHorizontal(lipgloss.Top, list, right)
 	status := m.viewStatusBar()
 	keybar := m.st.keybar.Render(
-		"[s]trategy [e]dit [p]review [u]ndo [A]pply [r]eset [g]quotas [tab]focus [?]help [q]uit",
+		"[s]trategy [e]dit [b]ase [p]review [u]ndo [A]pply [r]eset [g]quotas [tab]focus [?]help [q]uit",
 	)
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, body, status, keybar)
@@ -32,46 +38,98 @@ func (m Model) viewTitle() string {
 	if i := strings.LastIndex(repoName, "/"); i >= 0 {
 		repoName = repoName[i+1:]
 	}
-	return m.st.title.Render(fmt.Sprintf("ghist · %s · branch: %s · %d commits", repoName, branch, len(m.plan.Commits)))
+	count := fmt.Sprintf("%d commits", len(m.plan.Commits))
+	if m.plan.Base > 0 {
+		count = fmt.Sprintf("editing %d/%d commits", len(m.plan.Active()), len(m.plan.Commits))
+	}
+	return m.st.title.Render(fmt.Sprintf("ghist · %s · branch: %s · %s", repoName, branch, count))
 }
 
-// viewCommitList renders the scrollable, newest-first commit list with original
-// and (when edited) new dates.
+// Fixed columns of a commit entry line, before the subject starts:
+// cursor(2) + date(11) + gap(2) + hash(8) + gap(1) + marker(1) + gap(1).
+const listEntryFixedCols = 26
+
+// viewCommitList renders the scrollable, newest-first commit list. Every
+// commit occupies exactly one line — effective date, short hash, subject —
+// with the subject truncated to the pane so lines can never wrap. A wrapped
+// line would inflate the entry height and overflow the terminal.
 func (m Model) viewCommitList() string {
-	width := 44
+	width := m.listWidth()
 	height := m.listHeight()
+	// lipgloss .Width() includes the pane's 1-column padding on each side.
+	inner := width - 2
+	visible := max(1, height-1) // the COMMITS header takes one line
 
 	var b strings.Builder
 	header := fmt.Sprintf("COMMITS (%d)", len(m.plan.Commits))
 	b.WriteString(m.st.modalTitle.Render(header) + "\n")
 
-	m.ensureCursorVisible(height)
-	end := m.listOffset + height
+	m.ensureCursorVisible(visible)
+	end := m.listOffset + visible
 	if end > len(m.plan.Commits) {
 		end = len(m.plan.Commits)
 	}
 
+	// While the calendar is focused, commits landing on its cursor day get a
+	// whole-row highlight so calendar navigation lights up the list.
+	calKey := ""
+	if m.focus == focusCalendar {
+		calKey = m.calCursor.In(m.loc).Format(dateLayout)
+	}
+
 	for i := m.listOffset; i < end; i++ {
 		c := m.commitAtDisplayIndex(i)
-		cursor := "  "
-		if i == m.listCursor {
-			cursor = m.st.listCursor.Render("▸ ")
+
+		// Effective date: the original (gray) until an edit assigns a new
+		// date (green). The full orig → new mapping lives in the preview.
+		edit, edited := m.plan.EditFor(c.Hash)
+		date := c.OrigAuthorDate.In(m.loc).Format("01-02 15:04")
+		dateStyle := m.st.origDate
+		if edited {
+			date = m.plan.EffectiveAuthorDate(c).In(m.loc).Format("01-02 15:04")
+			dateStyle = m.st.newDate
 		}
+
 		marker := " "
-		if e, ok := m.plan.EditFor(c.Hash); ok && e.DropBody {
+		if edited && edit.DropBody {
+			marker = "⚑"
+		}
+		subj := truncate(c.Subject, inner-listEntryFixedCols)
+
+		onDay := calKey != "" &&
+			m.plan.EffectiveAuthorDate(c).In(m.loc).Format(dateLayout) == calKey
+		prefix := "  "
+		switch {
+		case i == m.listCursor:
+			prefix = "▸ "
+		case onDay:
+			prefix = "▌ "
+		}
+
+		// Frozen commits (before the base boundary) render dimmed: they will
+		// never be edited or rewritten.
+		if m.plan.IsFrozen(len(m.plan.Commits) - 1 - i) {
+			row := fmt.Sprintf("%s%s  %s %s %s", prefix, date, short(c.Hash), marker, subj)
+			b.WriteString(m.st.dim.Render(row) + "\n")
+			continue
+		}
+
+		if onDay {
+			// One style across the whole row keeps the highlight background
+			// continuous; per-segment colors would break it into chunks.
+			row := fmt.Sprintf("%s%s  %s %s %s", prefix, date, short(c.Hash), marker, subj)
+			b.WriteString(m.st.dayHighlight.Render(row) + "\n")
+			continue
+		}
+
+		if i == m.listCursor {
+			prefix = m.st.listCursor.Render("▸ ")
+		}
+		if marker == "⚑" {
 			marker = m.st.marker.Render("⚑")
 		}
-		subj := truncate(c.Subject, 32)
-		b.WriteString(fmt.Sprintf("%s%s %s %s\n", cursor, short(c.Hash), marker, subj))
-
-		orig := c.OrigAuthorDate.In(m.loc).Format("01-02 15:04")
-		if _, ok := m.plan.EditFor(c.Hash); ok {
-			neu := m.plan.EffectiveAuthorDate(c).In(m.loc).Format("01-02 15:04")
-			b.WriteString(fmt.Sprintf("    %s %s %s\n",
-				m.st.origDate.Render(orig), m.st.dim.Render("→"), m.st.newDate.Render(neu)))
-		} else {
-			b.WriteString("    " + m.st.origDate.Render(orig) + "\n")
-		}
+		b.WriteString(fmt.Sprintf("%s%s  %s %s %s\n",
+			prefix, dateStyle.Render(date), m.st.hash.Render(short(c.Hash)), marker, subj))
 	}
 
 	pane := m.st.pane
@@ -81,17 +139,43 @@ func (m Model) viewCommitList() string {
 	return pane.Width(width).Height(height + 1).Render(b.String())
 }
 
-// viewCalendarPane renders the heatmap, legend, and the selected-day info box.
+// listWidth returns the commit pane's lipgloss width (border excluded):
+// 1.5× the original 44 columns when the terminal is wide enough, shrinking
+// so the right column (calendar + strategy) stays fully visible beside it.
+func (m Model) listWidth() int {
+	const preferred, minimum = 66, 44
+	if m.width == 0 {
+		return preferred
+	}
+	// Reserve the right column's full footprint plus both panes' borders.
+	avail := m.width - rightPaneWidth - 4
+	if avail > preferred {
+		return preferred
+	}
+	if avail < minimum {
+		return minimum
+	}
+	return avail
+}
+
+// rightPaneWidth is the lipgloss width (border excluded) shared by the
+// calendar and strategy panes: grid gutter + 27 two-char week columns + the
+// pane's own padding.
+const rightPaneWidth = calGutter + halfCols*cellWidth + 2
+
+// viewCalendarPane renders the half-year heatmap, legend, and selected-day
+// info at its natural (compact) height.
 func (m Model) viewCalendarPane() string {
 	counts := m.dayCounts()
-	heat := renderCalendar(m.calYear, counts, m.calCursor, m.loc, m.st)
+	cursor := m.calCursor.In(m.loc)
+	heat := renderCalendar(cursor, counts, m.quotas, m.loc, m.st)
 	legend := renderLegend(m.st)
 
-	key := m.calCursor.Format("2006-01-02")
+	key := cursor.Format(dateLayout)
 	dayCount := counts[key]
 	quota, hasQuota := m.quotas[key]
 	info := fmt.Sprintf("Selected: %s (%s) · %d commit(s)",
-		key, m.calCursor.Weekday().String()[:3], dayCount)
+		key, cursor.Weekday().String()[:3], dayCount)
 	if hasQuota {
 		info += fmt.Sprintf(" · quota %d", quota)
 	}
@@ -101,13 +185,12 @@ func (m Model) viewCalendarPane() string {
 		seq = m.st.statusErr.Render(fmt.Sprintf("✗ %d out-of-order", len(m.plan.Violations)))
 	}
 
+	_, _, half := halfRange(cursor, m.loc)
 	content := strings.Join([]string{
-		m.st.modalTitle.Render(fmt.Sprintf("%d  [ ◀ ] [ ▶ ]", m.calYear)),
-		"",
+		m.st.modalTitle.Render(fmt.Sprintf("%d · %s  [ ◀ ] [ ▶ ]", m.calYear, half)),
 		heat,
 		"",
 		legend,
-		"",
 		info,
 		seq,
 	}, "\n")
@@ -116,7 +199,22 @@ func (m Model) viewCalendarPane() string {
 	if m.focus == focusCalendar {
 		pane = m.st.paneActive
 	}
-	return pane.Height(m.listHeight() + 1).Render(content)
+	return pane.Width(rightPaneWidth).Render(content)
+}
+
+// viewStrategyPane shows the currently selected strategy with its editable
+// parameters. Tab focuses it; enter re-applies with the current values.
+func (m Model) viewStrategyPane() string {
+	content := m.st.modalTitle.Render("STRATEGY") + "\n" + m.form.view(m.st)
+
+	pane := m.st.pane
+	if m.focus == focusParams {
+		pane = m.st.paneActive
+	}
+	// MaxWidth guards against long labels/errors wrapping inside the pane,
+	// which would inflate its height.
+	return pane.Width(rightPaneWidth).Render(
+		lipgloss.NewStyle().MaxWidth(rightPaneWidth - 2).Render(content))
 }
 
 func (m Model) viewStatusBar() string {
@@ -145,26 +243,29 @@ func (m Model) viewConfirm() string {
 	return m.st.modal.Render(b.String())
 }
 
-// listHeight returns how many rows the list pane gets given the terminal size.
-// Each commit takes two lines, so this is generous but bounded.
+// listHeight returns the pane's line budget given the terminal size. It is a
+// count of screen lines; one is taken by the header, the rest hold one
+// commit entry each.
 func (m Model) listHeight() int {
 	if m.height < 16 {
 		return 8
 	}
 	rows := m.height - 8
-	if rows > len(m.plan.Commits)*2 {
-		rows = max(8, len(m.plan.Commits)*2)
+	// Shrink the pane when the whole list fits: header line + 1 per commit.
+	if fit := len(m.plan.Commits) + 1; rows > fit {
+		rows = max(8, fit)
 	}
 	return rows
 }
 
-// ensureCursorVisible scrolls the list so the cursor stays within the viewport.
-func (m *Model) ensureCursorVisible(height int) {
+// ensureCursorVisible scrolls the list so the cursor stays within the
+// viewport. visible is the number of commit entries that fit on screen.
+func (m *Model) ensureCursorVisible(visible int) {
 	if m.listCursor < m.listOffset {
 		m.listOffset = m.listCursor
 	}
-	if m.listCursor >= m.listOffset+height {
-		m.listOffset = m.listCursor - height + 1
+	if m.listCursor >= m.listOffset+visible {
+		m.listOffset = m.listCursor - visible + 1
 	}
 	if m.listOffset < 0 {
 		m.listOffset = 0

@@ -24,6 +24,10 @@ type paramsForm struct {
 	timeModelIdx int
 	focusIdx     int // 0..len(inputs); the final index selects the time model
 	usesTimeMod  bool
+
+	// errMsg is the last apply error, rendered inside the modal. The main
+	// status bar is hidden while a modal is open, so errors must show here.
+	errMsg string
 }
 
 const dateLayout = "2006-01-02"
@@ -260,11 +264,12 @@ func viewPalette(strategies []strategy.Strategy, cursor int, st styles) string {
 	return st.modal.Render(b.String())
 }
 
-// viewParams renders the parameter form for the chosen strategy.
+// view renders the parameter form for the chosen strategy. It returns bare
+// content: the caller wraps it in the strategy pane.
 func (f paramsForm) view(st styles) string {
 	var b strings.Builder
-	b.WriteString(st.modalTitle.Render(f.strat.Name()) + "\n")
-	b.WriteString(st.dim.Render(f.strat.Description()) + "\n\n")
+	b.WriteString(st.selected.Render(" "+f.strat.Name()+" ") + "\n")
+	b.WriteString(st.dim.Render(truncate(f.strat.Description(), 56)) + "\n\n")
 
 	for i, label := range f.labels {
 		cursor := "  "
@@ -282,6 +287,10 @@ func (f paramsForm) view(st styles) string {
 		b.WriteString(fmt.Sprintf("%s%-18s ◀ %s ▶\n", cursor, "Time of day:", tm.Name()))
 	}
 
-	b.WriteString("\n" + st.help.Render("tab next · ←/→ change time model · enter apply · esc cancel"))
-	return st.modal.Render(b.String())
+	if f.errMsg != "" {
+		b.WriteString(st.statusErr.Render("✗ "+truncate(f.errMsg, 56)) + "\n")
+	}
+
+	b.WriteString(st.help.Render("↑/↓ field · ←/→ model · enter apply · tab back"))
+	return b.String()
 }
