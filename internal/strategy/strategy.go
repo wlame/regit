@@ -85,8 +85,12 @@ type Params struct {
 	PerDayMax int
 
 	// Quotas maps a "2006-01-02" day key to a target commit count, used by
-	// Per-Day Quota and Manual Pin.
+	// Manual Pin.
 	Quotas map[string]int
+
+	// Picked marks "2006-01-02" day keys chosen on the calendar for the
+	// Picked Days strategy (only true entries count).
+	Picked map[string]bool
 
 	// Offset Shift parameters.
 	OffsetDays  int

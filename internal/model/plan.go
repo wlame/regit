@@ -66,6 +66,29 @@ func (p *Plan) EffectiveAuthorDate(c Commit) time.Time {
 	return c.OrigAuthorDate
 }
 
+// FirstUnpushedIndex returns the storage index of the oldest commit that is
+// not yet on the upstream branch, and whether such a commit exists. Because
+// pushed commits form the older prefix of the root-first history, this is the
+// natural place to start editing (and to set the base boundary, freezing all
+// pushed history). It reports false when every commit is already pushed.
+func (p *Plan) FirstUnpushedIndex() (int, bool) {
+	for i, c := range p.Commits {
+		if !c.IsPushed {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+// EffectiveSubject returns the title a commit would have after applying any
+// pending edit, falling back to its original subject.
+func (p *Plan) EffectiveSubject(c Commit) string {
+	if e, ok := p.Edits[c.Hash]; ok && e.NewSubject != nil {
+		return *e.NewSubject
+	}
+	return c.Subject
+}
+
 // HasChanges reports whether the plan contains any pending edits at all.
 func (p *Plan) HasChanges() bool {
 	return len(p.Edits) > 0

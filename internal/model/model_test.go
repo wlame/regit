@@ -79,6 +79,38 @@ func TestPlan_Validity(t *testing.T) {
 	}
 }
 
+func TestPlan_FirstUnpushedIndex(t *testing.T) {
+	mk := func(pushed ...bool) *Plan {
+		cs := make([]Commit, len(pushed))
+		for i, p := range pushed {
+			cs[i] = Commit{Hash: string(rune('a' + i)), IsPushed: p}
+		}
+		return NewPlan(cs)
+	}
+
+	cases := []struct {
+		name   string
+		plan   *Plan
+		want   int
+		wantOK bool
+	}{
+		// Storage is root-first; pushed commits form the older prefix.
+		{"some unpushed", mk(true, true, false, false), 2, true},
+		{"none pushed", mk(false, false), 0, true},
+		{"all pushed", mk(true, true), 0, false},
+		{"empty", NewPlan(nil), 0, false},
+		{"only newest unpushed", mk(true, true, false), 2, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := tc.plan.FirstUnpushedIndex()
+			if got != tc.want || ok != tc.wantOK {
+				t.Errorf("FirstUnpushedIndex() = (%d, %v), want (%d, %v)", got, ok, tc.want, tc.wantOK)
+			}
+		})
+	}
+}
+
 func TestCommit_HasBody(t *testing.T) {
 	if (Commit{}).HasBody() {
 		t.Error("empty body should report false")

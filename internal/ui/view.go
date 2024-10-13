@@ -23,7 +23,7 @@ func (m Model) viewMain() string {
 	body := lipgloss.JoinHorizontal(lipgloss.Top, list, right)
 	status := m.viewStatusBar()
 	keybar := m.st.keybar.Render(
-		"[s]trategy [e]dit [b]ase [p]review [u]ndo [A]pply [r]eset [g]quotas [tab]focus [?]help [q]uit",
+		"[s]trategy [e]dit [b]ase [D]rop-bodies [R]etitle [p]review [u]ndo [A]pply [r]eset [tab]focus [?]help [q]uit",
 	)
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, body, status, keybar)
@@ -94,7 +94,7 @@ func (m Model) viewCommitList() string {
 		if edited && edit.DropBody {
 			marker = "⚑"
 		}
-		subj := truncate(c.Subject, inner-listEntryFixedCols)
+		subj := truncate(m.plan.EffectiveSubject(c), inner-listEntryFixedCols)
 
 		onDay := calKey != "" &&
 			m.plan.EffectiveAuthorDate(c).In(m.loc).Format(dateLayout) == calKey
@@ -168,7 +168,7 @@ const rightPaneWidth = calGutter + halfCols*cellWidth + 2
 func (m Model) viewCalendarPane() string {
 	counts := m.dayCounts()
 	cursor := m.calCursor.In(m.loc)
-	heat := renderCalendar(cursor, counts, m.quotas, m.loc, m.st)
+	heat := renderCalendar(cursor, counts, m.quotas, m.picked, m.loc, m.st)
 	legend := renderLegend(m.st)
 
 	key := cursor.Format(dateLayout)
@@ -178,6 +178,9 @@ func (m Model) viewCalendarPane() string {
 		key, cursor.Weekday().String()[:3], dayCount)
 	if hasQuota {
 		info += fmt.Sprintf(" · quota %d", quota)
+	}
+	if m.picked[key] {
+		info += " · picked"
 	}
 
 	seq := m.st.statusOK.Render("✓ sequential")

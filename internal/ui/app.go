@@ -7,7 +7,6 @@ package ui
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -31,6 +30,7 @@ const (
 	modePreview
 	modeConfirm
 	modeHelp
+	modeRetitle
 )
 
 type focusArea int
@@ -68,12 +68,17 @@ type Model struct {
 
 	calCursor time.Time
 	calYear   int
-	quotas    map[string]int // day key -> pending Manual Pin quota
+	quotas    map[string]int  // day key -> pending Manual Pin quota
+	picked    map[string]bool // day keys toggled (space) for Picked Days
+	// quotaTyping is true while consecutive digits on the same day build a
+	// two-digit quota; any cursor move or focus change starts a fresh number.
+	quotaTyping bool
 
 	strategies    []strategy.Strategy
 	paletteCursor int
 	form          paramsForm
 	editor        editorState
+	retitle       retitleState
 	previewOffset int
 
 	confirmInput textinput.Model
@@ -91,9 +96,21 @@ func New(repo *gitio.Repo, mgr *safety.Manager, cfg config.Config, state model.R
 	loc := cfg.Location()
 	plan := model.NewPlan(commits)
 
+	// Start on the oldest commit not yet pushed to the upstream, so the user
+	// begins right at the sync point and can press [b] to freeze all pushed
+	// history. Only relocate when an actual pushed prefix exists (idx > 0);
+	// with no upstream every commit is "unpushed", so we keep the default of
+	// the newest commit instead of jumping to the root.
+	listCursor := 0
+	cursorCommit := len(commits) - 1
+	if idx, ok := plan.FirstUnpushedIndex(); ok && idx > 0 {
+		listCursor = len(commits) - 1 - idx // storage index -> display index
+		cursorCommit = idx
+	}
+
 	cursor := time.Now().In(loc)
 	if len(commits) > 0 {
-		cursor = commits[len(commits)-1].OrigAuthorDate.In(loc)
+		cursor = commits[cursorCommit].OrigAuthorDate.In(loc)
 	}
 
 	m := Model{
@@ -105,15 +122,21 @@ func New(repo *gitio.Repo, mgr *safety.Manager, cfg config.Config, state model.R
 		plan:       plan,
 		mode:       modeMain,
 		focus:      focusList,
+		listCursor: listCursor,
 		calCursor:  cursor,
 		calYear:    cursor.Year(),
 		quotas:     make(map[string]int),
+		picked:     make(map[string]bool),
 		strategies: strategy.Strategies(),
 		st:         newStyles(),
 	}
 	// The strategy pane always shows a configurable form; seed it with the
 	// default strategy so it is usable before the palette is ever opened.
 	m.form = newParamsForm(m.strategies[m.defaultStrategyIndex()], cfg, cursor)
+
+	if idx, ok := plan.FirstUnpushedIndex(); ok && idx > 0 {
+		m.setStatus(fmt.Sprintf("%d commit(s) already pushed — press b here to freeze them", idx), statusOK)
+	}
 	return m
 }
 
@@ -151,6 +174,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updatePreview(msg)
 	case modeConfirm:
 		return m.updateConfirm(msg)
+	case modeRetitle:
+		return m.updateRetitle(msg)
 	case modeHelp:
 		if msg.String() == "?" || msg.String() == "esc" || msg.String() == "q" {
 			m.mode = modeMain
@@ -163,58 +188,116 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // --- Main view -------------------------------------------------------------
 
 func (m Model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// While the strategy pane is focused, keys belong to its form fields, so
-	// global shortcuts are suspended (tab/esc leave the pane).
 	if m.focus == focusParams {
 		return m.updateParamsPane(msg)
 	}
+	if model, cmd, ok := m.globalAction(msg); ok {
+		return model, cmd
+	}
 	switch msg.String() {
-	case "q":
-		m.quitting = true
-		return m, tea.Quit
-	case "?":
-		m.mode = modeHelp
 	case "tab":
+		m.quotaTyping = false
 		switch m.focus {
 		case focusList:
 			m.focus = focusCalendar
 		case focusCalendar:
 			m.focus = focusParams
 		}
-	case "s":
-		m.mode = modePalette
-		m.paletteCursor = m.defaultStrategyIndex()
-	case "e", "enter":
-		if m.focus == focusList && len(m.plan.Commits) > 0 {
-			if m.plan.IsFrozen(m.storageIndexAtCursor()) {
-				m.setStatus("Commit is frozen (before the base) — press b on it to move the base", statusWarn)
-				return m, nil
-			}
-			c := m.commitAtCursor()
-			m.editor = newEditorState(c, m.plan, m.loc)
-			m.mode = modeEditor
+	case "enter":
+		if m.focus == focusList {
+			return m.openEditorAtCursor()
 		}
-	case "b":
-		if m.focus == focusList && len(m.plan.Commits) > 0 {
-			m.setBaseAtCursor()
-		}
-	case "p":
-		m.mode = modePreview
-		m.previewOffset = 0
-	case "A":
-		return m.beginApply()
-	case "u":
-		return m.doUndo()
-	case "r":
-		m.plan.Edits = make(map[string]model.Edit)
-		m.plan.Violations = nil
-		m.setStatus("Cleared all pending edits", statusOK)
-	case "g":
-		return m.applyQuotas()
 	default:
 		m.moveCursor(msg)
 	}
 	return m, nil
+}
+
+// globalAction handles the keybar commands that work from ANY pane —
+// navigation keys (arrows, h/j/k/l, digits, space, tab, enter, esc) stay
+// pane-local, everything else is global. It reports whether the key was
+// consumed.
+func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
+	switch msg.String() {
+	case "q":
+		m.quitting = true
+		return m, tea.Quit, true
+	case "?":
+		m.mode = modeHelp
+		return m, nil, true
+	case "s":
+		m.mode = modePalette
+		m.paletteCursor = m.defaultStrategyIndex()
+		return m, nil, true
+	case "e":
+		model, cmd := m.openEditorAtCursor()
+		return model, cmd, true
+	case "b":
+		if len(m.plan.Commits) > 0 {
+			m.setBaseAtCursor()
+		}
+		return m, nil, true
+	case "D":
+		m.dropAllBodies()
+		return m, nil, true
+	case "R":
+		m.retitle = newRetitleState()
+		m.mode = modeRetitle
+		return m, nil, true
+	case "p":
+		m.mode = modePreview
+		m.previewOffset = 0
+		return m, nil, true
+	case "A":
+		model, cmd := m.beginApply()
+		return model, cmd, true
+	case "u":
+		model, cmd := m.doUndo()
+		return model, cmd, true
+	case "r":
+		m.plan.Edits = make(map[string]model.Edit)
+		m.plan.Violations = nil
+		m.setStatus("Cleared all pending edits", statusOK)
+		return m, nil, true
+	case "g":
+		model, cmd := m.applyQuotas()
+		return model, cmd, true
+	}
+	return m, nil, false
+}
+
+// openEditorAtCursor opens the per-commit editor on the selected commit,
+// refusing frozen ones.
+func (m Model) openEditorAtCursor() (tea.Model, tea.Cmd) {
+	if len(m.plan.Commits) == 0 {
+		return m, nil
+	}
+	if m.plan.IsFrozen(m.storageIndexAtCursor()) {
+		m.setStatus("Commit is frozen (before the base) — press b on it to move the base", statusWarn)
+		return m, nil
+	}
+	c := m.commitAtCursor()
+	m.editor = newEditorState(c, m.plan, m.loc, m.editorFieldWidth())
+	m.mode = modeEditor
+	return m, nil
+}
+
+// editorFieldWidth sizes the editor's title/body fields: 1.5× the original 50
+// columns when the terminal allows, shrinking on narrow terminals so the
+// modal (fields + label column + modal frame) still fits on screen.
+func (m Model) editorFieldWidth() int {
+	const preferred, minimum = 75, 50
+	if m.width == 0 {
+		return minimum
+	}
+	avail := m.width - 17 // cursor + label column + modal padding and border
+	if avail > preferred {
+		return preferred
+	}
+	if avail < minimum {
+		return minimum
+	}
+	return avail
 }
 
 // moveCursor handles navigation keys for whichever pane is focused.
@@ -257,18 +340,111 @@ func (m *Model) moveCursor(msg tea.KeyMsg) {
 		m.calYear++
 		m.calCursor = m.calCursor.AddDate(1, 0, 0)
 		moved = true
+	case " ":
+		// Toggle the day in the Picked Days set and reshuffle immediately.
+		key := m.calCursor.Format(dateLayout)
+		if m.picked[key] {
+			delete(m.picked, key)
+		} else {
+			m.picked[key] = true
+		}
+		m.quotaTyping = false
+		m.applyPickedNow()
 	default:
 		if d := digit(msg.String()); d >= 0 {
+			key := m.calCursor.Format(dateLayout)
+			// Consecutive digits on the same day build a two-digit quota:
+			// 2 → 24 → 45 (the last two digits typed win).
+			if m.quotaTyping {
+				d = (m.quotas[key]%10)*10 + d
+			}
+			m.quotas[key] = d
+			m.quotaTyping = true
 			// Quotas apply immediately so the commit list reflects the pin
 			// as soon as the digit is pressed ('g' re-applies manually).
-			m.quotas[m.calCursor.Format(dateLayout)] = d
 			m.applyQuotasNow()
 		}
 	}
 	m.calYear = m.calCursor.Year()
 	if moved {
+		m.quotaTyping = false // a new day starts a new number
 		m.selectFirstCommitOfDay()
 	}
+}
+
+// --- Bulk message operations -------------------------------------------------
+
+// dropAllBodies marks every editable commit that still has a body with a
+// DropBody edit, leaving title-only messages. Frozen commits are untouched.
+func (m *Model) dropAllBodies() {
+	dropped := 0
+	for _, c := range m.plan.Active() {
+		e, _ := m.plan.EditFor(c.Hash)
+		if !c.HasBody() || e.DropBody {
+			continue
+		}
+		e.DropBody = true
+		m.plan.SetEdit(c.Hash, e)
+		dropped++
+	}
+	if dropped == 0 {
+		m.setStatus("No bodies to drop in the editable range", statusWarn)
+		return
+	}
+	m.setStatus(fmt.Sprintf("Dropped the body of %d commit(s) — titles kept", dropped), statusOK)
+}
+
+// updateRetitle drives the bulk-retitle modal.
+func (m Model) updateRetitle(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.mode = modeMain
+		return m, nil
+	case "enter":
+		return m.applyRetitle()
+	}
+	cmd := m.retitle.update(msg)
+	return m, cmd
+}
+
+// applyRetitle runs the modal's transformation (regex replacement plus the
+// finishing toggles) over every editable title, staging NewSubject edits. A
+// result that lands back on the original title clears the edit instead of
+// storing a no-op.
+func (m Model) applyRetitle() (tea.Model, tea.Cmd) {
+	if !m.retitle.hasWork() {
+		m.retitle.errMsg = "nothing to do: set a pattern or enable a toggle"
+		return m, nil
+	}
+	transform, err := m.retitle.transform()
+	if err != nil {
+		m.retitle.errMsg = "invalid pattern: " + err.Error()
+		return m, nil
+	}
+
+	changed := 0
+	for _, c := range m.plan.Active() {
+		cur := m.plan.EffectiveSubject(c)
+		neu := transform(cur)
+		if neu == cur {
+			continue
+		}
+		e, _ := m.plan.EditFor(c.Hash)
+		if neu == c.Subject {
+			e.NewSubject = nil // back to the original: no edit needed
+		} else {
+			e.NewSubject = &neu
+		}
+		m.plan.SetEdit(c.Hash, e)
+		changed++
+	}
+	if changed == 0 {
+		m.retitle.errMsg = "no titles would change"
+		return m, nil
+	}
+	m.mode = modeMain
+	m.setStatus(fmt.Sprintf("Retitled %d commit(s)", changed), statusOK)
+	return m, nil
 }
 
 // storageIndexAtCursor converts the list cursor (display order, newest first)
@@ -333,6 +509,8 @@ func (m Model) updatePalette(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // updateParamsPane routes keys while the strategy pane is focused: up/down
 // move between fields, enter applies, tab/esc return focus to the list.
+// Global action keys still work — the form fields are dates and numbers, so
+// letters are never needed for typing.
 func (m Model) updateParamsPane(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "tab", "esc":
@@ -347,13 +525,16 @@ func (m Model) updateParamsPane(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.form.moveFocus(1)
 		return m, nil
 	}
+	if model, cmd, ok := m.globalAction(msg); ok {
+		return model, cmd
+	}
 	m.form.errMsg = "" // any edit invalidates the previous apply error
 	cmd := m.form.update(msg)
 	return m, cmd
 }
 
 func (m Model) applyStrategy() (tea.Model, tea.Cmd) {
-	params, err := m.form.buildParams(m.cfg, m.quotas)
+	params, err := m.form.buildParams(m.cfg, m.quotas, m.picked)
 	if err != nil {
 		m.form.errMsg = err.Error()
 		return m, nil
@@ -382,23 +563,46 @@ func (m *Model) applyQuotasNow() {
 		m.setStatus("No quotas set — focus the calendar and press 0-9 on days first", statusWarn)
 		return
 	}
-	start, end := quotaRange(m.quotas, m.loc)
-	params := strategy.Params{
-		Location:    m.loc,
-		Start:       start,
-		End:         end,
-		WeekdayMask: strategy.AllWeekdays(),
-		Quotas:      m.quotas,
-		DayStartMin: m.cfg.WorkdayStartMin(),
-		DayEndMin:   m.cfg.WorkdayEndMin(),
-		Seed:        m.cfg.Seed,
-	}
-	tm := timeModelByName(m.cfg.DefaultTimeModel)
-	if err := strategy.Apply(m.plan, strategy.ManualPin{}, tm, params, m.cfg.LinkDates); err != nil {
+	if err := strategy.Apply(m.plan, strategy.ManualPin{}, m.defaultTimeModel(), m.calendarParams(), m.cfg.LinkDates); err != nil {
 		m.setStatus(err.Error(), statusErr)
 		return
 	}
 	m.reportPlan("Manual Pin")
+}
+
+// applyPickedNow re-runs the Picked Days strategy over the picked-day set so
+// toggling a day immediately reshuffles the commits across the selection.
+func (m *Model) applyPickedNow() {
+	if len(m.picked) == 0 {
+		m.setStatus("No days picked — press space on calendar days first", statusWarn)
+		return
+	}
+	if err := strategy.Apply(m.plan, strategy.PickedDays{}, m.defaultTimeModel(), m.calendarParams(), m.cfg.LinkDates); err != nil {
+		m.setStatus(err.Error(), statusErr)
+		return
+	}
+	m.reportPlan("Picked Days")
+}
+
+// calendarParams builds the strategy params for the interactive calendar
+// workflows (quota pins and picked days), which need no date range: the
+// chosen days themselves define it.
+func (m *Model) calendarParams() strategy.Params {
+	return strategy.Params{
+		Location:    m.loc,
+		WeekdayMask: strategy.WeekdayMask(m.cfg.WeekdayMask()),
+		Quotas:      m.quotas,
+		Picked:      m.picked,
+		DayStartMin: m.cfg.WorkdayStartMin(),
+		DayEndMin:   m.cfg.WorkdayEndMin(),
+		LunchStart:  m.cfg.LunchStartMin(),
+		LunchEnd:    m.cfg.LunchEndMin(),
+		Seed:        m.cfg.Seed,
+	}
+}
+
+func (m *Model) defaultTimeModel() strategy.TimeModel {
+	return timeModelByName(m.cfg.DefaultTimeModel)
 }
 
 // --- Editor ----------------------------------------------------------------
@@ -637,19 +841,6 @@ func timeModelByName(name string) strategy.TimeModel {
 	return strategy.WorkingHoursModel{}
 }
 
-// quotaRange returns the min and max day among the quota keys, as the strategy's
-// eligible range.
-func quotaRange(quotas map[string]int, loc *time.Location) (time.Time, time.Time) {
-	var keys []string
-	for k := range quotas {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	start, _ := time.ParseInLocation("2006-01-02", keys[0], loc)
-	end, _ := time.ParseInLocation("2006-01-02", keys[len(keys)-1], loc)
-	return start, end
-}
-
 // digit parses a single-digit key string to its value, or -1 if not a digit.
 func digit(s string) int {
 	if len(s) == 1 && s[0] >= '0' && s[0] <= '9' {
@@ -684,6 +875,8 @@ func (m Model) View() string {
 		overlay = m.viewConfirm()
 	case modeHelp:
 		overlay = m.st.modal.Render(strings.Join(helpLines, "\n"))
+	case modeRetitle:
+		overlay = m.retitle.view(m.plan, m.st)
 	}
 
 	if overlay == "" {

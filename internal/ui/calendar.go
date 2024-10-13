@@ -57,9 +57,10 @@ func sundayOnOrBefore(t time.Time) time.Time {
 }
 
 // renderCalendar draws the half-year heatmap around cursor, using counts and
-// quotas keyed by "2006-01-02". Days with a pinned quota show the number
-// instead of a heat glyph; the cursor day is highlighted.
-func renderCalendar(cursor time.Time, counts, quotas map[string]int, loc *time.Location, st styles) string {
+// quotas keyed by "2006-01-02". Picked days show their assigned commit count,
+// quota days show the pinned number — both instead of a heat glyph — and the
+// cursor day is highlighted.
+func renderCalendar(cursor time.Time, counts, quotas map[string]int, picked map[string]bool, loc *time.Location, st styles) string {
 	rangeStart, rangeEnd, _ := halfRange(cursor.In(loc), loc)
 	start := sundayOnOrBefore(rangeStart)
 	cursorKey := cursor.In(loc).Format(dateLayout)
@@ -89,8 +90,14 @@ func renderCalendar(cursor time.Time, counts, quotas map[string]int, loc *time.L
 			if q, ok := quotas[key]; ok {
 				// A pinned quota replaces the glyph so the number is visible
 				// right on the day it applies to.
-				cell = fmt.Sprintf("%*d", cellWidth, q)
+				cell = fmt.Sprintf("%*d", cellWidth, clampCellCount(q))
 				style = st.marker
+			}
+			if picked[key] {
+				// A picked day shows how many commits the random split gave
+				// it, recomputed live as days are toggled.
+				cell = fmt.Sprintf("%*d", cellWidth, clampCellCount(counts[key]))
+				style = st.picked
 			}
 			if key == cursorKey {
 				style = st.heatCursor
@@ -127,6 +134,14 @@ func renderMonthHeader(rangeStart, gridStart time.Time, loc *time.Location, st s
 		}
 	}
 	return st.dim.Render(string(line))
+}
+
+// clampCellCount keeps a number displayable within a two-character day cell.
+func clampCellCount(n int) int {
+	if n > 99 {
+		return 99
+	}
+	return n
 }
 
 // spaceFree reports whether width bytes from pos are all spaces (so a label can

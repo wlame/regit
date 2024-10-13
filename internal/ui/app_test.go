@@ -288,6 +288,72 @@ func TestCalendarArrows_followVisualAxes(t *testing.T) {
 	}
 }
 
+// On startup the list cursor sits on the oldest unpushed commit, so the user
+// can press b to freeze all pushed history immediately.
+func TestStartup_cursorOnFirstUnpushedCommit(t *testing.T) {
+	dir := t.TempDir()
+	origin := t.TempDir()
+	git := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_DATE=2026-06-05T14:00:00+00:00",
+			"GIT_COMMITTER_DATE=2026-06-05T14:00:00+00:00")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	commit := func(name string) {
+		os.WriteFile(filepath.Join(dir, name+".txt"), []byte(name+"\n"), 0o644)
+		git("add", ".")
+		git("commit", "-q", "-m", "commit "+name)
+	}
+
+	exec.Command("git", "init", "-q", "--bare", origin).Run()
+	git("init", "-q")
+	git("symbolic-ref", "HEAD", "refs/heads/main")
+	git("config", "user.name", "wlame")
+	git("config", "user.email", "vvlame@gmail.com")
+	git("config", "commit.gpgsign", "false")
+	git("remote", "add", "origin", origin)
+
+	// Two pushed commits, then three local-only ones.
+	commit("p0")
+	commit("p1")
+	git("push", "-q", "-u", "origin", "main")
+	commit("local0")
+	commit("local1")
+	commit("local2")
+
+	repo, err := gitio.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, _ := repo.ReadState()
+	commits, _ := repo.ReadCommits()
+	cfg := config.Default()
+	cfg.Timezone = "UTC"
+	m := New(repo, safety.NewManager(repo), cfg, state, commits)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m = updated.(Model)
+
+	// Storage indices 0,1 are pushed; 2 is the first unpushed ("local0").
+	if got := m.commitAtCursor().Subject; got != "commit local0" {
+		t.Errorf("cursor should start on the first unpushed commit, got %q", got)
+	}
+
+	// Pressing b here freezes exactly the two pushed commits.
+	m = send(m, "b")
+	if m.plan.Base != 2 {
+		t.Errorf("base should freeze the 2 pushed commits, got base %d", m.plan.Base)
+	}
+	for _, c := range m.plan.Commits[:2] {
+		if m.plan.IsFrozen(0) && !c.IsPushed {
+			t.Error("frozen prefix should be exactly the pushed commits")
+		}
+	}
+}
+
 // Setting a base on a commit freezes everything older: strategies only edit
 // the active suffix, frozen commits reject the editor, and b on the base
 // commit clears the boundary again.
@@ -322,6 +388,197 @@ func TestBaseBoundary_freezesOlderCommits(t *testing.T) {
 	m = send(m, "up", "b")
 	if m.plan.Base != 0 {
 		t.Errorf("pressing b on the base should clear it, got %d", m.plan.Base)
+	}
+}
+
+// D marks every editable commit that has a body with a DropBody edit, while
+// frozen commits stay untouched.
+func TestBulkDropBodies_marksActiveOnly(t *testing.T) {
+	m := newTestModelN(t, 4)
+	m = send(m, "down", "down", "b") // base at storage index 1: root frozen
+	m = send(m, "D")
+
+	root := m.plan.Commits[0]
+	if _, ok := m.plan.EditFor(root.Hash); ok {
+		t.Error("frozen commit must not receive a DropBody edit")
+	}
+	dropped := 0
+	for _, c := range m.plan.Active() {
+		if e, ok := m.plan.EditFor(c.Hash); ok && e.DropBody {
+			dropped++
+		}
+	}
+	if dropped != 3 {
+		t.Errorf("expected 3 active commits marked title-only, got %d", dropped)
+	}
+	if got := strings.Count(m.View(), "⚑"); got != 3 {
+		t.Errorf("list should flag 3 dropped bodies, got %d", got)
+	}
+}
+
+// R applies a regex replacement to every editable commit title; the list
+// shows the effective (edited) titles.
+func TestRetitle_regexReplacesActiveTitles(t *testing.T) {
+	m := newTestModelN(t, 3) // titles: "Refactor the authentication ... c00N"
+	m = send(m, "R")
+	if m.mode != modeRetitle {
+		t.Fatalf("R should open the retitle modal, got %v", m.mode)
+	}
+	for _, ch := range "Refactor" {
+		m = send(m, string(ch))
+	}
+	m = send(m, "tab")
+	for _, ch := range "Fix" {
+		m = send(m, string(ch))
+	}
+	m = send(m, "enter")
+
+	if m.mode != modeMain {
+		t.Fatalf("successful retitle should close the modal, got %v", m.mode)
+	}
+	for _, c := range m.plan.Commits {
+		if got := m.plan.EffectiveSubject(c); !strings.HasPrefix(got, "Fix the authentication") {
+			t.Errorf("title should be rewritten, got %q", got)
+		}
+	}
+	if !strings.Contains(m.View(), "Fix the authentication") {
+		t.Error("commit list should display the effective (edited) titles")
+	}
+
+	// Replacing back to the original clears the edits entirely.
+	m = send(m, "R")
+	for _, ch := range "Fix" {
+		m = send(m, string(ch))
+	}
+	m = send(m, "tab")
+	for _, ch := range "Refactor" {
+		m = send(m, string(ch))
+	}
+	m = send(m, "enter")
+	if m.plan.HasChanges() {
+		t.Error("restoring original titles should clear the subject edits")
+	}
+}
+
+// A trailing space in the pattern must be honored (not trimmed away), and
+// results never keep leading/trailing whitespace.
+func TestRetitle_trailingSpaceInPatternIsHonored(t *testing.T) {
+	m := newTestModelN(t, 3) // titles: "Refactor the authentication ..."
+	m = send(m, "R")
+	for _, ch := range "Refactor the " { // note the trailing space
+		m = send(m, string(ch))
+	}
+	m = send(m, "enter") // empty replacement: delete the prefix
+
+	for _, c := range m.plan.Commits {
+		got := m.plan.EffectiveSubject(c)
+		if !strings.HasPrefix(got, "authentication") {
+			t.Errorf("prefix incl. trailing space should be removed, got %q", got)
+		}
+	}
+}
+
+// The capitalize and ensure-dot toggles transform every editable title; they
+// also work with no pattern at all.
+func TestRetitle_togglesCapitalizeAndEnsureDot(t *testing.T) {
+	m := newTestModelN(t, 3)
+	m = send(m, "R")
+	for _, ch := range "Refactor" {
+		m = send(m, string(ch))
+	}
+	m = send(m, "tab")
+	for _, ch := range "fix" {
+		m = send(m, string(ch))
+	}
+	m = send(m, "tab", " ") // toggle: capitalize first letter
+	m = send(m, "tab", " ") // toggle: end with "."
+	m = send(m, "enter")
+
+	for _, c := range m.plan.Commits {
+		got := m.plan.EffectiveSubject(c)
+		if !strings.HasPrefix(got, "Fix the authentication") {
+			t.Errorf("replacement should be capitalized, got %q", got)
+		}
+		if !strings.HasSuffix(got, ".") {
+			t.Errorf("title should end with a period, got %q", got)
+		}
+	}
+
+	// Toggles alone (no pattern) are a valid operation: re-running ensure-dot
+	// changes nothing further, so it reports no matches.
+	m = send(m, "R", "tab", "tab", "tab", " ", "enter")
+	if m.mode != modeRetitle || m.retitle.errMsg == "" {
+		t.Error("a no-op toggle run should stay open and report no changes")
+	}
+}
+
+// The transform helpers behave sensibly at the edges.
+func TestRetitleTransform_edgeCases(t *testing.T) {
+	plain := retitleTransform(nil, "", false, true)
+	for _, tc := range []struct{ in, want string }{
+		{"Fix login", "Fix login."},
+		{"Fix login.", "Fix login."},
+		{"Fix it!", "Fix it!"}, // already ends as a sentence
+		{"What?", "What?"},
+		{"", ""}, // never dot an empty title
+	} {
+		if got := plain(tc.in); got != tc.want {
+			t.Errorf("ensure-dot(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+
+	capital := retitleTransform(nil, "", true, false)
+	for _, tc := range []struct{ in, want string }{
+		{"fix login", "Fix login"},
+		{"éclair fix", "Éclair fix"},
+		{"123 fix", "123 fix"},
+		{"", ""},
+	} {
+		if got := capital(tc.in); got != tc.want {
+			t.Errorf("capitalize(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// Invalid patterns and zero-match patterns keep the modal open with an error.
+func TestRetitle_invalidPatternShowsError(t *testing.T) {
+	m := newTestModelN(t, 3)
+	m = send(m, "R", "(", "enter")
+	if m.mode != modeRetitle {
+		t.Fatal("invalid pattern should keep the modal open")
+	}
+	if m.retitle.errMsg == "" || !strings.Contains(m.View(), "invalid pattern") {
+		t.Error("invalid pattern error should render inside the modal")
+	}
+	m = send(m, "esc")
+	if m.mode != modeMain {
+		t.Error("esc should close the retitle modal")
+	}
+	if m.plan.HasChanges() {
+		t.Error("a cancelled retitle must not edit anything")
+	}
+}
+
+// Retitle respects the base boundary: frozen titles are never rewritten.
+func TestRetitle_respectsBase(t *testing.T) {
+	m := newTestModelN(t, 3)
+	m = send(m, "down", "b") // base at storage index 1: root frozen
+	m = send(m, "R")
+	for _, ch := range "Refactor" {
+		m = send(m, string(ch))
+	}
+	m = send(m, "tab")
+	for _, ch := range "Fix" {
+		m = send(m, string(ch))
+	}
+	m = send(m, "enter")
+
+	root := m.plan.Commits[0]
+	if got := m.plan.EffectiveSubject(root); !strings.HasPrefix(got, "Refactor") {
+		t.Errorf("frozen title must stay unchanged, got %q", got)
+	}
+	if len(m.plan.Edits) != 2 {
+		t.Errorf("expected 2 retitled commits, got %d edits", len(m.plan.Edits))
 	}
 }
 
@@ -426,6 +683,174 @@ func TestCalendarQuotas_applyImmediately(t *testing.T) {
 	}
 	if !strings.Contains(friRow, "3") {
 		t.Errorf("quota digit should be visible on the calendar day, got row: %q", friRow)
+	}
+}
+
+// Digits typed while staying on the same day build a two-digit quota
+// (2 → 24 → 45); moving the cursor starts a fresh entry.
+func TestCalendarQuotas_twoDigitEntry(t *testing.T) {
+	m := newTestModel(t)
+	m = send(m, "tab") // focus calendar (cursor on 2026-06-05)
+	day := m.calCursor.In(m.loc).Format("2006-01-02")
+
+	m = send(m, "2")
+	if got := m.quotas[day]; got != 2 {
+		t.Fatalf("first digit: want quota 2, got %d", got)
+	}
+	m = send(m, "4")
+	if got := m.quotas[day]; got != 24 {
+		t.Fatalf("second digit should append: want 24, got %d", got)
+	}
+	m = send(m, "5")
+	if got := m.quotas[day]; got != 45 {
+		t.Fatalf("third digit should keep the last two: want 45, got %d", got)
+	}
+
+	// Moving away and typing starts a new number on the new day…
+	m = send(m, "right", "7")
+	other := m.calCursor.In(m.loc).Format("2006-01-02")
+	if got := m.quotas[other]; got != 7 {
+		t.Errorf("digit after a move should start fresh: want 7, got %d", got)
+	}
+	// …and returning to the first day also starts fresh (3, not 53).
+	m = send(m, "left", "3")
+	if got := m.quotas[day]; got != 3 {
+		t.Errorf("digit after returning should start fresh: want 3, got %d", got)
+	}
+}
+
+// Space picks/unpicks calendar days for the Picked Days strategy; the random
+// split applies immediately and reshuffles as the set changes.
+func TestPickedDays_spaceTogglesAndApplies(t *testing.T) {
+	m := newTestModelN(t, 6)
+	m = send(m, "tab", " ") // pick the cursor day (2026-06-05)
+	day := m.calCursor.In(m.loc).Format("2006-01-02")
+	if !m.picked[day] {
+		t.Fatal("space should pick the day under the cursor")
+	}
+	if !m.plan.HasChanges() {
+		t.Error("picking a day should apply the strategy immediately")
+	}
+	if got := m.dayCounts()[day]; got != 6 {
+		t.Errorf("single picked day should hold all 6 commits, got %d", got)
+	}
+
+	// Picking a second day splits the commits, at least one on each.
+	m = send(m, "right", " ")
+	day2 := m.calCursor.In(m.loc).Format("2006-01-02")
+	counts := m.dayCounts()
+	if counts[day]+counts[day2] != 6 {
+		t.Errorf("split should cover all commits: %d + %d", counts[day], counts[day2])
+	}
+	if counts[day] == 0 || counts[day2] == 0 {
+		t.Errorf("each picked day should receive at least one commit: %v", counts)
+	}
+
+	// Unpicking the second day reshuffles everything back onto the first.
+	m = send(m, " ")
+	if m.picked[day2] {
+		t.Fatal("space again should unpick the day")
+	}
+	if got := m.dayCounts()[day]; got != 6 {
+		t.Errorf("after unpicking, all 6 commits should return to %s, got %d", day, got)
+	}
+}
+
+// Action keys work from any pane: e/b from the calendar, s/p/D from the
+// params pane — while digits still type into the focused form field.
+func TestGlobalKeys_workFromAnyPane(t *testing.T) {
+	m := newTestModelN(t, 3)
+
+	// Calendar focus: e opens the editor on the list-cursor commit.
+	m = send(m, "tab", "e")
+	if m.mode != modeEditor {
+		t.Fatal("e should open the editor from the calendar pane")
+	}
+	m = send(m, "esc")
+
+	// Calendar focus: b sets the base at the list cursor.
+	m = send(m, "b")
+	if m.plan.Base != 2 {
+		t.Fatalf("b should set the base from the calendar pane, got %d", m.plan.Base)
+	}
+	m = send(m, "b") // clear it again
+
+	// Params pane: p opens the preview, D drops bodies, s opens the palette.
+	m = send(m, "tab") // calendar -> params
+	if m.focus != focusParams {
+		t.Fatal("setup: params pane should be focused")
+	}
+	m = send(m, "p")
+	if m.mode != modePreview {
+		t.Fatal("p should open the preview from the params pane")
+	}
+	m = send(m, "esc")
+
+	m = send(m, "D")
+	if len(m.plan.Edits) != 3 {
+		t.Errorf("D should drop bodies from the params pane, got %d edits", len(m.plan.Edits))
+	}
+
+	// Digits are NOT global: they belong to the focused form field.
+	before := m.form.inputs[0].Value()
+	m = send(m, "1")
+	if got := m.form.inputs[0].Value(); got != before+"1" {
+		t.Errorf("digit should type into the field: want %q, got %q", before+"1", got)
+	}
+
+	m = send(m, "s")
+	if m.mode != modePalette {
+		t.Fatal("s should open the palette from the params pane")
+	}
+}
+
+// The editor's fields widen to 75 columns on roomy terminals and shrink back
+// toward 50 on narrow ones, so long titles show without horizontal scrolling.
+func TestEditor_fieldWidthFollowsTerminal(t *testing.T) {
+	m := newTestModelN(t, 3) // sized 120x40 by the helper
+	if got := m.editorFieldWidth(); got != 75 {
+		t.Errorf("at 120 cols the editor fields should be 75 wide, got %d", got)
+	}
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
+	m = updated.(Model)
+	if got := m.editorFieldWidth(); got != 63 {
+		t.Errorf("at 80 cols the editor fields should shrink to 63, got %d", got)
+	}
+	updated, _ = m.Update(tea.WindowSizeMsg{Width: 50, Height: 30})
+	m = updated.(Model)
+	if got := m.editorFieldWidth(); got != 50 {
+		t.Errorf("tiny terminals should floor at 50, got %d", got)
+	}
+
+	// The editor actually shows a long title in full at 120 cols.
+	m2 := newTestModelN(t, 3)
+	m2 = send(m2, "e")
+	if !strings.Contains(m2.View(), "support rotation c002") {
+		t.Error("a ~64-char title should be fully visible in the editor")
+	}
+}
+
+// Manual Pin and Picked Days applied from the strategy pane must not demand a
+// date range: the pinned/picked days define it.
+func TestParamsPane_manualPinAndPickedDaysApply(t *testing.T) {
+	m := newTestModelN(t, 4)
+	m = send(m, "tab", "2", " ") // pin quota 2 and pick the cursor day
+
+	// Palette order: 0 Even Spread, 1 Manual Pin, 2 Picked Days.
+	m = send(m, "s", "down", "enter", "enter") // Manual Pin -> apply
+	if m.form.errMsg != "" {
+		t.Fatalf("Manual Pin from the pane should apply, got %q", m.form.errMsg)
+	}
+	if m.focus != focusList {
+		t.Fatal("successful Manual Pin apply should return focus to the list")
+	}
+
+	m = send(m, "s", "down", "down", "enter", "enter") // Picked Days -> apply
+	if m.form.errMsg != "" {
+		t.Fatalf("Picked Days from the pane should apply, got %q", m.form.errMsg)
+	}
+	if !m.plan.HasChanges() || !m.plan.IsValid() {
+		t.Error("Picked Days apply should produce a valid plan")
 	}
 }
 

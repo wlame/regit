@@ -85,8 +85,10 @@ func fieldSpecs(strat strategy.Strategy, cursor time.Time) ([]fieldSpec, bool) {
 		return []fieldSpec{{"Target day", cursor.Format(dateLayout)}}, true
 	case "Rate Fill":
 		return []fieldSpec{{"Start date", start}, {"End date", end}, {"Min/day", "1"}, {"Max/day", "3"}}, true
-	case "Per-Day Quota", "Manual Pin":
-		return []fieldSpec{{"Start date", start}, {"End date", end}}, true
+	case "Manual Pin", "Picked Days":
+		// The pinned/picked days themselves define the range; only the
+		// time-of-day model is configurable.
+		return nil, true
 	default: // Even Spread, Working Days, Weekends
 		return []fieldSpec{{"Start date", start}, {"End date", end}}, true
 	}
@@ -162,7 +164,7 @@ func (f paramsForm) timeModel() strategy.TimeModel {
 // buildParams assembles strategy.Params from the form values plus config-derived
 // defaults (working window, weekday mask, timezone, seed). It returns an error
 // with a human-readable message when a field cannot be parsed.
-func (f paramsForm) buildParams(cfg config.Config, quotas map[string]int) (strategy.Params, error) {
+func (f paramsForm) buildParams(cfg config.Config, quotas map[string]int, picked map[string]bool) (strategy.Params, error) {
 	loc := cfg.Location()
 	p := strategy.Params{
 		Location:    loc,
@@ -174,6 +176,7 @@ func (f paramsForm) buildParams(cfg config.Config, quotas map[string]int) (strat
 		JitterMin:   cfg.JitterMinutes,
 		Seed:        cfg.Seed,
 		Quotas:      quotas,
+		Picked:      picked,
 	}
 
 	val := func(label string) string {
@@ -223,6 +226,8 @@ func (f paramsForm) buildParams(cfg config.Config, quotas map[string]int) (strat
 		}
 		p.PerDayMin, _ = strconv.Atoi(val("Min/day"))
 		p.PerDayMax, _ = strconv.Atoi(val("Max/day"))
+	case "Manual Pin", "Picked Days":
+		// No date fields: the pinned/picked days themselves define the range.
 	default:
 		if err := setRange(&p, parseDate); err != nil {
 			return p, err

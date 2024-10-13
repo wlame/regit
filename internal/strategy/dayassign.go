@@ -2,6 +2,8 @@ package strategy
 
 import (
 	"fmt"
+	"math/rand"
+	"sort"
 	"time"
 
 	"github.com/wlame/ghist/internal/model"
@@ -102,67 +104,122 @@ func (EvenSpread) AssignDays(commits []model.Commit, p Params) ([]time.Time, err
 	return daysFromIndexes(idxs, days), nil
 }
 
-// --- Per-Day Quota ----------------------------------------------------------
+// --- Manual Pin -------------------------------------------------------------
 
-// PerDayQuota fills the eligible days according to explicit per-day target
-// counts in Params.Quotas (day key -> count), consuming commits in order. Days
-// without a quota are skipped. Any commits left over after quotas are exhausted
-// stack onto the last quota day so none are dropped.
-type PerDayQuota struct{}
+// ManualPin places commits exactly on the days the user pinned counts onto
+// (Params.Quotas), walking the pinned days chronologically and consuming
+// commits in order. It is the single quota strategy behind both workflows —
+// typing counts on the calendar and configuring through the palette.
+//
+// Pinned days always count: no date range or weekday mask filters them, since
+// a pin IS an explicit instruction. Commits left over once every quota is
+// filled stack onto the last pinned day so none are dropped.
+type ManualPin struct{}
 
-func (PerDayQuota) Name() string        { return "Per-Day Quota" }
-func (PerDayQuota) Description() string { return "Paint a target count onto each selected day" }
+func (ManualPin) Name() string { return "Manual Pin" }
+func (ManualPin) Description() string {
+	return "Type counts on calendar days; commits land exactly there"
+}
 
-func (PerDayQuota) AssignDays(commits []model.Commit, p Params) ([]time.Time, error) {
+func (ManualPin) AssignDays(commits []model.Commit, p Params) ([]time.Time, error) {
 	if len(p.Quotas) == 0 {
-		return nil, fmt.Errorf("no per-day quotas set")
+		return nil, fmt.Errorf("no per-day quotas set — type a count on calendar days")
 	}
-	days := eligibleDays(p)
+	days, err := sortedDayKeys(p.Quotas, p.Loc())
+	if err != nil {
+		return nil, err
+	}
+
 	out := make([]time.Time, len(commits))
 	ci := 0
 	var lastDay time.Time
 	for _, d := range days {
 		q := p.Quotas[dayKey(d)]
+		if q <= 0 {
+			continue
+		}
+		lastDay = d
 		for k := 0; k < q && ci < len(commits); k++ {
 			out[ci] = d
-			lastDay = d
 			ci++
 		}
-		if !d.IsZero() {
-			lastDay = pickLater(lastDay, d, q > 0)
+	}
+	if lastDay.IsZero() {
+		return nil, fmt.Errorf("all quotas are zero")
+	}
+	// Stack any remaining commits on the last pinned day.
+	for ; ci < len(commits); ci++ {
+		out[ci] = lastDay
+	}
+	return out, nil
+}
+
+// --- Picked Days --------------------------------------------------------------
+
+// PickedDays spreads commits across hand-picked calendar days (Params.Picked)
+// with random per-day counts, deterministic for a given Params.Seed. Every
+// picked day receives at least one commit when there are enough commits to go
+// around, and the split is recomputed identically on each toggle so the
+// calendar can display stable numbers.
+type PickedDays struct{}
+
+func (PickedDays) Name() string { return "Picked Days" }
+func (PickedDays) Description() string {
+	return "Random split across days picked on the calendar (space)"
+}
+
+func (PickedDays) AssignDays(commits []model.Commit, p Params) ([]time.Time, error) {
+	chosen := make(map[string]int, len(p.Picked))
+	for k, on := range p.Picked {
+		if on {
+			chosen[k] = 0
 		}
 	}
-	// Stack any remaining commits on the last day that received a quota.
-	if ci < len(commits) {
-		if lastDay.IsZero() && len(days) > 0 {
-			lastDay = days[len(days)-1]
+	if len(chosen) == 0 {
+		return nil, fmt.Errorf("no days picked — press space on calendar days")
+	}
+	days, err := sortedDayKeys(chosen, p.Loc())
+	if err != nil {
+		return nil, err
+	}
+
+	// Random composition of len(commits) across the picked days: one commit
+	// per day guaranteed when possible, the remainder scattered uniformly.
+	counts := make([]int, len(days))
+	rest := len(commits)
+	if rest >= len(days) {
+		for i := range counts {
+			counts[i] = 1
 		}
-		for ; ci < len(commits); ci++ {
-			out[ci] = lastDay
+		rest -= len(days)
+	}
+	rng := rand.New(rand.NewSource(p.Seed))
+	for i := 0; i < rest; i++ {
+		counts[rng.Intn(len(days))]++
+	}
+
+	out := make([]time.Time, 0, len(commits))
+	for i, d := range days {
+		for k := 0; k < counts[i] && len(out) < len(commits); k++ {
+			out = append(out, d)
 		}
 	}
 	return out, nil
 }
 
-// pickLater returns d when use is true and d is after current, else current.
-func pickLater(current, d time.Time, use bool) time.Time {
-	if use && d.After(current) {
-		return d
+// sortedDayKeys parses a map's "2006-01-02" keys into midnight timestamps in
+// loc, sorted chronologically.
+func sortedDayKeys[V any](m map[string]V, loc *time.Location) ([]time.Time, error) {
+	days := make([]time.Time, 0, len(m))
+	for k := range m {
+		d, err := time.ParseInLocation("2006-01-02", k, loc)
+		if err != nil {
+			return nil, fmt.Errorf("bad day key %q: %w", k, err)
+		}
+		days = append(days, truncateDay(d, loc))
 	}
-	return current
-}
-
-// --- Manual Pin -------------------------------------------------------------
-
-// ManualPin behaves like Per-Day Quota but is the model the UI uses when a user
-// stands on a day and types a count: it shares the same Quotas map and fill
-// semantics. It exists as a distinct strategy so the palette can describe it in
-// the user's terms.
-type ManualPin struct{ PerDayQuota }
-
-func (ManualPin) Name() string { return "Manual Pin" }
-func (ManualPin) Description() string {
-	return "Stand on a day and type N to land the next N commits there"
+	sort.Slice(days, func(i, j int) bool { return days[i].Before(days[j]) })
+	return days, nil
 }
 
 // --- Rate Fill --------------------------------------------------------------
@@ -366,8 +423,8 @@ func (Compress) AssignDays(commits []model.Commit, p Params) ([]time.Time, error
 func Strategies() []Strategy {
 	return []Strategy{
 		EvenSpread{},
-		PerDayQuota{},
 		ManualPin{},
+		PickedDays{},
 		RateFill{},
 		WorkingDays{},
 		Weekends{},

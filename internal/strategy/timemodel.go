@@ -121,18 +121,54 @@ func (WorkingHoursModel) AssignTimes(commits []model.Commit, days []time.Time, p
 	return assignWithinDays(commits, days, p, rng, pick), nil
 }
 
-// EveningModel scatters commits across the evening (18:00–23:00 by default).
+// The evening window shared by the evening-flavored models: 18:00–23:59.
+const (
+	eveningStartMin = 18 * 60
+	eveningEndMin   = 23*60 + 59
+)
+
+// EveningModel scatters commits across the evening (18:00–23:59).
 type EveningModel struct{}
 
-func (EveningModel) Name() string        { return "Evening" }
-func (EveningModel) Description() string { return "Random within the evening window" }
+func (EveningModel) Name() string        { return "Evening hours" }
+func (EveningModel) Description() string { return "Random within the evening window (until 23:59)" }
 
 func (EveningModel) AssignTimes(commits []model.Commit, days []time.Time, p Params, rng *rand.Rand) ([]time.Time, error) {
-	start, end := 18*60, 23*60
 	pick := func(rng *rand.Rand, _, _ int) int {
-		return randMinuteInWindow(rng, start, end, 0, 0)
+		return randMinuteInWindow(rng, eveningStartMin, eveningEndMin, 0, 0)
 	}
 	return assignWithinDays(commits, days, p, rng, pick), nil
+}
+
+// NonWorkingHoursModel places commits outside the working window: evenings on
+// working days (per the weekday mask), and anywhere from the start of the
+// working window through the evening on days off (e.g. weekends).
+type NonWorkingHoursModel struct{}
+
+func (NonWorkingHoursModel) Name() string { return "Non-working hours" }
+func (NonWorkingHoursModel) Description() string {
+	return "Evenings on workdays; daytime+evening on days off"
+}
+
+func (NonWorkingHoursModel) AssignTimes(commits []model.Commit, days []time.Time, p Params, rng *rand.Rand) ([]time.Time, error) {
+	loc := p.Loc()
+	mask := p.WeekdayMask
+	if !mask.Any() {
+		mask = AllWeekdays()
+	}
+	dayStart, _ := workWindow(p)
+
+	times := make([]time.Time, len(commits))
+	for i := range commits {
+		day := truncateDay(days[i], loc)
+		start := eveningStartMin
+		if !mask.Allows(day) {
+			start = dayStart // a day off: the whole day up to 23:59 is fair game
+		}
+		mins := clampMinute(randMinuteInWindow(rng, start, eveningEndMin, 0, 0))
+		times[i] = day.Add(time.Duration(mins) * time.Minute)
+	}
+	return resortWithinDays(commits, days, times, loc), nil
 }
 
 // UniformModel scatters commits uniformly across the whole day.
@@ -226,6 +262,7 @@ func TimeModels() []TimeModel {
 		PreserveTimeModel{},
 		WorkingHoursModel{},
 		EveningModel{},
+		NonWorkingHoursModel{},
 		UniformModel{},
 		FixedModel{},
 		JitterModel{},

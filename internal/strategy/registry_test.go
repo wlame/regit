@@ -25,8 +25,8 @@ func TestStrategies_allHaveNameAndDescription(t *testing.T) {
 
 func TestTimeModels_allHaveNameAndDescription(t *testing.T) {
 	all := TimeModels()
-	if len(all) != 6 {
-		t.Fatalf("expected 6 time models, got %d", len(all))
+	if len(all) != 7 {
+		t.Fatalf("expected 7 time models, got %d", len(all))
 	}
 	for _, m := range all {
 		if m.Name() == "" || m.Description() == "" {
@@ -46,22 +46,60 @@ func TestManualPin_sharesQuotaSemantics(t *testing.T) {
 	if !days[0].Equal(day("2026-03-02")) || !days[1].Equal(day("2026-03-02")) {
 		t.Errorf("manual pin should place both on 03-02, got %v", days)
 	}
-	if (ManualPin{}).Name() == (PerDayQuota{}).Name() {
-		t.Error("ManualPin should present a distinct name from PerDayQuota")
-	}
 }
 
 func TestEveningModel_withinEveningWindow(t *testing.T) {
-	commits := makeCommits(10)
-	days := make([]time.Time, 10)
+	commits := makeCommits(40)
+	days := make([]time.Time, 40)
 	for i := range days {
 		days[i] = day("2026-03-02")
 	}
 	times, _ := EveningModel{}.AssignTimes(commits, days, Params{Location: time.UTC}, rand.New(rand.NewSource(3)))
 	for _, tm := range times {
 		mins := tm.Hour()*60 + tm.Minute()
-		if mins < 18*60 || mins > 23*60 {
-			t.Errorf("evening time outside window: %s", tm)
+		if mins < eveningStartMin || mins > eveningEndMin {
+			t.Errorf("evening time outside 18:00–23:59: %s", tm)
+		}
+	}
+	if (EveningModel{}).Name() != "Evening hours" {
+		t.Errorf("evening model should be named %q, got %q", "Evening hours", (EveningModel{}).Name())
+	}
+}
+
+// Non-working hours: evenings on working days; the whole day from the start
+// of the working window up to 23:59 on days off. 2026-03-02 is a Monday and
+// 2026-03-07 a Saturday.
+func TestNonWorkingHours_eveningOnWorkdaysFullDayOnDaysOff(t *testing.T) {
+	const n = 40
+	commits := makeCommits(n)
+	days := make([]time.Time, n)
+	for i := range days {
+		if i%2 == 0 {
+			days[i] = day("2026-03-02") // workday
+		} else {
+			days[i] = day("2026-03-07") // day off
+		}
+	}
+	p := Params{
+		Location:    time.UTC,
+		WeekdayMask: WeekdayMask{false, true, true, true, true, true, false}, // Mon–Fri
+		DayStartMin: 9 * 60,
+		DayEndMin:   18 * 60,
+	}
+	times, err := NonWorkingHoursModel{}.AssignTimes(commits, days, p, rand.New(rand.NewSource(5)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, tm := range times {
+		mins := tm.Hour()*60 + tm.Minute()
+		if days[i].Equal(day("2026-03-02")) {
+			if mins < eveningStartMin || mins > eveningEndMin {
+				t.Errorf("workday commit outside evening window: %s", tm)
+			}
+			continue
+		}
+		if mins < 9*60 || mins > eveningEndMin {
+			t.Errorf("day-off commit outside 09:00–23:59: %s", tm)
 		}
 	}
 }

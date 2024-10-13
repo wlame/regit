@@ -210,14 +210,13 @@ func TestRateFill_deterministicForSeed(t *testing.T) {
 	}
 }
 
-func TestPerDayQuota_fillsAccordingToQuotas(t *testing.T) {
+func TestManualPin_fillsAccordingToQuotas(t *testing.T) {
 	commits := makeCommits(4)
-	p := paramsRange("2026-03-01", "2026-03-05")
-	p.Quotas = map[string]int{
+	p := Params{Location: time.UTC, Quotas: map[string]int{
 		"2026-03-01": 1,
 		"2026-03-03": 2,
-	}
-	days, err := PerDayQuota{}.AssignDays(commits, p)
+	}}
+	days, err := ManualPin{}.AssignDays(commits, p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,6 +229,95 @@ func TestPerDayQuota_fillsAccordingToQuotas(t *testing.T) {
 	// 4th commit overflows quotas -> stacks on the last quota day (03-03).
 	if !days[3].Equal(day("2026-03-03")) {
 		t.Errorf("overflow commit should stack on last quota day, got %s", days[3])
+	}
+}
+
+// A pin is an explicit instruction: weekday masks and date ranges never
+// filter pinned days (2026-03-07 is a Saturday).
+func TestManualPin_pinnedDayBeatsWeekdayMask(t *testing.T) {
+	commits := makeCommits(1)
+	p := paramsRange("2026-03-01", "2026-03-05") // range that excludes the pin
+	p.WeekdayMask = WeekdayMask{false, true, true, true, true, true, false}
+	p.Quotas = map[string]int{"2026-03-07": 1}
+	days, err := ManualPin{}.AssignDays(commits, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !days[0].Equal(day("2026-03-07")) {
+		t.Errorf("pinned Saturday should be honored, got %s", days[0])
+	}
+}
+
+func TestManualPin_allZeroQuotasErrors(t *testing.T) {
+	commits := makeCommits(2)
+	p := Params{Location: time.UTC, Quotas: map[string]int{"2026-03-01": 0}}
+	if _, err := (ManualPin{}).AssignDays(commits, p); err == nil {
+		t.Error("all-zero quotas should be an error")
+	}
+}
+
+func TestPickedDays_randomSplitCoversAllDays(t *testing.T) {
+	commits := makeCommits(10)
+	p := Params{Location: time.UTC, Seed: 7, Picked: map[string]bool{
+		"2026-03-02": true,
+		"2026-03-05": true,
+		"2026-03-09": true,
+	}}
+	days, err := PickedDays{}.AssignDays(commits, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(days) != 10 {
+		t.Fatalf("every commit must get a day, got %d", len(days))
+	}
+
+	counts := map[string]int{}
+	for i, d := range days {
+		counts[d.Format("2006-01-02")]++
+		if i > 0 && days[i].Before(days[i-1]) {
+			t.Fatal("assigned days must be chronological along the commit order")
+		}
+	}
+	if len(counts) != 3 {
+		t.Errorf("with 10 commits every picked day should receive at least one, got %v", counts)
+	}
+	for key := range counts {
+		if !p.Picked[key] {
+			t.Errorf("commit landed on unpicked day %s", key)
+		}
+	}
+
+	// Deterministic per seed: a second run gives the identical split.
+	again, _ := PickedDays{}.AssignDays(commits, p)
+	for i := range days {
+		if !days[i].Equal(again[i]) {
+			t.Fatal("picked-days split must be deterministic for a fixed seed")
+		}
+	}
+}
+
+func TestPickedDays_fewerCommitsThanDays(t *testing.T) {
+	commits := makeCommits(2)
+	p := Params{Location: time.UTC, Seed: 1, Picked: map[string]bool{
+		"2026-03-02": true, "2026-03-03": true, "2026-03-04": true, "2026-03-05": true,
+	}}
+	days, err := PickedDays{}.AssignDays(commits, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(days) != 2 {
+		t.Fatalf("both commits must be placed, got %d", len(days))
+	}
+	for _, d := range days {
+		if !p.Picked[d.Format("2006-01-02")] {
+			t.Errorf("commit landed on unpicked day %s", d)
+		}
+	}
+}
+
+func TestPickedDays_noDaysErrors(t *testing.T) {
+	if _, err := (PickedDays{}).AssignDays(makeCommits(2), Params{Location: time.UTC}); err == nil {
+		t.Error("no picked days should be an error")
 	}
 }
 

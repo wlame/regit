@@ -27,13 +27,15 @@ type editorState struct {
 const editorDateLayout = "2006-01-02 15:04"
 
 // newEditorState seeds the editor from a commit and any pending edit on it.
-func newEditorState(c model.Commit, plan *model.Plan, loc *time.Location) editorState {
+// fieldWidth sets the visible width of the title and body fields so the modal
+// can grow with the terminal.
+func newEditorState(c model.Commit, plan *model.Plan, loc *time.Location, fieldWidth int) editorState {
 	e, _ := plan.EditFor(c.Hash)
 
 	title := textinput.New()
 	title.Prompt = ""
 	title.CharLimit = 120
-	title.Width = 50
+	title.Width = fieldWidth
 	if e.NewSubject != nil {
 		title.SetValue(*e.NewSubject)
 	} else {
@@ -48,7 +50,7 @@ func newEditorState(c model.Commit, plan *model.Plan, loc *time.Location) editor
 	date.SetValue(e.EffectiveAuthorDate(c).In(loc).Format(editorDateLayout))
 
 	body := textarea.New()
-	body.SetWidth(50)
+	body.SetWidth(fieldWidth)
 	body.SetHeight(5)
 	if e.DropBody {
 		body.SetValue("")
