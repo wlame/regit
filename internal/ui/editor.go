@@ -9,7 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/wlame/ghist/internal/model"
+	"github.com/wlame/regit/internal/model"
 )
 
 // editorState backs the per-commit editor modal: title, body, and the author

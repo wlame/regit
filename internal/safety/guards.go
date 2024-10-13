@@ -9,7 +9,7 @@ package safety
 import (
 	"fmt"
 
-	"github.com/wlame/ghist/internal/model"
+	"github.com/wlame/regit/internal/model"
 )
 
 // Guard is the outcome of the pre-flight checks. The TUI uses it to decide

@@ -1,4 +1,4 @@
-// Package strategy is the pure, side-effect-free heart of ghist. Given an
+// Package strategy is the pure, side-effect-free heart of regit. Given an
 // ordered list of commits and a set of parameters, it decides what new dates
 // each commit should have. It knows nothing about git, the terminal, or the
 // filesystem, which makes it instant to preview and trivial to unit-test.
@@ -19,7 +19,7 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/wlame/ghist/internal/model"
+	"github.com/wlame/regit/internal/model"
 )
 
 // WeekdayMask selects which weekdays are eligible for commits. Index it with a

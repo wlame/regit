@@ -6,13 +6,13 @@ import (
 	"strings"
 )
 
-// BackupRefPrefix namespaces every backup ref ghist creates so they are easy to
+// BackupRefPrefix namespaces every backup ref regit creates so they are easy to
 // list, restore from, and prune without colliding with user refs.
-const BackupRefPrefix = "refs/ghist/backup/"
+const BackupRefPrefix = "refs/regit/backup/"
 
 // BackupRef is one saved snapshot of a branch tip created before a rewrite.
 type BackupRef struct {
-	Name string // full ref name, e.g. refs/ghist/backup/1717689600
+	Name string // full ref name, e.g. refs/regit/backup/1717689600
 	Hash string // commit the ref points at
 }
 
@@ -39,7 +39,7 @@ func (r *Repo) DeleteRef(ref string) error {
 	return err
 }
 
-// ListBackupRefs returns every ghist backup ref, newest first (refs are named
+// ListBackupRefs returns every regit backup ref, newest first (refs are named
 // with a unix timestamp suffix, so lexical descending order is chronological).
 func (r *Repo) ListBackupRefs() ([]BackupRef, error) {
 	out, err := r.gitRaw("for-each-ref", "--format=%(refname) %(objectname)", BackupRefPrefix)

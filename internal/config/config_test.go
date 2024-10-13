@@ -54,7 +54,7 @@ func TestLocation_localAndNamed(t *testing.T) {
 
 func TestLoad_fileAndEnvOverrides(t *testing.T) {
 	dir := t.TempDir()
-	cfgDir := filepath.Join(dir, "ghist")
+	cfgDir := filepath.Join(dir, "regit")
 	os.MkdirAll(cfgDir, 0o755)
 	yaml := "timezone: UTC\nworkday_start: \"08:00\"\ndefault_strategy: Compress\n"
 	os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte(yaml), 0o644)
@@ -111,7 +111,7 @@ func TestLunchAccessors(t *testing.T) {
 
 func TestLoad_malformedYAMLErrors(t *testing.T) {
 	dir := t.TempDir()
-	cfgDir := filepath.Join(dir, "ghist")
+	cfgDir := filepath.Join(dir, "regit")
 	os.MkdirAll(cfgDir, 0o755)
 	os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte("timezone: [unclosed"), 0o644)
 	t.Setenv("XDG_CONFIG_HOME", dir)

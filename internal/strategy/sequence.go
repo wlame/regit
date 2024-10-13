@@ -3,10 +3,10 @@ package strategy
 import (
 	"time"
 
-	"github.com/wlame/ghist/internal/model"
+	"github.com/wlame/regit/internal/model"
 )
 
-// sequence.go upholds ghist's hardest invariant: a child commit must never be
+// sequence.go upholds regit's hardest invariant: a child commit must never be
 // dated before its parent. There are two concerns here:
 //
 //   - FindViolations (detection): reports every parent/child pair that is out of

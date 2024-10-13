@@ -1,13 +1,13 @@
-# ghist
+# regit
 
 A terminal UI for **safely rewriting the commit and author dates** of your
 current git branch. Built for the common situation where a burst of work — often
 AI-assisted, or a recreated/squashed history — leaves every commit stamped on the
-same day. `ghist` lets you spread those commits across a calendar with a rich set
+same day. `regit` lets you spread those commits across a calendar with a rich set
 of strategies, edit messages, and apply the change with strong safety guarantees.
 
 ```
-┌ ghist · myrepo · branch: main · 24 commits ────────────────────────────────┐
+┌ regit · myrepo · branch: main · 24 commits ────────────────────────────────┐
 │ COMMITS (24)                  │ 2026  [ ◀ ] [ ▶ ]                           │
 │ ▸ a1b2c3   Fix login bug      │       Mon ░░▓░░ ░░░░░ ▓▓░░░ ░░░░░ ░░░       │
 │     06-05 14:22 → 03-02 10:14 │       Wed ░▓░░░ ░░░░░ ░░▓▓▓ ▓░░░░ ░░░       │
@@ -34,7 +34,7 @@ of strategies, edit messages, and apply the change with strong safety guarantees
 ## Install
 
 ```bash
-go install github.com/wlame/ghist/cmd/ghist@latest
+go install github.com/wlame/regit/cmd/regit@latest
 ```
 
 Requires the `git` binary on your `PATH` and Go 1.26+ to build.
@@ -44,8 +44,8 @@ Requires the `git` binary on your `PATH` and Go 1.26+ to build.
 Run inside any git repository:
 
 ```bash
-ghist                 # operate on the repo in the current directory
-ghist --repo=/path/to/repo
+regit                 # operate on the repo in the current directory
+regit --repo=/path/to/repo
 ```
 
 ### Keys
@@ -68,7 +68,7 @@ ghist --repo=/path/to/repo
 
 ## Strategies
 
-`ghist` separates **where** a commit lands (day) from **when** during that day
+`regit` separates **where** a commit lands (day) from **when** during that day
 (time), so a small menu yields many combinations.
 
 **Day assignment:** Even Spread · Per-Day Quota · Manual Pin · Rate Fill ·
@@ -85,16 +85,16 @@ Evening · Uniform random · Fixed time · Jitter.
 | Dirty working tree | apply is **blocked** until you commit or stash |
 | Out-of-order plan | apply is **blocked** until violations are resolved |
 | Already-pushed commits | apply requires **typing the branch name** to confirm |
-| Backup | `refs/ghist/backup/<unix-ts>` created before each apply |
+| Backup | `refs/regit/backup/<unix-ts>` created before each apply |
 | Undo | restores the most recent backup from within the TUI |
 
 > Rewriting history that others have pulled requires a force-push and can
-> disrupt collaborators. `ghist` warns you, but use it deliberately on shared
+> disrupt collaborators. `regit` warns you, but use it deliberately on shared
 > branches.
 
 ## Configuration
 
-Optional YAML at `$XDG_CONFIG_HOME/ghist/config.yaml` (defaults shown):
+Optional YAML at `$XDG_CONFIG_HOME/regit/config.yaml` (defaults shown):
 
 ```yaml
 timezone: local              # IANA name (e.g. Europe/Berlin) or "local"

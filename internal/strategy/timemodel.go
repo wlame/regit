@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/wlame/ghist/internal/model"
+	"github.com/wlame/regit/internal/model"
 )
 
 // This file implements Layer B: time-of-day models. Each model receives the day

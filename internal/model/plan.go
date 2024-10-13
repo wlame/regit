@@ -2,7 +2,7 @@ package model
 
 import "time"
 
-// Plan is the working document of a ghist session: the ordered list of commits
+// Plan is the working document of a regit session: the ordered list of commits
 // (root-first, matching how the rewrite engine replays them) plus the pending
 // edits keyed by commit hash. It also carries the most recent validation result
 // so the UI can render sequence violations without recomputing them.

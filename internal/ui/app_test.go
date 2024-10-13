@@ -10,9 +10,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/wlame/ghist/internal/config"
-	"github.com/wlame/ghist/internal/gitio"
-	"github.com/wlame/ghist/internal/safety"
+	"github.com/wlame/regit/internal/config"
+	"github.com/wlame/regit/internal/gitio"
+	"github.com/wlame/regit/internal/safety"
 )
 
 // newTestModel builds a Model backed by a real throwaway repo with three
@@ -95,7 +95,7 @@ func send(m Model, keys ...string) Model {
 func TestView_mainRendersWithoutPanic(t *testing.T) {
 	m := newTestModel(t)
 	out := m.View()
-	if !strings.Contains(out, "ghist") {
+	if !strings.Contains(out, "regit") {
 		t.Error("main view should contain the title")
 	}
 	if !strings.Contains(out, "COMMITS") {

@@ -1,8 +1,8 @@
-# ghist task runner — run `just` (or `just --list`) to see all recipes.
+# regit task runner — run `just` (or `just --list`) to see all recipes.
 # Requires: just (https://github.com/casey/just) and the Go toolchain.
 
 # Binary name and output location.
-binary := "ghist"
+binary := "regit"
 bin_dir := "dist"
 coverage_file := "coverage.out"
 
@@ -12,16 +12,16 @@ default:
 
 # Compile the binary into ./{{bin_dir}}/{{binary}}.
 build:
-    go build -o {{bin_dir}}/{{binary}} ./cmd/ghist
+    go build -o {{bin_dir}}/{{binary}} ./cmd/regit
 
-# Install the binary into $GOBIN (or $GOPATH/bin) so `ghist` is on your PATH.
+# Install the binary into $GOBIN (or $GOPATH/bin) so `regit` is on your PATH.
 install:
-    go install ./cmd/ghist
+    go install ./cmd/regit
 
-# Run ghist against a repository (defaults to the current directory).
+# Run regit against a repository (defaults to the current directory).
 # Usage: `just run` or `just run /path/to/repo`.
 run repo=".":
-    go run ./cmd/ghist --repo={{repo}}
+    go run ./cmd/regit --repo={{repo}}
 
 # Run the full test suite.
 test:

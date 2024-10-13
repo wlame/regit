@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wlame/ghist/internal/model"
+	"github.com/wlame/regit/internal/model"
 )
 
 func planWithEdit(pushed bool) *model.Plan {

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wlame/ghist/internal/model"
+	"github.com/wlame/regit/internal/model"
 )
 
 // helper: build N commits in root-first order with dummy hashes.

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wlame/ghist/internal/model"
+	"github.com/wlame/regit/internal/model"
 )
 
 func TestWorkingHours_staysWithinWindow(t *testing.T) {

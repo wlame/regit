@@ -9,8 +9,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/wlame/ghist/internal/config"
-	"github.com/wlame/ghist/internal/strategy"
+	"github.com/wlame/regit/internal/config"
+	"github.com/wlame/regit/internal/strategy"
 )
 
 // paramsForm is the per-strategy parameter editor shown after a strategy is

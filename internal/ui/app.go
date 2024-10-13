@@ -1,4 +1,4 @@
-// Package ui implements ghist's Bubble Tea terminal interface: a three-pane main
+// Package ui implements regit's Bubble Tea terminal interface: a three-pane main
 // screen (commit list, contribution calendar, status) plus modal overlays for the
 // strategy palette, the per-commit editor, the preview, and the apply
 // confirmation. It depends on the engine (strategy), git layer (gitio), safety
@@ -14,11 +14,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/wlame/ghist/internal/config"
-	"github.com/wlame/ghist/internal/gitio"
-	"github.com/wlame/ghist/internal/model"
-	"github.com/wlame/ghist/internal/safety"
-	"github.com/wlame/ghist/internal/strategy"
+	"github.com/wlame/regit/internal/config"
+	"github.com/wlame/regit/internal/gitio"
+	"github.com/wlame/regit/internal/model"
+	"github.com/wlame/regit/internal/safety"
+	"github.com/wlame/regit/internal/strategy"
 )
 
 type mode int
@@ -140,7 +140,7 @@ func New(repo *gitio.Repo, mgr *safety.Manager, cfg config.Config, state model.R
 	return m
 }
 
-// Init satisfies tea.Model; ghist needs no startup command.
+// Init satisfies tea.Model; regit needs no startup command.
 func (m Model) Init() tea.Cmd { return nil }
 
 // Update is the central event handler, dispatching by mode.

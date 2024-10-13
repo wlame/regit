@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wlame/ghist/internal/model"
+	"github.com/wlame/regit/internal/model"
 )
 
 // viewPreview renders a scrollable before/after table of every commit's dates.

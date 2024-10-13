@@ -42,7 +42,7 @@ func (m Model) viewTitle() string {
 	if m.plan.Base > 0 {
 		count = fmt.Sprintf("editing %d/%d commits", len(m.plan.Active()), len(m.plan.Commits))
 	}
-	return m.st.title.Render(fmt.Sprintf("ghist · %s · branch: %s · %s", repoName, branch, count))
+	return m.st.title.Render(fmt.Sprintf("regit · %s · branch: %s · %s", repoName, branch, count))
 }
 
 // Fixed columns of a commit entry line, before the subject starts:

@@ -1,4 +1,4 @@
-// Command ghist is a terminal UI for safely rewriting the commit and author
+// Command regit is a terminal UI for safely rewriting the commit and author
 // dates of the current branch's history — spreading clustered commits across a
 // calendar, with strategy presets, while guaranteeing file contents never change.
 package main
@@ -10,15 +10,15 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/wlame/ghist/internal/config"
-	"github.com/wlame/ghist/internal/gitio"
-	"github.com/wlame/ghist/internal/safety"
-	"github.com/wlame/ghist/internal/ui"
+	"github.com/wlame/regit/internal/config"
+	"github.com/wlame/regit/internal/gitio"
+	"github.com/wlame/regit/internal/safety"
+	"github.com/wlame/regit/internal/ui"
 )
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintln(os.Stderr, "ghist:", err)
+		fmt.Fprintln(os.Stderr, "regit:", err)
 		os.Exit(1)
 	}
 }

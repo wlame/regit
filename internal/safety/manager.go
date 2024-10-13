@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/wlame/ghist/internal/gitio"
-	"github.com/wlame/ghist/internal/model"
+	"github.com/wlame/regit/internal/gitio"
+	"github.com/wlame/regit/internal/model"
 )
 
 // Manager orchestrates a safe rewrite: guards -> backup -> replay -> verify ->

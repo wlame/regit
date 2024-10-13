@@ -1,7 +1,7 @@
-// Package config loads ghist's user-tunable defaults. Resolution order, lowest
+// Package config loads regit's user-tunable defaults. Resolution order, lowest
 // to highest precedence: built-in defaults -> YAML file -> environment
-// variables. The YAML file lives at $XDG_CONFIG_HOME/ghist/config.yaml (falling
-// back to ~/.config/ghist/config.yaml).
+// variables. The YAML file lives at $XDG_CONFIG_HOME/regit/config.yaml (falling
+// back to ~/.config/regit/config.yaml).
 package config
 
 import (
@@ -91,7 +91,7 @@ func configPath() string {
 		home, _ := os.UserHomeDir()
 		base = filepath.Join(home, ".config")
 	}
-	return filepath.Join(base, "ghist", "config.yaml")
+	return filepath.Join(base, "regit", "config.yaml")
 }
 
 // applyEnvOverrides lets GHIST_* variables win over the file, which is handy for

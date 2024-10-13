@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wlame/ghist/internal/model"
+	"github.com/wlame/regit/internal/model"
 )
 
 // SignMode controls what happens to signed commits during a rewrite, since

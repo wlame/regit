@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wlame/ghist/internal/model"
+	"github.com/wlame/regit/internal/model"
 )
 
 func strptr(s string) *string { return &s }

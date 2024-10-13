@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wlame/ghist/internal/model"
+	"github.com/wlame/regit/internal/model"
 )
 
 // testRepo builds a throwaway git repository with three commits, all stamped at
-// the same instant (the "clustered commits" situation ghist exists to fix), each
+// the same instant (the "clustered commits" situation regit exists to fix), each
 // adding a distinct file so we can later prove the files survive a rewrite.
 func testRepo(t *testing.T) (*Repo, string) {
 	t.Helper()

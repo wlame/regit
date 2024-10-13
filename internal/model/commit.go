@@ -1,4 +1,4 @@
-// Package model defines the core domain types shared across ghist: the commits
+// Package model defines the core domain types shared across regit: the commits
 // we read from a repository, the pending edits a user builds up, and the plan
 // that bundles those edits together with validation results.
 //
@@ -13,7 +13,7 @@ import (
 )
 
 // Commit is an immutable snapshot of a single commit as read from the
-// repository. ghist never mutates a Commit; instead it produces an Edit (see
+// repository. regit never mutates a Commit; instead it produces an Edit (see
 // edit.go) describing the change, and the rewrite engine replays history.
 //
 // The original* date fields are preserved so strategies like "Offset Shift" and

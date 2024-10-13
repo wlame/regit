@@ -1,4 +1,4 @@
-module github.com/wlame/ghist
+module github.com/wlame/regit
 
 go 1.26.2
 

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wlame/ghist/internal/model"
+	"github.com/wlame/regit/internal/model"
 )
 
 // Field and record separators for parsing `git log` output. We use the ASCII

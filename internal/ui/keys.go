@@ -3,7 +3,7 @@ package ui
 // helpLines is the content of the help overlay (the '?' screen). Kept here so the
 // keybinding documentation lives next to the code that handles the keys.
 var helpLines = []string{
-	"ghist — rewrite commit dates safely",
+	"regit — rewrite commit dates safely",
 	"",
 	"GLOBAL",
 	"  ?            toggle this help",

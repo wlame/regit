@@ -1,6 +1,6 @@
 package model
 
-// RepoState describes the repository ghist was launched in: which branch is
+// RepoState describes the repository regit was launched in: which branch is
 // checked out, whether the working tree is clean, and how the branch relates to
 // its upstream. The safety guards read this to decide whether a rewrite is
 // allowed and how loudly to warn.

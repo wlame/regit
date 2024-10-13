@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wlame/ghist/internal/gitio"
-	"github.com/wlame/ghist/internal/model"
+	"github.com/wlame/regit/internal/gitio"
+	"github.com/wlame/regit/internal/model"
 )
 
 // buildRepo creates a small repo with two clustered commits for manager tests.
