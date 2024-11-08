@@ -38,6 +38,8 @@ go.work.sum
 /notes/
 /analysis/
 /scratch/
+# Local research scratch (not a project deliverable).
+/reconstructing_git_history_research.md
 
 # ---- Editor / IDE ----
 .idea/
