@@ -15,13 +15,36 @@ type Worktree struct {
 	repo *Repo
 }
 
-// NewWorktree creates a detached worktree checked out at the given commit-ish in
-// a fresh temp directory. Always pair with defer wt.Close().
+// NewWorktree creates a detached worktree checked out at the given object in a
+// fresh temp directory. `at` may be a commit-ish (the common case) or a raw
+// tree hash — the latter is useful when callers like BuildTreeFromHunks receive
+// a tree hash directly from Hunks/Repo.Hunks rather than a commit ref. Always
+// pair with defer wt.Close().
 func (r *Repo) NewWorktree(at string) (*Worktree, error) {
 	dir, err := os.MkdirTemp("", "regit-split-*")
 	if err != nil {
 		return nil, fmt.Errorf("create temp dir: %w", err)
 	}
+
+	// git worktree add only accepts a commit-ish, not a raw tree hash. When `at`
+	// is a tree object, create the worktree with --no-checkout and then populate
+	// it via read-tree so the index and working files match the requested tree.
+	objType, _ := r.git("cat-file", "-t", at)
+	if objType == "tree" {
+		// Create an empty detached worktree (files are NOT populated yet).
+		if _, err := r.git("worktree", "add", "--no-checkout", "--detach", "--quiet", dir, "HEAD"); err != nil {
+			os.RemoveAll(dir)
+			return nil, fmt.Errorf("git worktree add (no-checkout): %w", err)
+		}
+		wt := &Worktree{Dir: dir, repo: r}
+		// Populate index + working tree from the requested tree object.
+		if _, err := wt.git("read-tree", "--reset", "-u", at); err != nil {
+			wt.Close()
+			return nil, fmt.Errorf("read-tree for tree hash %s: %w", at, err)
+		}
+		return wt, nil
+	}
+
 	if _, err := r.git("worktree", "add", "--detach", "--quiet", dir, at); err != nil {
 		os.RemoveAll(dir)
 		return nil, fmt.Errorf("git worktree add: %w", err)
