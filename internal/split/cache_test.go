@@ -39,4 +39,21 @@ func TestFingerprint_changesWithInputs(t *testing.T) {
 	if a == Fingerprint("d", "m", "c", "other", 4) {
 		t.Fatal("fingerprint should change with userHint")
 	}
+	if a == Fingerprint("x", "m", "c", "h", 4) {
+		t.Fatal("fingerprint should change with diffHash")
+	}
+	if a == Fingerprint("d", "m", "z", "h", 4) {
+		t.Fatal("fingerprint should change with contextKey")
+	}
+}
+
+func TestCache_putRejectsEmptyCommitHash(t *testing.T) {
+	c := NewCache(t.TempDir())
+	fp := Fingerprint("d", "m", "c", "h", 4)
+	prop := model.SplitProposal{CommitHash: "abc", ShouldSplit: true}
+
+	err := c.Put(CacheEntry{Version: 1, CommitHash: "", Fingerprint: fp, Proposal: prop, CreatedAt: time.Unix(0, 0)})
+	if err == nil {
+		t.Fatal("expected error on empty commit hash")
+	}
 }

@@ -79,6 +79,9 @@ func (c *Cache) Get(commitHash, fingerprint string) (model.SplitProposal, bool) 
 // It always stamps Version = cacheVersion regardless of what the caller
 // passed in CacheEntry.Version, so the stored file is always self-consistent.
 func (c *Cache) Put(e CacheEntry) error {
+	if e.CommitHash == "" {
+		return fmt.Errorf("cache: refusing to write entry with empty commit hash")
+	}
 	if err := os.MkdirAll(c.dir, 0o755); err != nil {
 		return err
 	}
