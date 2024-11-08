@@ -65,10 +65,10 @@ func (r *Repo) ApplySplit(parentHash string, subs []SubCommit, tail []model.Comm
 		env := []string{
 			"GIT_AUTHOR_NAME=" + c.AuthorName,
 			"GIT_AUTHOR_EMAIL=" + c.AuthorEmail,
-			"GIT_AUTHOR_DATE=" + c.OrigAuthorDate.Format(time.RFC3339),
+			"GIT_AUTHOR_DATE=" + c.OrigAuthorDate.Format(gitDateFormat),
 			"GIT_COMMITTER_NAME=" + c.CommitterName,
 			"GIT_COMMITTER_EMAIL=" + c.CommitterEmail,
-			"GIT_COMMITTER_DATE=" + c.OrigCommitDate.Format(time.RFC3339),
+			"GIT_COMMITTER_DATE=" + c.OrigCommitDate.Format(gitDateFormat),
 		}
 		args := []string{"commit-tree", c.TreeHash}
 		for _, p := range newParents {
@@ -100,10 +100,10 @@ func (r *Repo) commitSub(s SubCommit, parent string, sign SignMode) (string, err
 	env := []string{
 		"GIT_AUTHOR_NAME=" + s.AuthorName,
 		"GIT_AUTHOR_EMAIL=" + s.AuthorEmail,
-		"GIT_AUTHOR_DATE=" + s.AuthorDate.Format(time.RFC3339),
+		"GIT_AUTHOR_DATE=" + s.AuthorDate.Format(gitDateFormat),
 		"GIT_COMMITTER_NAME=" + s.CommitterName,
 		"GIT_COMMITTER_EMAIL=" + s.CommitterEmail,
-		"GIT_COMMITTER_DATE=" + s.CommitDate.Format(time.RFC3339),
+		"GIT_COMMITTER_DATE=" + s.CommitDate.Format(gitDateFormat),
 	}
 	args := []string{"commit-tree", s.Tree, "-p", parent}
 	if sign == ReSign {

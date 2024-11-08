@@ -6,6 +6,63 @@ import (
 	"time"
 )
 
+// TestApplySplit_emptyTailSplittingHEAD covers the common case where the commit
+// being split IS the current HEAD (tail is nil/empty). The returned hash must
+// preserve the final tree byte-for-byte.
+func TestApplySplit_emptyTailSplittingHEAD(t *testing.T) {
+	repo, parent, _ := twoCommitRepo(t)
+	// HEAD is the child commit; read it so we can reuse its identity/dates.
+	commits, err := repo.ReadCommits() // root-first: [parent-commit, child-commit]
+	if err != nil {
+		t.Fatal(err)
+	}
+	childCommit := commits[1]
+
+	// Build a single sub-commit whose tree equals the child's tree (all hunks).
+	hs, err := repo.Hunks(parent, childCommit.TreeHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wt, err := repo.NewWorktree(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wt.Close()
+	fullTree, err := repo.BuildTreeFromHunks(parent, hs, wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	subs := []SubCommit{
+		{
+			Tree:          fullTree,
+			Subject:       "single piece",
+			AuthorName:    childCommit.AuthorName,
+			AuthorEmail:   childCommit.AuthorEmail,
+			CommitterName: childCommit.CommitterName,
+			CommitterEmail: childCommit.CommitterEmail,
+			AuthorDate:    childCommit.OrigAuthorDate,
+			CommitDate:    childCommit.OrigCommitDate,
+		},
+	}
+
+	oldHead := mustGit(t, repo, "rev-parse", "HEAD")
+	// nil tail: we are splitting HEAD itself, no downstream commits to replay.
+	newHead, err := repo.ApplySplit(childCommit.ParentHashes[0], subs, nil, DropSignatures)
+	if err != nil {
+		t.Fatalf("ApplySplit with empty tail: %v", err)
+	}
+	// Final tree must be byte-identical to the original HEAD tree.
+	if err := repo.VerifyTreesUnchanged(oldHead, newHead); err != nil {
+		t.Fatalf("final tree changed: %v", err)
+	}
+	// History must still have exactly 2 commits (parent + the single sub-commit).
+	count := mustGit(t, repo, "rev-list", "--count", newHead)
+	if count != "2" {
+		t.Fatalf("commit count = %s, want 2", count)
+	}
+}
+
 func TestApplySplit_twoSubsPreserveTailAndFinalTree(t *testing.T) {
 	repo, parent, child := twoCommitRepo(t)
 	// Add a tail commit after the child so we can prove the tail is preserved.
