@@ -2,6 +2,7 @@
 package split
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/wlame/regit/internal/gitio"
@@ -12,7 +13,13 @@ import (
 // C1 inherits the original commit's dates; each subsequent sub-commit increments
 // both author and committer dates by one second to stay strictly monotonic. WIP
 // groups get the configured prefix on their subject.
+//
+// Precondition: len(trees) == len(groups). A mismatch is a programmer error and
+// causes a panic with a descriptive message.
 func BuildSubCommits(c model.Commit, groups []model.HunkGroup, trees []string, wipPrefix string) []gitio.SubCommit {
+	if len(trees) != len(groups) {
+		panic(fmt.Sprintf("BuildSubCommits: %d trees for %d groups", len(trees), len(groups)))
+	}
 	subs := make([]gitio.SubCommit, len(groups))
 	for i, g := range groups {
 		offset := time.Duration(i) * time.Second

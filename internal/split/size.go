@@ -23,18 +23,18 @@ func EffectiveMaxCommits(hunks []model.Hunk, maxCommits, linesPerCommit int) int
 		linesPerCommit = 40
 	}
 	lines := changedLines(hunks)
-	cap := (lines + linesPerCommit - 1) / linesPerCommit // ceil
-	if cap < 2 {
-		cap = 2
+	computed := (lines + linesPerCommit - 1) / linesPerCommit // ceil
+	if computed < 2 {
+		computed = 2
 	}
-	if cap > maxCommits {
-		cap = maxCommits
+	if computed > maxCommits {
+		computed = maxCommits
 	}
-	return cap
+	return computed
 }
 
 // ShouldSkipSplit returns true (with a human reason) when a commit is not worth
-// splitting: too small, a single hunk in a single file, or a binary-only change.
+// splitting: too small, a single hunk, or a binary-only change.
 func ShouldSkipSplit(hunks []model.Hunk, minSplitLines int) (bool, string) {
 	if len(hunks) <= 1 {
 		return true, "only one hunk to split"
@@ -42,19 +42,14 @@ func ShouldSkipSplit(hunks []model.Hunk, minSplitLines int) (bool, string) {
 	if changedLines(hunks) < minSplitLines {
 		return true, "change is too small to split"
 	}
-	files := map[string]bool{}
 	allBinary := true
 	for _, h := range hunks {
-		files[h.File] = true
 		if !h.Binary {
 			allBinary = false
 		}
 	}
 	if allBinary {
 		return true, "binary-only change cannot be split by meaning"
-	}
-	if len(files) == 1 && len(hunks) == 1 {
-		return true, "single hunk in a single file"
 	}
 	return false, ""
 }

@@ -35,3 +35,20 @@ func TestBuildSubCommits_datesIncrementBySecond(t *testing.T) {
 		t.Errorf("trees mismatched: %q %q", subs[0].Tree, subs[1].Tree)
 	}
 }
+
+// TestBuildSubCommits_panicOnLengthMismatch asserts that passing a trees slice
+// whose length differs from groups causes a panic with a descriptive message.
+func TestBuildSubCommits_panicOnLengthMismatch(t *testing.T) {
+	panicked := false
+	func() {
+		defer func() {
+			if recover() != nil {
+				panicked = true
+			}
+		}()
+		BuildSubCommits(model.Commit{}, []model.HunkGroup{{Subject: "x"}}, []string{}, "")
+	}()
+	if !panicked {
+		t.Fatal("expected BuildSubCommits to panic on trees/groups length mismatch")
+	}
+}

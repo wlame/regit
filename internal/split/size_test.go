@@ -47,3 +47,16 @@ func TestShouldSkipSplit_binaryOnly(t *testing.T) {
 		t.Fatal("expected skip for binary-only change")
 	}
 }
+
+// TestShouldSkipSplit_twoHunksSingleFile asserts that a change with two hunks
+// confined to a single file is NOT skipped — splitting one file into multiple
+// commits is legitimate.
+func TestShouldSkipSplit_twoHunksSingleFile(t *testing.T) {
+	skip, _ := ShouldSkipSplit([]model.Hunk{
+		{ID: "H1", File: "a.go", Additions: 30},
+		{ID: "H2", File: "a.go", Additions: 30},
+	}, 20)
+	if skip {
+		t.Fatal("expected NOT to skip a two-hunk single-file change")
+	}
+}
