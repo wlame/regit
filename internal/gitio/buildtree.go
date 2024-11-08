@@ -24,6 +24,16 @@ func (r *Repo) BuildTreeFromHunks(parentTree string, selected []model.Hunk, wt *
 		return "", fmt.Errorf("reset worktree to parent: %w", err)
 	}
 
+	// Remove any untracked files left by a previous BuildTreeFromHunks call.
+	// read-tree --reset -u only restores tracked files; if a prior call applied
+	// a hunk that ADDED a new file (not present in parentTree), that file remains
+	// untracked after the reset and causes `git apply` to fail on the next call
+	// with "already exists in working directory". Cleaning first makes the
+	// worktree truly pristine before applying the new subset.
+	if _, err := wt.git("clean", "-fd"); err != nil {
+		return "", fmt.Errorf("clean worktree before apply: %w", err)
+	}
+
 	if len(selected) > 0 {
 		patch := assemblePatch(selected)
 		// Apply all hunks in one shot via stdin so git can resolve any
@@ -53,6 +63,8 @@ func (r *Repo) BuildTreeFromHunks(parentTree string, selected []model.Hunk, wt *
 // The input order of `selected` must already be the hunks' natural file+line
 // order (as produced by Hunks). The split engine sorts the cumulative subset by
 // each hunk's index in the full Hunks() slice before calling this.
+//
+// Must be called with at least one hunk; an empty slice produces an empty patch.
 func assemblePatch(selected []model.Hunk) string {
 	var b strings.Builder
 	var lastHeader string

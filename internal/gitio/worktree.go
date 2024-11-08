@@ -29,7 +29,11 @@ func (r *Repo) NewWorktree(at string) (*Worktree, error) {
 	// git worktree add only accepts a commit-ish, not a raw tree hash. When `at`
 	// is a tree object, create the worktree with --no-checkout and then populate
 	// it via read-tree so the index and working files match the requested tree.
-	objType, _ := r.git("cat-file", "-t", at)
+	objType, err := r.git("cat-file", "-t", at)
+	if err != nil {
+		os.RemoveAll(dir)
+		return nil, fmt.Errorf("resolve object type for %s: %w", at, err)
+	}
 	if objType == "tree" {
 		// Create an empty detached worktree (files are NOT populated yet).
 		if _, err := r.git("worktree", "add", "--no-checkout", "--detach", "--quiet", dir, "HEAD"); err != nil {
