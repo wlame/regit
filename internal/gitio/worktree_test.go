@@ -2,6 +2,8 @@
 package gitio
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -27,7 +29,7 @@ func TestNewWorktree_checksOutParentAndCleansUp(t *testing.T) {
 	if err := wt.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+	if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("worktree dir should be removed, stat err = %v", err)
 	}
 }
@@ -38,8 +40,9 @@ func TestEmptyTree_isWellKnownHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if et == "" {
-		t.Fatal("empty tree hash should not be blank")
+	const wantEmptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+	if et != wantEmptyTree {
+		t.Fatalf("EmptyTree = %q, want %q", et, wantEmptyTree)
 	}
 }
 

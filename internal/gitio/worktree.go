@@ -59,5 +59,6 @@ func (w *Worktree) Close() error {
 // EmptyTree returns the hash of git's empty tree object, used as the baseline
 // when splitting a root commit (which has no parent).
 func (r *Repo) EmptyTree() (string, error) {
+	// empty stdin → git's empty tree object
 	return r.gitWithEnvStdin(nil, "", "mktree")
 }
