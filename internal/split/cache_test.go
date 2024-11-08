@@ -1,0 +1,42 @@
+package split
+
+import (
+	"testing"
+	"time"
+
+	"github.com/wlame/regit/internal/model"
+)
+
+func TestCache_putThenGetHitAndMiss(t *testing.T) {
+	c := NewCache(t.TempDir())
+	fp := Fingerprint("difaaa", "openai/gpt-4o", "readme", "hint", 4)
+	prop := model.SplitProposal{CommitHash: "abc", ShouldSplit: true}
+
+	if _, ok := c.Get("abc", fp); ok {
+		t.Fatal("expected miss before put")
+	}
+	if err := c.Put(CacheEntry{Version: 1, CommitHash: "abc", Fingerprint: fp, Proposal: prop, CreatedAt: time.Unix(0, 0)}); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := c.Get("abc", fp)
+	if !ok {
+		t.Fatal("expected hit after put")
+	}
+	if !got.ShouldSplit {
+		t.Fatal("round-trip lost ShouldSplit")
+	}
+	// Different fingerprint must miss.
+	if _, ok := c.Get("abc", Fingerprint("difaaa", "ollama/x", "readme", "hint", 4)); ok {
+		t.Fatal("expected miss on fingerprint change")
+	}
+}
+
+func TestFingerprint_changesWithInputs(t *testing.T) {
+	a := Fingerprint("d", "m", "c", "h", 4)
+	if a == Fingerprint("d", "m", "c", "h", 3) {
+		t.Fatal("fingerprint should change with maxCommits")
+	}
+	if a == Fingerprint("d", "m", "c", "other", 4) {
+		t.Fatal("fingerprint should change with userHint")
+	}
+}
