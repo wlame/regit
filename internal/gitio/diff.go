@@ -35,6 +35,18 @@ func parseDiff(diff string) []model.Hunk {
 			})
 			continue
 		}
+		if len(bodies) == 0 {
+			// Mode-only sections (e.g. chmod +x) emit "old mode"/"new mode" header lines
+			// but no @@ hunks. We still need a Hunk so the downstream "rebuilt tree ==
+			// original tree" invariant holds: git apply reads the mode change from
+			// FileHeader when Body is empty. Mark Binary=true so it is never sub-split.
+			n++
+			hunks = append(hunks, model.Hunk{
+				ID: fmt.Sprintf("H%d", n), File: file, OldPath: oldPath,
+				FileHeader: header, Body: "", Binary: true,
+			})
+			continue
+		}
 		for _, b := range bodies {
 			n++
 			add, del := countChanges(b)
@@ -105,21 +117,82 @@ func splitHunkBodies(section string) (header string, bodies []string, binary boo
 }
 
 // parsePaths extracts the post-image path and (for renames) the pre-image path
-// from a section's "diff --git a/<old> b/<new>" line.
+// from a diff section. Strategy (in priority order):
+//
+//  1. "rename from"/"rename to" lines — authoritative for renames.
+//  2. "--- a/<old>" and "+++ b/<new>" lines — correct even for paths with spaces.
+//  3. The "diff --git a/<old> b/<new>" line as a last resort (breaks on spaces).
+//
+// /dev/null in the --- line means an add (no old path); /dev/null in the +++
+// line means a delete (file is gone in the new tree).
 func parsePaths(section string) (file, oldPath string) {
+	var diffGitA, diffGitB string // fallback from the diff --git line
+	var renameFrom, renameTo string
+	var minusPath, plusPath string
+
 	for _, ln := range strings.Split(section, "\n") {
-		if strings.HasPrefix(ln, "diff --git ") {
-			fields := strings.Fields(strings.TrimPrefix(ln, "diff --git "))
+		switch {
+		case strings.HasPrefix(ln, "diff --git "):
+			// Fallback only — does not handle spaces in filenames correctly.
+			rest := strings.TrimPrefix(ln, "diff --git ")
+			// The line is "a/<old> b/<new>" but paths may contain spaces, so we
+			// cannot simply split on whitespace. We rely on the higher-priority
+			// sources above whenever they are present.
+			fields := strings.Fields(rest)
 			if len(fields) == 2 {
-				a := strings.TrimPrefix(fields[0], "a/")
-				b := strings.TrimPrefix(fields[1], "b/")
-				if a != b {
-					oldPath = a
-				}
-				return b, oldPath
+				diffGitA = strings.TrimPrefix(fields[0], "a/")
+				diffGitB = strings.TrimPrefix(fields[1], "b/")
+			}
+
+		case strings.HasPrefix(ln, "rename from "):
+			renameFrom = strings.TrimPrefix(ln, "rename from ")
+
+		case strings.HasPrefix(ln, "rename to "):
+			renameTo = strings.TrimPrefix(ln, "rename to ")
+
+		case strings.HasPrefix(ln, "--- "):
+			// Git appends a trailing tab when the filename contains a space;
+			// strip it so path comparisons work correctly.
+			p := strings.TrimRight(strings.TrimPrefix(ln, "--- "), "\t")
+			if p != "/dev/null" {
+				minusPath = strings.TrimPrefix(p, "a/")
+			}
+
+		case strings.HasPrefix(ln, "+++ "):
+			// Same trailing-tab convention as the --- line above.
+			p := strings.TrimRight(strings.TrimPrefix(ln, "+++ "), "\t")
+			if p != "/dev/null" {
+				plusPath = strings.TrimPrefix(p, "b/")
 			}
 		}
 	}
+
+	// Renames: git emits explicit "rename from/to" lines.
+	if renameFrom != "" || renameTo != "" {
+		return renameTo, renameFrom
+	}
+
+	// Normal text diffs: prefer the --- / +++ lines (handle spaces correctly).
+	if plusPath != "" {
+		// minusPath is empty only for pure additions (--- /dev/null).
+		if minusPath != "" && minusPath != plusPath {
+			oldPath = minusPath
+		}
+		return plusPath, oldPath
+	}
+	if minusPath != "" {
+		// Pure deletion (no +++ b/... line).
+		return minusPath, ""
+	}
+
+	// Last resort: the diff --git line (breaks on spaces but beats returning "").
+	if diffGitB != "" {
+		if diffGitA != "" && diffGitA != diffGitB {
+			oldPath = diffGitA
+		}
+		return diffGitB, oldPath
+	}
+
 	return "", ""
 }
 
