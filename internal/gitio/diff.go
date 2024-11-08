@@ -7,11 +7,17 @@ import (
 	"github.com/wlame/regit/internal/model"
 )
 
+// diffFlags are the flags passed to `git diff` whenever we generate a diff.
+// They are a single source of truth shared by Hunks() and the round-trip tests.
+var diffFlags = []string{"--no-color", "--no-ext-diff", "-U3", "--binary"}
+
 // Hunks parses diff(parentTree, commitTree) into stable-ID hunks. It uses
 // `git diff --binary` so binary changes carry an applyable binary patch; those
 // become a single whole-file Hunk with Binary=true (never sub-split).
 func (r *Repo) Hunks(parentTree, commitTree string) ([]model.Hunk, error) {
-	out, err := r.gitRaw("diff", "--binary", "--no-color", "--no-ext-diff", "-U3", parentTree, commitTree)
+	args := append([]string{"diff"}, diffFlags...)
+	args = append(args, parentTree, commitTree)
+	out, err := r.gitRaw(args...)
 	if err != nil {
 		return nil, err
 	}

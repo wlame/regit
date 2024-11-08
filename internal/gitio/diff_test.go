@@ -105,7 +105,9 @@ func TestHunks_twoNonAdjacentHunks(t *testing.T) {
 		lines[i] = "line\n"
 	}
 	content := strings.Join(lines, "")
-	os.WriteFile(filepath.Join(dir, "big.txt"), []byte(content), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "big.txt"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	gitT(t, dir, "add", "-A")
 	parent := snapTree(t, dir, "parent")
 
@@ -114,7 +116,6 @@ func TestHunks_twoNonAdjacentHunks(t *testing.T) {
 	edited := strings.Replace(string(contentBytes), lines[0], "CHANGED_TOP\n", 1)
 	// Replace the 45th occurrence of "line\n".
 	count := 0
-	edited = strings.Map(func(r rune) rune { return r }, edited) // identity, just to get a string
 	idx := 0
 	for i := 0; i < 50; i++ {
 		pos := strings.Index(edited[idx:], "line\n")
@@ -129,7 +130,9 @@ func TestHunks_twoNonAdjacentHunks(t *testing.T) {
 		}
 		idx += pos + len("line\n")
 	}
-	os.WriteFile(filepath.Join(dir, "big.txt"), []byte(edited), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "big.txt"), []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	gitT(t, dir, "add", "-A")
 	child := snapTree(t, dir, "child")
 
@@ -157,7 +160,10 @@ func TestHunks_twoNonAdjacentHunks(t *testing.T) {
 	}
 
 	// Round-trip: FileHeader + concatenated bodies must equal what git diff produced.
-	rawDiff, err := repo.gitRaw("diff", "--no-color", "--no-ext-diff", "-U3", parent, child)
+	// Use diffFlags so the test and Hunks() can never diverge on flags.
+	rawArgs := append([]string{"diff"}, diffFlags...)
+	rawArgs = append(rawArgs, parent, child)
+	rawDiff, err := repo.gitRaw(rawArgs...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +224,9 @@ func TestHunks_binaryFile(t *testing.T) {
 func TestHunks_rename(t *testing.T) {
 	dir, repo := initRepo(t)
 
-	os.WriteFile(filepath.Join(dir, "old.txt"), []byte("content\n"), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "old.txt"), []byte("content\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	gitT(t, dir, "add", "-A")
 	parent := snapTree(t, dir, "parent")
 
@@ -227,6 +235,8 @@ func TestHunks_rename(t *testing.T) {
 		t.Fatal(err)
 	}
 	gitT(t, dir, "add", "-A")
+	// Pass --find-renames so git reliably emits a rename diff rather than a delete+add.
+	gitT(t, dir, "diff", "--cached", "--find-renames", "--name-status")
 	child := snapTree(t, dir, "child")
 
 	hs, err := repo.Hunks(parent, child)
@@ -247,9 +257,13 @@ func TestHunks_rename(t *testing.T) {
 	}
 	if !found {
 		// If git emitted a delete + add instead of a rename (possible without
-		// --find-renames), that's acceptable for this test: just verify paths.
+		// --find-renames), that's acceptable: verify paths and that /dev/null
+		// is never used as a file path in the returned hunks.
 		var sawOld, sawNew bool
 		for _, h := range hs {
+			if h.File == "/dev/null" {
+				t.Fatalf("hunk %s has File==/dev/null; parser must not expose the sentinel as a path", h.ID)
+			}
 			if h.File == "old.txt" {
 				sawOld = true
 			}
@@ -260,6 +274,14 @@ func TestHunks_rename(t *testing.T) {
 		if !sawOld && !sawNew {
 			t.Fatalf("expected hunks for old.txt or new.txt, got %v", hs)
 		}
+		// The hunk for the deleted file must carry the original name.
+		for _, h := range hs {
+			if h.OldPath == "old.txt" || h.File == "old.txt" {
+				// Confirmed: parser preserved the original name.
+				return
+			}
+		}
+		t.Fatalf("no hunk references old.txt in File or OldPath; got %v", hs)
 	}
 }
 
