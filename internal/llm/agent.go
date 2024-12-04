@@ -40,6 +40,10 @@ func (b *AgentBackend) Name() string { return "agent:" + b.command }
 //
 // The subprocess is run under the caller's context, so a deadline or
 // cancellation propagates as a process kill via exec.CommandContext.
+//
+// The schema parameter is not forwarded to the agent CLI; the agent backend
+// relies on the prompt instruction ("Return ONLY the JSON object") rather
+// than a --json-schema flag to constrain output format.
 func (b *AgentBackend) Propose(ctx context.Context, req SplitRequest, schema []byte) (model.SplitProposal, error) {
 	system, user := BuildMessages(req)
 	// Combine system + user text into a single stdin payload. Agent CLIs such
@@ -72,7 +76,7 @@ func unwrapAgentJSON(out string) string {
 		Result           string          `json:"result"`
 	}
 	if err := json.Unmarshal([]byte(out), &env); err == nil {
-		if len(env.StructuredOutput) > 0 {
+		if len(env.StructuredOutput) > 0 && string(env.StructuredOutput) != "null" {
 			return string(env.StructuredOutput)
 		}
 		if env.Result != "" {

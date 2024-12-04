@@ -36,3 +36,31 @@ func TestAgentBackend_parsesStructuredOutput(t *testing.T) {
 		t.Fatalf("want 1 group, got %d", len(prop.Groups))
 	}
 }
+
+func TestAgentBackend_parsesResultField(t *testing.T) {
+	// Envelope with "result" string field containing the JSON.
+	body := `{"result":"{\"should_split\":true,\"groups\":[{\"order\":1,\"hunk_ids\":[\"H1\",\"H2\"],\"subject\":\"all\"}]}"}`
+	stub := writeStub(t, body)
+	b := NewAgentBackend(stub, nil)
+	prop, err := b.Propose(context.Background(), sampleReq(), SchemaJSON())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prop.Groups) != 1 {
+		t.Fatalf("want 1 group, got %d", len(prop.Groups))
+	}
+}
+
+func TestAgentBackend_parsesBareJSON(t *testing.T) {
+	// Raw JSON object without envelope (agent CLI emits bare JSON).
+	body := `{"should_split":true,"groups":[{"order":1,"hunk_ids":["H1","H2"],"subject":"all"}]}`
+	stub := writeStub(t, body)
+	b := NewAgentBackend(stub, nil)
+	prop, err := b.Propose(context.Background(), sampleReq(), SchemaJSON())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prop.Groups) != 1 {
+		t.Fatalf("want 1 group, got %d", len(prop.Groups))
+	}
+}
