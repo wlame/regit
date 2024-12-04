@@ -60,7 +60,7 @@ func TestLoad_fileAndEnvOverrides(t *testing.T) {
 	os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte(yaml), 0o644)
 
 	t.Setenv("XDG_CONFIG_HOME", dir)
-	t.Setenv("GHIST_DEFAULT_STRATEGY", "Even Spread") // env beats file
+	t.Setenv("REGIT_DEFAULT_STRATEGY", "Even Spread") // env beats file
 
 	c, err := Load()
 	if err != nil {
@@ -79,12 +79,12 @@ func TestLoad_fileAndEnvOverrides(t *testing.T) {
 
 func TestLoad_allEnvOverrides(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // no file
-	t.Setenv("GHIST_TIMEZONE", "UTC")
-	t.Setenv("GHIST_WORKDAY_START", "07:30")
-	t.Setenv("GHIST_WORKDAY_END", "19:00")
-	t.Setenv("GHIST_DEFAULT_TIME_MODEL", "Evening")
-	t.Setenv("GHIST_SEED", "42")
-	t.Setenv("GHIST_LINK_DATES", "false")
+	t.Setenv("REGIT_TIMEZONE", "UTC")
+	t.Setenv("REGIT_WORKDAY_START", "07:30")
+	t.Setenv("REGIT_WORKDAY_END", "19:00")
+	t.Setenv("REGIT_DEFAULT_TIME_MODEL", "Evening")
+	t.Setenv("REGIT_SEED", "42")
+	t.Setenv("REGIT_LINK_DATES", "false")
 
 	c, err := Load()
 	if err != nil {
@@ -128,5 +128,39 @@ func TestLoad_missingFileUsesDefaults(t *testing.T) {
 	}
 	if c.DefaultStrategy != "Even Spread" {
 		t.Errorf("expected default strategy, got %s", c.DefaultStrategy)
+	}
+}
+
+func TestLoad_splitDefaults(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // no file → defaults
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Split.MaxCommits != 4 || cfg.Split.LinesPerCommit != 40 {
+		t.Fatalf("unexpected split defaults: %+v", cfg.Split)
+	}
+	if cfg.Split.WIPPrefix != "WIP: " {
+		t.Fatalf("wip prefix = %q", cfg.Split.WIPPrefix)
+	}
+}
+
+func TestLoad_regitEnvPrefixOverrides(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("REGIT_TIMEZONE", "UTC")
+	t.Setenv("REGIT_SPLIT_MAX_COMMITS", "3")
+	t.Setenv("REGIT_LLM_PROVIDER", "ollama")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Timezone != "UTC" {
+		t.Fatalf("timezone = %q", cfg.Timezone)
+	}
+	if cfg.Split.MaxCommits != 3 {
+		t.Fatalf("split max = %d", cfg.Split.MaxCommits)
+	}
+	if cfg.LLM.Provider != "ollama" {
+		t.Fatalf("llm provider = %q", cfg.LLM.Provider)
 	}
 }

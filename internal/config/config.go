@@ -14,6 +14,28 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// LLMConfig configures the optional LLM used for commit splitting. Off unless a
+// provider/model is set or --llm is passed. API keys come only from env.
+type LLMConfig struct {
+	Provider    string  `yaml:"provider"`
+	Model       string  `yaml:"model"`
+	BaseURL     string  `yaml:"base_url"`
+	Temperature float64 `yaml:"temperature"`
+	TimeoutSec  int     `yaml:"timeout_sec"`
+}
+
+// SplitConfig holds defaults for the commit-splitting feature.
+type SplitConfig struct {
+	MaxCommits     int      `yaml:"max_commits"`
+	LinesPerCommit int      `yaml:"lines_per_commit"`
+	MinSplitLines  int      `yaml:"min_split_lines"`
+	RecursionDepth int      `yaml:"recursion_depth"`
+	Context        []string `yaml:"context"`
+	RepairAttempts int      `yaml:"repair_attempts"`
+	WIPPrefix      string   `yaml:"wip_prefix"`
+	Cache          bool     `yaml:"cache"`
+}
+
 // Config holds every default the TUI seeds its forms with. Times-of-day are
 // stored as "HH:MM" strings for human-friendly YAML and parsed to minutes via
 // the accessor methods.
@@ -47,6 +69,12 @@ type Config struct {
 	// Seed makes randomized strategies reproducible across a session. Zero means
 	// "derive from the current time" (resolved by the caller, not here).
 	Seed int64 `yaml:"seed"`
+
+	// LLM configures the optional language model used for commit splitting.
+	LLM LLMConfig `yaml:"llm"`
+
+	// Split configures default parameters for the commit-splitting feature.
+	Split SplitConfig `yaml:"split"`
 }
 
 // Default returns the built-in configuration used when nothing overrides it.
@@ -63,6 +91,17 @@ func Default() Config {
 		LinkDates:        true,
 		Weekdays:         []string{"mon", "tue", "wed", "thu", "fri"},
 		Seed:             0,
+		LLM:              LLMConfig{Temperature: 0, TimeoutSec: 60},
+		Split: SplitConfig{
+			MaxCommits:     4,
+			LinesPerCommit: 40,
+			MinSplitLines:  20,
+			RecursionDepth: 2,
+			Context:        []string{"readme"},
+			RepairAttempts: 2,
+			WIPPrefix:      "WIP: ",
+			Cache:          true,
+		},
 	}
 }
 
@@ -94,32 +133,43 @@ func configPath() string {
 	return filepath.Join(base, "regit", "config.yaml")
 }
 
-// applyEnvOverrides lets GHIST_* variables win over the file, which is handy for
+// applyEnvOverrides lets REGIT_* variables win over the file, which is handy for
 // one-off runs and CI without editing the YAML.
 func applyEnvOverrides(cfg *Config) {
-	if v := os.Getenv("GHIST_TIMEZONE"); v != "" {
+	if v := os.Getenv("REGIT_TIMEZONE"); v != "" {
 		cfg.Timezone = v
 	}
-	if v := os.Getenv("GHIST_WORKDAY_START"); v != "" {
+	if v := os.Getenv("REGIT_WORKDAY_START"); v != "" {
 		cfg.WorkdayStart = v
 	}
-	if v := os.Getenv("GHIST_WORKDAY_END"); v != "" {
+	if v := os.Getenv("REGIT_WORKDAY_END"); v != "" {
 		cfg.WorkdayEnd = v
 	}
-	if v := os.Getenv("GHIST_DEFAULT_STRATEGY"); v != "" {
+	if v := os.Getenv("REGIT_DEFAULT_STRATEGY"); v != "" {
 		cfg.DefaultStrategy = v
 	}
-	if v := os.Getenv("GHIST_DEFAULT_TIME_MODEL"); v != "" {
+	if v := os.Getenv("REGIT_DEFAULT_TIME_MODEL"); v != "" {
 		cfg.DefaultTimeModel = v
 	}
-	if v := os.Getenv("GHIST_SEED"); v != "" {
+	if v := os.Getenv("REGIT_SEED"); v != "" {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
 			cfg.Seed = n
 		}
 	}
-	if v := os.Getenv("GHIST_LINK_DATES"); v != "" {
+	if v := os.Getenv("REGIT_LINK_DATES"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
 			cfg.LinkDates = b
+		}
+	}
+	if v := os.Getenv("REGIT_LLM_PROVIDER"); v != "" {
+		cfg.LLM.Provider = v
+	}
+	if v := os.Getenv("REGIT_LLM_MODEL"); v != "" {
+		cfg.LLM.Model = v
+	}
+	if v := os.Getenv("REGIT_SPLIT_MAX_COMMITS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Split.MaxCommits = n
 		}
 	}
 }
