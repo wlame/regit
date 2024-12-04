@@ -19,7 +19,7 @@ type Options struct {
 	MaxCommits     int
 	LinesPerCommit int
 	MinSplitLines  int
-	RepairAttempts int
+	RepairAttempts int // 0 means never attempt repair — a failing stage is immediately marked WIP.
 	WIPPrefix      string
 	UserHint       string
 	// ContextKey is mixed into the cache fingerprint (e.g. "readme") so that
@@ -115,6 +115,7 @@ func (e *Engine) Propose(ctx context.Context, commit model.Commit, parentTree, r
 
 	// Cache the validated proposal so the next call with identical inputs skips
 	// the backend. Use opts.Now as CreatedAt so the engine never reads the clock.
+	// Cache write failure is non-fatal; the next run simply re-requests the proposal.
 	_ = e.cache.Put(CacheEntry{
 		CommitHash:  commit.Hash,
 		Fingerprint: fp,
@@ -142,6 +143,8 @@ func (e *Engine) buildAndValidate(ctx context.Context, commit model.Commit, pare
 	// early with a clear message rather than blaming the split.
 	if len(opts.TestCmd) > 0 {
 		// Apply ALL hunks to bring the worktree to the full child state.
+		// BuildTreeFromHunks resets the worktree to parentTree on each call,
+		// so subsequent calls overwrite the baseline state.
 		if _, err := e.repo.BuildTreeFromHunks(parentTree, prop.Hunks, wt); err != nil {
 			return nil, err
 		}

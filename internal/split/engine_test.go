@@ -29,6 +29,18 @@ func (f fixedBackend) Propose(_ context.Context, req llm.SplitRequest, _ []byte)
 // backendReturning wraps a fixed proposal in a llm.Backend.
 func backendReturning(p model.SplitProposal) llm.Backend { return fixedBackend{p: p} }
 
+// countingBackend tracks how many times Propose is called.
+// It fails the test if Propose is invoked.
+type countingBackend struct {
+	t *testing.T
+}
+
+func (c countingBackend) Name() string { return "counting" }
+func (c countingBackend) Propose(_ context.Context, _ llm.SplitRequest, _ []byte) (model.SplitProposal, error) {
+	c.t.Fatal("Propose should not be called when skipping small commits")
+	return model.SplitProposal{}, nil
+}
+
 // idsFrom extracts hunk IDs from a slice of Hunks.
 func idsFrom(hs []model.Hunk) []string {
 	out := make([]string, len(hs))
@@ -146,5 +158,41 @@ func TestEngine_proposeBuildsTreesAndVerifiesFinal(t *testing.T) {
 	}
 	if !got.ShouldSplit || len(got.Groups) != 2 {
 		t.Fatalf("unexpected proposal: %+v", got)
+	}
+}
+
+func TestEngine_proposeSkipsSmallCommit(t *testing.T) {
+	repo, parent, _ := newSplittableRepo(t)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	childCommit := commits[1]
+
+	// Set MinSplitLines very high so the commit is skipped.
+	eng := NewEngine(repo, countingBackend{t: t}, NewCache(t.TempDir()))
+	opts := Options{
+		MaxCommits:     4,
+		LinesPerCommit: 1,
+		MinSplitLines:  100000, // Much larger than the 2-line child commit.
+		RepairAttempts: 2,
+		WIPPrefix:      "WIP: ",
+		Now:            time.Unix(0, 0),
+	}
+
+	got, trees, err := eng.Propose(context.Background(), childCommit, parent, "", opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Should skip: ShouldSplit is false, trees slice is nil, no backend call.
+	if got.ShouldSplit {
+		t.Fatal("expected ShouldSplit=false for small commit")
+	}
+	if trees != nil {
+		t.Fatalf("expected nil trees for skipped proposal, got %v", trees)
+	}
+	if got.Reason == "" {
+		t.Fatal("expected Reason to be set for skipped proposal")
 	}
 }
