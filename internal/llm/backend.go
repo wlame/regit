@@ -19,7 +19,7 @@ type SplitRequest struct {
 	CommitMessage string
 	Hunks         []model.Hunk
 	Readme        string
-	FileStates    map[string]string
+	FileStates    map[string]string // reserved for future context (e.g. file mode, binary flag); not yet rendered into prompts
 	MaxCommits    int
 	UserHint      string
 	Examples      []FewShot

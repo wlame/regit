@@ -39,6 +39,31 @@ func TestHTTPBackend_validJSON_parsesProposal(t *testing.T) {
 	}
 }
 
+func TestHTTPBackend_shouldSplitFalse_skipsValidation(t *testing.T) {
+	// When the model decides the commit is already small enough it returns
+	// should_split=false with an empty groups array. ParseAndValidate must
+	// not run coverage validation in that case (there are no groups to check),
+	// so Propose should succeed without error.
+	body := `{"choices":[{"message":{"content":"{\"should_split\":false,\"groups\":[],\"reason\":\"too small\"}"}}]}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	b := NewHTTPBackend(srv.URL, "test-model", "", 5*time.Second)
+	prop, err := b.Propose(context.Background(), sampleReq(), SchemaJSON())
+	if err != nil {
+		t.Fatalf("expected no error for should_split=false, got %v", err)
+	}
+	if prop.ShouldSplit {
+		t.Fatal("expected ShouldSplit==false")
+	}
+	if len(prop.Groups) != 0 {
+		t.Fatalf("expected empty groups, got %d", len(prop.Groups))
+	}
+}
+
 func TestHTTPBackend_badThenGoodJSON_retries(t *testing.T) {
 	calls := 0
 	good := `{"choices":[{"message":{"content":"{\"should_split\":true,\"groups\":[{\"order\":1,\"hunk_ids\":[\"H1\",\"H2\"],\"subject\":\"all\"}]}"}}]}`

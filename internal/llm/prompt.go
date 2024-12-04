@@ -103,6 +103,11 @@ func ParseAndValidate(raw string, hunks []model.Hunk) (model.SplitProposal, erro
 
 // extractJSON returns the substring from the first '{' to the last '}'.
 // Returns "" when no balanced object is found.
+//
+// This is a first-'{'/last-'}' heuristic, not a full JSON parser: it tolerates
+// models that prefix their answer with reasoning prose, but it does not handle
+// nested unbalanced braces in string literals. Malformed spans are caught by the
+// caller's json.Unmarshal; on failure Propose retries with a stronger prompt.
 func extractJSON(s string) string {
 	i := strings.Index(s, "{")
 	j := strings.LastIndex(s, "}")

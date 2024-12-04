@@ -53,6 +53,9 @@ func (b *HTTPBackend) Propose(ctx context.Context, req SplitRequest, schema []by
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		raw, err := b.call(ctx, system, user, schema)
 		if err != nil {
+			// Transport-level error (network failure, timeout, non-200 HTTP status).
+			// Retrying with the unchanged prompt is correct here: there is nothing
+			// useful to tell the model about a network hiccup.
 			lastErr = err
 			continue
 		}
@@ -107,7 +110,10 @@ func (b *HTTPBackend) call(ctx context.Context, system, user string, schema []by
 			},
 		},
 	}
-	body, _ := json.Marshal(payload)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal chat request: %w", err)
+	}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, b.baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return "", err
@@ -123,7 +129,10 @@ func (b *HTTPBackend) call(ctx context.Context, system, user string, schema []by
 		return "", err
 	}
 	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read chat response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("llm http %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
 	}
