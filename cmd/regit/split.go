@@ -138,6 +138,22 @@ func runSplit(repoDir string, args []string) error {
 		return fmt.Errorf("resolve parent tree: %w", err)
 	}
 
+	opts := buildOptions(cfg, f)
+
+	// Decide whether the commit is even worth splitting BEFORE requiring an LLM.
+	// Trivial/no-op cases (too small, single hunk, binary-only, pure rename) need
+	// no model, so we must not error out with "no LLM configured" for them. This
+	// mirrors the engine's own ShouldSkipSplit guard; the engine re-checks it for
+	// the TUI path, so this is a cheap CLI-side pre-filter, not the source of truth.
+	hunks, err := repo.Hunks(parentTree, target.TreeHash)
+	if err != nil {
+		return fmt.Errorf("read commit diff: %w", err)
+	}
+	if skip, reason := split.ShouldSkipSplit(hunks, opts.MinSplitLines); skip {
+		fmt.Printf("Not splitting %s: %s\n", short(target.Hash), reason)
+		return nil
+	}
+
 	backend, err := buildBackend(cfg, f)
 	if err != nil {
 		return err
@@ -162,7 +178,6 @@ func runSplit(repoDir string, args []string) error {
 	}
 
 	eng := split.NewEngine(repo, backend, cache)
-	opts := buildOptions(cfg, f)
 	readme := readmeIfRequested(repo, cfg)
 
 	prop, trees, err := eng.Propose(context.Background(), target, parentTree, readme, opts)
