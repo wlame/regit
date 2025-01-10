@@ -123,6 +123,10 @@ It operates on diff hunks and git tree objects — language-agnostic by design.
 regit split <commit-ish>          # commit to split (default: HEAD)
   --llm=ollama/qwen2.5-coder      # or openai/gpt-4o, openrouter/..., lmstudio/...
   --agent=claude                  # drive an agent CLI instead of HTTP
+                                  # (uses --json-schema/--bare for reliable structured output)
+  --agent-args="-p --output-format json {schema}"
+                                  # replace default agent args; {schema} is substituted
+                                  # with the inline JSON schema at runtime
   --llm-base-url=<url>            # override the inferred OpenAI-compatible endpoint
   --max-commits=4                 # clamp on resulting commits (auto-scales with diff size)
   --prompt="keep tests separate"  # short user guidance passed to the LLM

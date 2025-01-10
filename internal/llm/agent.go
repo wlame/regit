@@ -11,20 +11,29 @@ import (
 	"github.com/wlame/regit/internal/model"
 )
 
+// SchemaPlaceholder is the token replaced at runtime with the inline JSON
+// schema string when constructing the agent subprocess arguments. Callers who
+// build custom args slices may include this token where --json-schema's value
+// should appear; Propose substitutes it with the actual schema JSON.
+const SchemaPlaceholder = "{schema}"
+
 // AgentBackend drives a local agent CLI (default: `claude -p --output-format
-// json`) as a subprocess. The full prompt is fed on stdin; the agent's JSON
-// envelope is parsed and its structured_output (or message text) validated.
+// json --bare --json-schema <schema>`) as a subprocess. The full prompt is fed
+// on stdin; the agent's JSON envelope is parsed and its structured_output (or
+// message text) validated.
 type AgentBackend struct {
 	command string
 	args    []string
 }
 
 // NewAgentBackend builds an agent backend. When args is nil it defaults to the
-// Claude Code headless invocation flags: -p (print mode) and --output-format
-// json so the agent emits a machine-readable JSON envelope on stdout.
+// Claude Code headless invocation flags: -p (print mode), --output-format json
+// (machine-readable envelope), --bare (skip CLAUDE.md/hooks/plugins/MCP for
+// deterministic output), and --json-schema with the SchemaPlaceholder token
+// (substituted with the actual inline schema JSON at call time in Propose).
 func NewAgentBackend(command string, args []string) *AgentBackend {
 	if args == nil {
-		args = []string{"-p", "--output-format", "json"}
+		args = []string{"-p", "--output-format", "json", "--bare", "--json-schema", SchemaPlaceholder}
 	}
 	return &AgentBackend{command: command, args: args}
 }
@@ -41,9 +50,11 @@ func (b *AgentBackend) Name() string { return "agent:" + b.command }
 // The subprocess is run under the caller's context, so a deadline or
 // cancellation propagates as a process kill via exec.CommandContext.
 //
-// The schema parameter is not forwarded to the agent CLI; the agent backend
-// relies on the prompt instruction ("Return ONLY the JSON object") rather
-// than a --json-schema flag to constrain output format.
+// Any element of b.args equal to SchemaPlaceholder ("{schema}") is replaced
+// with the inline schema JSON (the value of schema) before the subprocess is
+// launched, forwarding it as the argument to --json-schema per claude's API.
+// If no element matches the placeholder, the schema is not forwarded (back-
+// compat path for custom agents that handle schema in another way).
 func (b *AgentBackend) Propose(ctx context.Context, req SplitRequest, schema []byte) (model.SplitProposal, error) {
 	system, user := BuildMessages(req)
 	// Combine system + user text into a single stdin payload. Agent CLIs such
@@ -52,7 +63,18 @@ func (b *AgentBackend) Propose(ctx context.Context, req SplitRequest, schema []b
 	// constraint communicated to HTTP backends via the ResponseFormat field.
 	prompt := system + "\n\n" + user + "\n\nReturn ONLY the JSON object."
 
-	cmd := exec.CommandContext(ctx, b.command, b.args...)
+	// Build the runtime args by substituting any SchemaPlaceholder element with
+	// the inline schema JSON. We copy b.args so the backend is reusable across
+	// concurrent Propose calls without data races.
+	runtimeArgs := make([]string, len(b.args))
+	copy(runtimeArgs, b.args)
+	for i, arg := range runtimeArgs {
+		if arg == SchemaPlaceholder {
+			runtimeArgs[i] = string(schema)
+		}
+	}
+
+	cmd := exec.CommandContext(ctx, b.command, runtimeArgs...)
 	cmd.Stdin = bytes.NewReader([]byte(prompt))
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr

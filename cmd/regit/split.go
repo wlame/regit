@@ -26,6 +26,9 @@ type splitFlags struct {
 	LLM string
 	// Agent is the agent CLI binary to use instead of an HTTP backend.
 	Agent string
+	// AgentArgs, when non-empty, replaces the default agent invocation args.
+	// Use the literal {schema} token where the JSON schema should be injected.
+	AgentArgs string
 	// BaseURL overrides the inferred OpenAI-compatible endpoint.
 	BaseURL string
 	// Prompt is a short user hint passed into the LLM request.
@@ -68,6 +71,7 @@ func parseSplitFlags(args []string) (splitFlags, error) {
 	fs.StringVar(&f.Repo, "repo", ".", "path to the git repository")
 	fs.StringVar(&f.LLM, "llm", "", "provider/model, e.g. ollama/qwen2.5-coder")
 	fs.StringVar(&f.Agent, "agent", "", "agent CLI to drive, e.g. claude")
+	fs.StringVar(&f.AgentArgs, "agent-args", "", "space-separated args that replace the default agent invocation; use the literal {schema} token where the JSON schema should be injected")
 	fs.StringVar(&f.BaseURL, "llm-base-url", "", "override OpenAI-compatible endpoint")
 	fs.StringVar(&f.Prompt, "prompt", "", "short guidance passed to the LLM")
 	fs.IntVar(&f.MaxCommits, "max-commits", 0, "max resulting commits (0 = config default)")
@@ -225,6 +229,14 @@ func runSplit(repoDir string, args []string) error {
 func buildBackend(cfg config.Config, f splitFlags) (llm.Backend, error) {
 	// --agent wins over --llm and config.
 	if f.Agent != "" {
+		// When --agent-args is provided it entirely replaces the default
+		// invocation args; strings.Fields splits on whitespace so the {schema}
+		// token (a single field) is passed through as-is and substituted with
+		// the inline schema JSON at runtime inside Propose.
+		if f.AgentArgs != "" {
+			return llm.NewAgentBackend(f.Agent, strings.Fields(f.AgentArgs)), nil
+		}
+		// No custom args: use the default that includes --json-schema and --bare.
 		return llm.NewAgentBackend(f.Agent, nil), nil
 	}
 

@@ -48,6 +48,21 @@ func TestParseSplitFlags_repoFlag(t *testing.T) {
 	}
 }
 
+// TestParseSplitFlags_agentArgs verifies that --agent and --agent-args are
+// parsed independently and that AgentArgs captures the full space-separated string.
+func TestParseSplitFlags_agentArgs(t *testing.T) {
+	f, err := parseSplitFlags([]string{"--agent=claude", "--agent-args=-p --output-format json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Agent != "claude" {
+		t.Fatalf("Agent = %q, want %q", f.Agent, "claude")
+	}
+	if f.AgentArgs != "-p --output-format json" {
+		t.Fatalf("AgentArgs = %q, want %q", f.AgentArgs, "-p --output-format json")
+	}
+}
+
 // TestSplitProviderModel covers simple two-part and three-part (openrouter) splits.
 func TestSplitProviderModel(t *testing.T) {
 	cases := []struct {
