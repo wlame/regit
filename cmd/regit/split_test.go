@@ -32,6 +32,22 @@ func TestParseSplitFlags_defaultCommitIsHEAD(t *testing.T) {
 	}
 }
 
+// TestParseSplitFlags_repoFlag verifies that --repo is parsed by the split
+// flag set itself (not just the top-level flag set), so `regit split --repo=<path> <commit>`
+// works correctly.
+func TestParseSplitFlags_repoFlag(t *testing.T) {
+	f, err := parseSplitFlags([]string{"--repo=/tmp/x", "HEAD"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Repo != "/tmp/x" {
+		t.Fatalf("Repo = %q, want %q", f.Repo, "/tmp/x")
+	}
+	if f.Commit != "HEAD" {
+		t.Fatalf("Commit = %q, want %q", f.Commit, "HEAD")
+	}
+}
+
 // TestSplitProviderModel covers simple two-part and three-part (openrouter) splits.
 func TestSplitProviderModel(t *testing.T) {
 	cases := []struct {

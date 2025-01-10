@@ -20,6 +20,8 @@ import (
 type splitFlags struct {
 	// Commit is the commit-ish to split (positional arg, defaults to "HEAD").
 	Commit string
+	// Repo is the path to the git repository (defaults to ".").
+	Repo string
 	// LLM is the provider/model string, e.g. "ollama/qwen2.5-coder".
 	LLM string
 	// Agent is the agent CLI binary to use instead of an HTTP backend.
@@ -63,6 +65,7 @@ func parseSplitFlags(args []string) (splitFlags, error) {
 
 	fs := flag.NewFlagSet("split", flag.ContinueOnError)
 	var f splitFlags
+	fs.StringVar(&f.Repo, "repo", ".", "path to the git repository")
 	fs.StringVar(&f.LLM, "llm", "", "provider/model, e.g. ollama/qwen2.5-coder")
 	fs.StringVar(&f.Agent, "agent", "", "agent CLI to drive, e.g. claude")
 	fs.StringVar(&f.BaseURL, "llm-base-url", "", "override OpenAI-compatible endpoint")
@@ -87,10 +90,17 @@ func parseSplitFlags(args []string) (splitFlags, error) {
 
 // runSplit is the end-to-end headless entry point for `regit split`. It is
 // deliberately kept free of global state so the TUI can call the same helpers.
+// repoDir is the caller-supplied repo path (from the top-level --repo flag);
+// if the split-local --repo flag is set, it takes precedence.
 func runSplit(repoDir string, args []string) error {
 	f, err := parseSplitFlags(args)
 	if err != nil {
 		return err
+	}
+
+	// The split-subcommand --repo flag wins over the top-level value.
+	if f.Repo != "." {
+		repoDir = f.Repo
 	}
 
 	cfg, err := config.Load()
@@ -160,7 +170,7 @@ func runSplit(repoDir string, args []string) error {
 		return err
 	}
 	if !prop.ShouldSplit || len(prop.Groups) < 2 {
-		fmt.Printf("Not splitting %s: %s\n", target.Hash[:8], prop.Reason)
+		fmt.Printf("Not splitting %s: %s\n", short(target.Hash), prop.Reason)
 		return nil
 	}
 
@@ -191,7 +201,7 @@ func runSplit(repoDir string, args []string) error {
 	}
 
 	fmt.Printf("\nSplit %s into %d commits. New HEAD %s (backup %s)\n",
-		target.Hash[:8], len(subs), res.NewHead[:8], res.BackupRef)
+		short(target.Hash), len(subs), short(res.NewHead), res.BackupRef)
 	return nil
 }
 
@@ -219,7 +229,11 @@ func buildBackend(cfg config.Config, f splitFlags) (llm.Backend, error) {
 	}
 
 	apiKey := resolveAPIKey(provider)
-	timeout := time.Duration(cfg.LLM.TimeoutSec) * time.Second
+	timeoutSec := cfg.LLM.TimeoutSec
+	if timeoutSec <= 0 {
+		timeoutSec = 60 // sane default; a zero-second timeout would reject all requests
+	}
+	timeout := time.Duration(timeoutSec) * time.Second
 	return llm.NewHTTPBackend(baseURL, modelName, apiKey, timeout), nil
 }
 
@@ -298,6 +312,15 @@ func buildOptions(cfg config.Config, f splitFlags) split.Options {
 	return opts
 }
 
+// short returns up to the first 8 characters of a hash string, guarding
+// against hashes shorter than 8 characters (e.g. during tests or on empty input).
+func short(h string) string {
+	if len(h) > 8 {
+		return h[:8]
+	}
+	return h
+}
+
 // findCommit resolves ref to a full commit hash and finds its index in the
 // root-first commits slice. Returns an error if the ref cannot be resolved or
 // is not on the linear first-parent history.
@@ -311,7 +334,7 @@ func findCommit(repo *gitio.Repo, commits []model.Commit, ref string) (int, erro
 			return i, nil
 		}
 	}
-	return -1, fmt.Errorf("commit %s (%s) is not on the current first-parent history", ref, hash[:8])
+	return -1, fmt.Errorf("commit %s (%s) is not on the current first-parent history", ref, short(hash))
 }
 
 // parentTreeOf returns the tree hash of commit c's parent, or the empty-tree
@@ -342,7 +365,7 @@ func readmeIfRequested(repo *gitio.Repo, cfg config.Config) string {
 
 // printProposal prints a human-readable summary of the split proposal.
 func printProposal(target model.Commit, prop model.SplitProposal) {
-	fmt.Printf("Split proposal for %s %q\n", target.Hash[:8], target.Subject)
+	fmt.Printf("Split proposal for %s %q\n", short(target.Hash), target.Subject)
 	fmt.Printf("  %d commits planned\n\n", len(prop.Groups))
 	for i, g := range prop.Groups {
 		wip := ""
@@ -361,16 +384,16 @@ func printProposal(target model.Commit, prop model.SplitProposal) {
 // traceable to the concrete git commands behind it.
 func printEquivalentCommands(target model.Commit, prop model.SplitProposal) {
 	fmt.Printf("\nEquivalent git commands (for reference):\n")
+	fmt.Printf("  # splitting commit %s %q\n", short(target.Hash), target.Subject)
 	fmt.Printf("  git backup HEAD  # implicit safety backup\n")
 	for i, g := range prop.Groups {
 		subject := g.Subject
 		if i == 0 {
-			fmt.Printf("  git commit-tree <tree%d> -p %s -m %q\n", i+1, prop.ParentHash[:8], subject)
+			fmt.Printf("  git commit-tree <tree%d> -p %s -m %q\n", i+1, short(prop.ParentHash), subject)
 		} else {
 			fmt.Printf("  git commit-tree <tree%d> -p <prev> -m %q\n", i+1, subject)
 		}
 	}
 	fmt.Printf("  git update-ref HEAD <last-sub-commit>\n")
 	fmt.Printf("  # (tail commits replayed on top with remapped parents)\n")
-	_ = target // target is used for context, printed in printProposal
 }
