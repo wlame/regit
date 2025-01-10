@@ -18,6 +18,7 @@ import (
 	"github.com/wlame/regit/internal/gitio"
 	"github.com/wlame/regit/internal/model"
 	"github.com/wlame/regit/internal/safety"
+	"github.com/wlame/regit/internal/split"
 	"github.com/wlame/regit/internal/strategy"
 )
 
@@ -31,6 +32,7 @@ const (
 	modeConfirm
 	modeHelp
 	modeRetitle
+	modeSplit
 )
 
 type focusArea int
@@ -83,6 +85,8 @@ type Model struct {
 
 	confirmInput textinput.Model
 	confirmGuard safety.Guard
+
+	splitReview splitState
 
 	statusMsg  string
 	statusKind statusKind
@@ -176,6 +180,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateConfirm(msg)
 	case modeRetitle:
 		return m.updateRetitle(msg)
+	case modeSplit:
+		return m.updateSplit(msg)
 	case modeHelp:
 		if msg.String() == "?" || msg.String() == "esc" || msg.String() == "q" {
 			m.mode = modeMain
@@ -259,6 +265,8 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		m.plan.Violations = nil
 		m.setStatus("Cleared all pending edits", statusOK)
 		return m, nil, true
+	case "S":
+		return m.beginSplit()
 	case "g":
 		model, cmd := m.applyQuotas()
 		return model, cmd, true
@@ -856,6 +864,85 @@ func max(a, b int) int {
 	return b
 }
 
+// --- Split -----------------------------------------------------------------
+
+// beginSplit is called when the user presses [S]. It runs Engine.Propose on the
+// selected commit (blocking for v1) and switches to modeSplit so the user can
+// review the groups, then apply or cancel.
+func (m Model) beginSplit() (tea.Model, tea.Cmd, bool) {
+	if len(m.plan.Commits) == 0 {
+		m.setStatus("No commit selected", statusWarn)
+		return m, nil, true
+	}
+	if m.plan.IsFrozen(m.storageIndexAtCursor()) {
+		m.setStatus("Cannot split a frozen commit — press b to move the base", statusWarn)
+		return m, nil, true
+	}
+	c := m.commitAtCursor()
+	m.setStatus(fmt.Sprintf("Proposing split for %s — thinking…", short(c.Hash)), statusNone)
+
+	// v1: blocking call. The TUI is unresponsive while the LLM responds.
+	// A future version can wrap this in a tea.Cmd goroutine for async behavior.
+	st := runSplitOnCommit(&m, c)
+	if st.errMsg != "" {
+		m.setStatus(st.errMsg, statusErr)
+		return m, nil, true
+	}
+	m.splitReview = st
+	m.mode = modeSplit
+	return m, nil, true
+}
+
+// updateSplit handles keys while in modeSplit (the review screen).
+func (m Model) updateSplit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		m.mode = modeMain
+		m.setStatus("Split cancelled", statusWarn)
+		return m, nil
+	case "enter":
+		return m.applySplit()
+	}
+	return m, nil
+}
+
+// applySplit calls safety.ApplySplit with the reviewed proposal and returns to
+// the main view, reloading history on success.
+func (m Model) applySplit() (tea.Model, tea.Cmd) {
+	c := m.commitByHash(m.splitReview.proposal.CommitHash)
+	if c.Hash == "" {
+		m.mode = modeMain
+		m.setStatus("Split commit no longer found — maybe history changed", statusErr)
+		return m, nil
+	}
+	prop := m.splitReview.proposal
+	trees := m.splitReview.trees
+
+	subs := split.BuildSubCommits(c, prop.Groups, trees, m.cfg.Split.WIPPrefix)
+	idx := m.storageIndexAtCursor()
+	tail := m.plan.Commits[idx+1:]
+
+	opts := safety.ApplyOptions{
+		Sign:          gitio.DropSignatures,
+		UnixTimestamp: time.Now().Unix(),
+	}
+	res, err := m.mgr.ApplySplit(c, prop.ParentHash, subs, tail, m.state, opts)
+	if err != nil {
+		m.mode = modeMain
+		m.setStatus(err.Error(), statusErr)
+		return m, nil
+	}
+	if err := m.reload(); err != nil {
+		m.mode = modeMain
+		m.setStatus("Split applied, but reload failed: "+err.Error(), statusWarn)
+		return m, nil
+	}
+	m.mode = modeMain
+	m.setStatus(fmt.Sprintf("Split %s into %d commits ✓ backup at %s",
+		short(c.Hash), len(subs), short(res.BackupRef)), statusOK)
+	return m, nil
+}
+
 // View renders the current screen.
 func (m Model) View() string {
 	if m.quitting {
@@ -877,6 +964,8 @@ func (m Model) View() string {
 		overlay = m.st.modal.Render(strings.Join(helpLines, "\n"))
 	case modeRetitle:
 		overlay = m.retitle.view(m.plan, m.st)
+	case modeSplit:
+		overlay = m.st.modal.Render(renderSplitReview(m.splitReview.proposal))
 	}
 
 	if overlay == "" {

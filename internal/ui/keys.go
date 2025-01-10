@@ -36,6 +36,7 @@ var helpLines = []string{
 	"",
 	"ACTIONS",
 	"  s            open the strategy palette",
+	"  S            split the selected commit with the LLM (review → enter to apply, esc to cancel)",
 	"  D            drop the bodies of ALL editable commits (titles kept)",
 	"  R            regex-replace across ALL editable commit titles",
 	"  p            preview the before/after dates",
