@@ -37,6 +37,13 @@ func Open(startDir string) (*Repo, error) {
 // Root returns the absolute path to the repository root.
 func (r *Repo) Root() string { return r.root }
 
+// GitDir returns the absolute path to the .git directory (or the bare repo
+// directory). It runs `git rev-parse --absolute-git-dir`, which works in both
+// regular and worktree checkouts and always returns an absolute path.
+func (r *Repo) GitDir() (string, error) {
+	return r.git("rev-parse", "--absolute-git-dir")
+}
+
 // git runs a git command in the repo root and returns trimmed stdout.
 func (r *Repo) git(args ...string) (string, error) {
 	out, err := runGit(r.root, nil, nil, args...)

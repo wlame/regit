@@ -359,3 +359,19 @@ func TestOpen_failsOutsideRepo(t *testing.T) {
 		t.Error("expected Open to fail outside a git repository")
 	}
 }
+
+func TestGitDir_returnsAbsolutePath(t *testing.T) {
+	repo, dir := testRepo(t)
+	gitDir, err := repo.GitDir()
+	if err != nil {
+		t.Fatalf("GitDir: %v", err)
+	}
+	// The .git dir must be absolute and end with ".git" for a non-bare repo.
+	if !filepath.IsAbs(gitDir) {
+		t.Errorf("GitDir = %q, want an absolute path", gitDir)
+	}
+	want := filepath.Join(dir, ".git")
+	if gitDir != want {
+		t.Errorf("GitDir = %q, want %q", gitDir, want)
+	}
+}

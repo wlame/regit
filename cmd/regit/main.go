@@ -27,12 +27,22 @@ func run() error {
 	repoPath := flag.String("repo", ".", "path to the git repository to operate on")
 	flag.Parse()
 
+	// Resolve the repo directory before dispatching so both TUI and subcommands
+	// share the same path regardless of how the flag was positioned.
+	repoDir := *repoPath
+
+	// Subcommand dispatch: `regit split [<commit>] [flags]` runs headless.
+	// All other invocations fall through to the TUI.
+	if len(os.Args) > 1 && os.Args[1] == "split" {
+		return runSplit(repoDir, os.Args[2:])
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	repo, err := gitio.Open(*repoPath)
+	repo, err := gitio.Open(repoDir)
 	if err != nil {
 		return err
 	}
