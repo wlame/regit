@@ -88,6 +88,79 @@ func (m *Manager) Apply(plan *model.Plan, state model.RepoState, opts ApplyOptio
 	return ApplyResult{BackupRef: backupRef, OldHead: oldHead, NewHead: newHead}, nil
 }
 
+// ApplySplit replaces one commit with sub-commits and replays the tail, guarded
+// and backed up exactly like Apply. Two hard invariants are checked before the
+// branch moves:
+//
+//  1. The last sub-commit's tree must equal the original commit's tree
+//     (caller-supplied structural guarantee).
+//  2. The final HEAD tree must be byte-identical to the original tip's tree
+//     (end-to-end content guarantee, verified by VerifyTreesUnchanged).
+func (m *Manager) ApplySplit(commit model.Commit, parentHash string, subs []gitio.SubCommit, tail []model.Commit, state model.RepoState, opts ApplyOptions) (ApplyResult, error) {
+	// --- Guards ---
+
+	if commit.IsMerge {
+		return ApplyResult{}, fmt.Errorf("cannot split a merge commit %s", commit.Hash[:8])
+	}
+	if state.IsDirty {
+		return ApplyResult{}, fmt.Errorf("rewrite blocked: working tree is dirty")
+	}
+	if len(subs) < 2 {
+		return ApplyResult{}, fmt.Errorf("nothing to split: fewer than two sub-commits")
+	}
+	// Pushed commits require the caller to have obtained explicit confirmation.
+	if state.HasPushedCommits() && !opts.Confirmed {
+		return ApplyResult{}, fmt.Errorf("confirmation required: commits are already pushed")
+	}
+
+	// --- Pre-flight state ---
+
+	branch, err := m.repo.CurrentBranch()
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	oldHead, err := m.repo.ResolveRef("HEAD")
+	if err != nil {
+		return ApplyResult{}, err
+	}
+
+	// Local invariant: the last sub-commit must reproduce the original tree so
+	// that the commit history remains self-consistent after the split.
+	if subs[len(subs)-1].Tree != commit.TreeHash {
+		return ApplyResult{}, fmt.Errorf("refusing split: last sub-commit tree %s != original commit tree %s",
+			subs[len(subs)-1].Tree, commit.TreeHash)
+	}
+
+	// --- Backup ---
+
+	backupRef := gitio.BackupRefPrefix + strconv.FormatInt(opts.UnixTimestamp, 10)
+	if err := m.repo.UpdateRef(backupRef, oldHead, ""); err != nil {
+		return ApplyResult{}, fmt.Errorf("create backup ref: %w", err)
+	}
+
+	// --- Replay ---
+
+	newHead, err := m.repo.ApplySplit(parentHash, subs, tail, opts.Sign)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+
+	// --- Global invariant: file content must be unchanged end-to-end ---
+
+	if err := m.repo.VerifyTreesUnchanged(oldHead, newHead); err != nil {
+		return ApplyResult{}, err
+	}
+
+	// --- Move branch (compare-and-swap so a concurrent change aborts us) ---
+
+	if err := m.repo.UpdateRef(gitio.BranchRef(branch), newHead, oldHead); err != nil {
+		return ApplyResult{}, fmt.Errorf("move branch %s: %w", branch, err)
+	}
+
+	m.undoStack = append(m.undoStack, backupRef)
+	return ApplyResult{BackupRef: backupRef, OldHead: oldHead, NewHead: newHead}, nil
+}
+
 // CanUndo reports whether there is a backup to roll back to.
 func (m *Manager) CanUndo() bool {
 	return len(m.undoStack) > 0
