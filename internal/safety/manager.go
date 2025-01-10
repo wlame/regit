@@ -8,6 +8,14 @@ import (
 	"github.com/wlame/regit/internal/model"
 )
 
+// shortHash returns the first 8 characters of a hash, or the whole string if shorter.
+func shortHash(h string) string {
+	if len(h) > 8 {
+		return h[:8]
+	}
+	return h
+}
+
 // Manager orchestrates a safe rewrite: guards -> backup -> replay -> verify ->
 // move branch, and keeps the undo stack of backup refs created this session.
 type Manager struct {
@@ -100,7 +108,7 @@ func (m *Manager) ApplySplit(commit model.Commit, parentHash string, subs []giti
 	// --- Guards ---
 
 	if commit.IsMerge {
-		return ApplyResult{}, fmt.Errorf("cannot split a merge commit %s", commit.Hash[:8])
+		return ApplyResult{}, fmt.Errorf("cannot split a merge commit %s", shortHash(commit.Hash))
 	}
 	if state.IsDirty {
 		return ApplyResult{}, fmt.Errorf("rewrite blocked: working tree is dirty")

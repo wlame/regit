@@ -138,7 +138,10 @@ func buildSubCommits(t *testing.T, repo *gitio.Repo, parentTreeHash string, chil
 func TestApplySplit_refusesMergeCommit(t *testing.T) {
 	repo := buildRepo(t) // reuse the existing helper from manager_test.go
 	mgr := NewManager(repo)
-	state, _ := repo.ReadState()
+	state, err := repo.ReadState()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	oldHead, err := repo.ResolveRef("HEAD")
 	if err != nil {
@@ -181,7 +184,10 @@ func TestApplySplit_refusesMergeCommit(t *testing.T) {
 func TestApplySplit_movesBranchAndIsUndoable(t *testing.T) {
 	repo, childCommit, parentHash, tail := buildSplitRepo(t)
 	mgr := NewManager(repo)
-	state, _ := repo.ReadState()
+	state, err := repo.ReadState()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	oldHead, err := repo.ResolveRef("HEAD")
 	if err != nil {
@@ -222,11 +228,6 @@ func TestApplySplit_movesBranchAndIsUndoable(t *testing.T) {
 	}
 
 	// 3. Commit count must have increased by one (3 → 4).
-	countOut, err := repo.ResolveRef("HEAD")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = countOut // just need the rev-list count
 	cmd := exec.Command("git", "-C", repo.Root(), "rev-list", "--count", res.NewHead)
 	rawCount, err := cmd.Output()
 	if err != nil {
