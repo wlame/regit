@@ -919,7 +919,23 @@ func (m Model) applySplit() (tea.Model, tea.Cmd) {
 	trees := m.splitReview.trees
 
 	subs := split.BuildSubCommits(c, prop.Groups, trees, m.cfg.Split.WIPPrefix)
-	idx := m.storageIndexAtCursor()
+
+	// Derive the tail from the commit hash recorded in the proposal rather than
+	// from the cursor position. The user may have moved the cursor between
+	// proposing the split and confirming it, which would cause the wrong tail to
+	// be replayed and silently corrupt history.
+	idx := -1
+	for i, commit := range m.plan.Commits {
+		if commit.Hash == prop.CommitHash {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		m.mode = modeMain
+		m.setStatus("Split commit not found in plan — history may have changed", statusErr)
+		return m, nil
+	}
 	tail := m.plan.Commits[idx+1:]
 
 	opts := safety.ApplyOptions{

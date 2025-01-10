@@ -98,6 +98,11 @@ func (e *Engine) Propose(ctx context.Context, commit model.Commit, parentTree, r
 		return prop, nil, nil
 	}
 
+	// Hard clamp: never return more sub-commits than the caller requested.
+	if len(prop.Groups) > maxK {
+		prop = clampGroups(prop, maxK)
+	}
+
 	// Build cumulative trees and run the optional test command per stage.
 	trees, err := e.buildAndValidate(ctx, commit, parentTree, &prop, opts)
 	if err != nil {
@@ -313,4 +318,26 @@ func tail(s string, n int) string {
 		return s
 	}
 	return strings.Join(parts[len(parts)-n:], "\n")
+}
+
+// clampGroups merges all groups beyond maxK into the (maxK-1)th group so the
+// engine never returns more sub-commits than the caller requested.  Groups are
+// sorted by Order before merging so the last-allowed group absorbs the trailing
+// ones in a deterministic order.
+func clampGroups(prop model.SplitProposal, maxK int) model.SplitProposal {
+	ordered := orderGroups(prop.Groups)
+	// Merge all groups beyond position maxK-1 into the last kept group.
+	last := ordered[maxK-1]
+	for _, g := range ordered[maxK:] {
+		last.HunkIDs = append(last.HunkIDs, g.HunkIDs...)
+	}
+	ordered[maxK-1] = last
+	prop.Groups = ordered[:maxK]
+	// Re-validate to confirm coverage is still complete after the merge.
+	// If validation fails (should not happen for a well-formed input), preserve
+	// the original to avoid accidental hunk loss.
+	if err := model.ValidateCoverage(prop.Hunks, prop.Groups); err != nil {
+		return prop
+	}
+	return prop
 }

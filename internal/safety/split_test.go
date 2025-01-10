@@ -262,3 +262,42 @@ func TestApplySplit_movesBranchAndIsUndoable(t *testing.T) {
 		t.Error("undo stack should be empty after single Undo")
 	}
 }
+
+// TestApplySplit_refusesWrongLastTree verifies the local-invariant guard:
+// when the last sub-commit's tree does not equal the original commit's tree,
+// ApplySplit must return an error and must not move HEAD.
+func TestApplySplit_refusesWrongLastTree(t *testing.T) {
+	repo, childCommit, parentHash, tail := buildSplitRepo(t)
+	mgr := NewManager(repo)
+	state, err := repo.ReadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	oldHead, err := repo.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Resolve the parent commit's tree so we can use it as the "wrong" tree.
+	parentTreeHash, err := repo.ResolveRef(parentHash + "^{tree}")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Build valid sub-commits, then corrupt the last one by replacing its tree
+	// with the parent's tree (which is NOT the original commit tree).
+	subs := buildSubCommits(t, repo, parentTreeHash, childCommit)
+	subs[len(subs)-1].Tree = parentTreeHash // deliberate corruption
+
+	_, err = mgr.ApplySplit(childCommit, parentHash, subs, tail, state, ApplyOptions{UnixTimestamp: 2})
+	if err == nil {
+		t.Fatal("expected error when last sub-commit tree != original commit tree")
+	}
+
+	// HEAD must not have moved.
+	newHead, _ := repo.ResolveRef("HEAD")
+	if newHead != oldHead {
+		t.Errorf("HEAD moved when it should not have: %s -> %s", oldHead, newHead)
+	}
+}
