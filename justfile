@@ -74,6 +74,11 @@ deps:
 ci: fmt-check vet build test-race
     go tool cover -func={{coverage_file}} | tail -n 1
 
+# Run the LLM-backed commit splitter against a commit (defaults to HEAD).
+# Usage: just split <commit-ish> -- --llm=ollama/qwen2.5-coder --dry-run
+split commit="HEAD" *args:
+    go run ./cmd/regit split {{commit}} {{args}}
+
 # Remove build and coverage artifacts.
 clean:
     rm -rf {{bin_dir}} {{coverage_file}}

@@ -110,8 +110,66 @@ weekdays: [mon, tue, wed, thu, fri]
 seed: 0                      # fix for reproducible randomized strategies
 ```
 
-Any value can be overridden per-run with `GHIST_*` environment variables
-(`GHIST_TIMEZONE`, `GHIST_DEFAULT_STRATEGY`, `GHIST_SEED`, …).
+Any value can be overridden per-run with `REGIT_*` environment variables
+(`REGIT_TIMEZONE`, `REGIT_DEFAULT_STRATEGY`, `REGIT_SEED`, …).
+
+## Commit splitting
+
+`regit split` splits one existing commit into 2–4 smaller, semantically
+meaningful commits using an external LLM to propose how to group the diff hunks.
+It operates on diff hunks and git tree objects — language-agnostic by design.
+
+```bash
+regit split <commit-ish>          # commit to split (default: HEAD)
+  --llm=ollama/qwen2.5-coder      # or openai/gpt-4o, openrouter/..., lmstudio/...
+  --agent=claude                  # drive an agent CLI instead of HTTP
+  --llm-base-url=<url>            # override the inferred OpenAI-compatible endpoint
+  --max-commits=4                 # clamp on resulting commits (auto-scales with diff size)
+  --prompt="keep tests separate"  # short user guidance passed to the LLM
+  --test-cmd="go test ./..."      # validate each intermediate commit before applying
+  --dry-run                       # print proposal and write cache; move nothing
+  --yes                           # skip confirmation (CI / one-shot)
+  --no-cache                      # ignore any cached proposal (force a fresh LLM call)
+  --clear-cache                   # delete the split cache directory and exit
+  --repo=<path>                   # path to the git repository (default: current dir)
+```
+
+### API key resolution
+
+Credentials are read from environment variables only — never from flags.
+Resolution order for each run:
+
+1. `REGIT_LLM_API_KEY` — tool-wide override
+2. Provider-standard variable: `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, …
+3. No key required for local providers (`ollama`, `lmstudio`)
+
+### Safety invariants
+
+Two invariants are enforced before the branch ever moves; if either fails the
+operation aborts and changes nothing:
+
+1. **Local** — the last sub-commit's tree equals the original commit's tree
+   (`Tₖ == C.TreeHash`). The union of the sub-commit diffs equals the original
+   diff: nothing is added, dropped, or altered.
+2. **Global** — after replaying the untouched tail on top of the split, the
+   final `HEAD` tree is byte-identical to the original `HEAD` tree. The only
+   structural change to the repository is that commit `C` became `k` commits.
+
+Every split is preceded by a backup ref and can be undone.
+
+### Cache
+
+Split proposals are cached at `.git/regit/cache/split/<commitHash>.json` so
+repeated runs with the same inputs skip the LLM call. Use `--no-cache` to force
+a fresh proposal, or `--clear-cache` to wipe the cache directory entirely.
+
+### Optional test command
+
+`--test-cmd` runs a shell command after each intermediate stage in an isolated
+worktree. A failing stage triggers up to two LLM regrouping attempts; if it
+still fails the stage is marked `WIP:` in the commit subject. The test command
+must pass on the original commit before splitting begins; if it does not,
+`regit` aborts with a clear message so you can fix `--test-cmd`.
 
 ## Development
 
@@ -120,11 +178,22 @@ go build ./...
 go test ./... -cover
 ```
 
+Or via `just` (see `just --list` for all recipes):
+
+```bash
+just build
+just test
+just ci
+just split HEAD -- --llm=ollama/qwen2.5-coder --dry-run
+```
+
 The codebase is layered so the interesting logic is pure and testable:
 
 - `internal/strategy` — pure date-distribution engine (no git, no UI)
 - `internal/gitio` — the only package that shells out to `git`
 - `internal/safety` — guards, backup refs, undo
+- `internal/split` — commit-splitting orchestrator (extract → group → build → validate → repair → apply)
+- `internal/llm` — LLM backend abstraction (OpenAI-compatible HTTP + agent CLI)
 - `internal/config` — YAML + env configuration
 - `internal/ui` — Bubble Tea terminal interface
 - `internal/model` — shared domain types
