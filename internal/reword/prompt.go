@@ -38,8 +38,9 @@ type variantsWire struct {
 // BuildMessages renders the system + user prompt. The system prompt fixes the
 // task and output contract; the user prompt carries all per-commit context.
 func BuildMessages(req Request) (system, user string) {
+	n := max1(req.Variants)
 	system = "You write high-quality git commit messages. Given a commit's diff and " +
-		"context, propose " + fmt.Sprintf("%d", max1(req.Variants)) + " alternative messages, " +
+		"context, propose " + fmt.Sprintf("%d", n) + " alternative messages, " +
 		"ranked most-relevant first. Each has a concise one-line title (imperative mood) and an " +
 		"optional body explaining the why. Return ONLY JSON matching the schema; no prose."
 	var b strings.Builder
@@ -58,7 +59,7 @@ func BuildMessages(req Request) (system, user string) {
 	if req.UserHint != "" {
 		fmt.Fprintf(&b, "Additional user guidance: %s\n", req.UserHint)
 	}
-	fmt.Fprintf(&b, "\nPropose %d ranked variants.\n\nDiff:\n%s\n", max1(req.Variants), req.Diff)
+	fmt.Fprintf(&b, "\nPropose %d ranked variants.\n\nDiff:\n%s\n", n, req.Diff)
 	return system, b.String()
 }
 

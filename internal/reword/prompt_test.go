@@ -28,6 +28,17 @@ func TestParseVariants_rejectsBlankTitle(t *testing.T) {
 	}
 }
 
+func TestParseVariants_trimsMultilineTitle(t *testing.T) {
+	raw := `{"variants":[{"title":"First line\nsecond line","body":""}]}`
+	r, err := ParseVariants(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Variants[0].Title != "First line" {
+		t.Fatalf("title = %q, want %q", r.Variants[0].Title, "First line")
+	}
+}
+
 func TestBuildMessages_includesContext(t *testing.T) {
 	_, user := BuildMessages(Request{
 		RepoName: "regit", Readme: "A tool", Diff: "@@ -1 +1 @@\n-a\n+b",
