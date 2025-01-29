@@ -11,6 +11,18 @@ import (
 // They are a single source of truth shared by Hunks() and the round-trip tests.
 var diffFlags = []string{"--no-color", "--no-ext-diff", "-U3", "--binary"}
 
+// DiffText returns the raw unified diff between two trees with contextLines of
+// surrounding context (-U<n>). Unlike Hunks (which uses -U3 for precise
+// splitting), reword wants WIDE context so each hunk carries enclosing
+// function/class/docstring names. contextLines <= 0 falls back to 3.
+func (r *Repo) DiffText(parentTree, commitTree string, contextLines int) (string, error) {
+	if contextLines <= 0 {
+		contextLines = 3
+	}
+	return r.gitRaw("diff", "--no-color", "--no-ext-diff",
+		fmt.Sprintf("-U%d", contextLines), parentTree, commitTree)
+}
+
 // Hunks parses diff(parentTree, commitTree) into stable-ID hunks. It uses
 // `git diff --binary` so binary changes carry an applyable binary patch; those
 // become a single whole-file Hunk with Binary=true (never sub-split).
