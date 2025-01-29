@@ -46,7 +46,7 @@ func Fingerprint(diffHash, modelName, contextKey, userHint string, variants int)
 	h := sha256.New()
 	// Unit-separator (0x1F) delimiters prevent collisions across adjacent fields.
 	fmt.Fprintf(h, "%s\x1f%s\x1f%s\x1f%s\x1f%d", diffHash, modelName, contextKey, userHint, variants)
-	return fmt.Sprintf("%x", h.Sum(nil))[:32]
+	return fmt.Sprintf("%x", h.Sum(nil))[:32] // 32 hex chars = 128 bits, ample for collision resistance
 }
 
 // path returns the JSON file path for the given commit hash.
