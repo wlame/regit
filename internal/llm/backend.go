@@ -26,12 +26,12 @@ type SplitRequest struct {
 }
 
 // Backend is the single interface every LLM provider implements.
-// Propose sends the split request to the provider and returns an ordered
-// grouping of hunks. schema is the JSON schema bytes the provider should
-// constrain its output to (passed through to backends that support
-// structured output, e.g. OpenAI's response_format).
+// Generate runs one prompt against the provider and returns the raw model
+// text (expected to contain JSON matching schema). It retries up to a small
+// cap when validate(raw) returns an error, strengthening the instruction each
+// retry. Feature-agnostic: callers own their prompt, schema, and parsing.
 type Backend interface {
-	Propose(ctx context.Context, req SplitRequest, schema []byte) (model.SplitProposal, error)
+	Generate(ctx context.Context, system, user string, schema []byte, validate func(raw string) error) (string, error)
 	// Name returns a human-readable identifier used in logs and UI, e.g. "http:llama3.2".
 	Name() string
 }

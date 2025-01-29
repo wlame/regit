@@ -30,7 +30,7 @@ func TestHTTPBackend_validJSON_parsesProposal(t *testing.T) {
 	defer srv.Close()
 
 	b := NewHTTPBackend(srv.URL, "test-model", "", 5*time.Second)
-	prop, err := b.Propose(context.Background(), sampleReq(), SchemaJSON())
+	prop, err := ProposeSplit(context.Background(), b, sampleReq(), SchemaJSON())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestHTTPBackend_shouldSplitFalse_skipsValidation(t *testing.T) {
 	// When the model decides the commit is already small enough it returns
 	// should_split=false with an empty groups array. ParseAndValidate must
 	// not run coverage validation in that case (there are no groups to check),
-	// so Propose should succeed without error.
+	// so ProposeSplit should succeed without error.
 	body := `{"choices":[{"message":{"content":"{\"should_split\":false,\"groups\":[],\"reason\":\"too small\"}"}}]}`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -52,7 +52,7 @@ func TestHTTPBackend_shouldSplitFalse_skipsValidation(t *testing.T) {
 	defer srv.Close()
 
 	b := NewHTTPBackend(srv.URL, "test-model", "", 5*time.Second)
-	prop, err := b.Propose(context.Background(), sampleReq(), SchemaJSON())
+	prop, err := ProposeSplit(context.Background(), b, sampleReq(), SchemaJSON())
 	if err != nil {
 		t.Fatalf("expected no error for should_split=false, got %v", err)
 	}
@@ -78,7 +78,7 @@ func TestHTTPBackend_badThenGoodJSON_retries(t *testing.T) {
 	defer srv.Close()
 
 	b := NewHTTPBackend(srv.URL, "test-model", "", 5*time.Second)
-	prop, err := b.Propose(context.Background(), sampleReq(), SchemaJSON())
+	prop, err := ProposeSplit(context.Background(), b, sampleReq(), SchemaJSON())
 	if err != nil {
 		t.Fatalf("expected retry success, got %v", err)
 	}

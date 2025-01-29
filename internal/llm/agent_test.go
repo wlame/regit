@@ -48,7 +48,7 @@ func TestAgentBackend_parsesStructuredOutput(t *testing.T) {
 	body := `{"structured_output":{"should_split":true,"groups":[{"order":1,"hunk_ids":["H1","H2"],"subject":"all"}]}}`
 	stub := writeStub(t, body)
 	b := NewAgentBackend(stub, nil)
-	prop, err := b.Propose(context.Background(), sampleReq(), SchemaJSON())
+	prop, err := ProposeSplit(context.Background(), b, sampleReq(), SchemaJSON())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestAgentBackend_parsesResultField(t *testing.T) {
 	body := `{"result":"{\"should_split\":true,\"groups\":[{\"order\":1,\"hunk_ids\":[\"H1\",\"H2\"],\"subject\":\"all\"}]}"}`
 	stub := writeStub(t, body)
 	b := NewAgentBackend(stub, nil)
-	prop, err := b.Propose(context.Background(), sampleReq(), SchemaJSON())
+	prop, err := ProposeSplit(context.Background(), b, sampleReq(), SchemaJSON())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestAgentBackend_parsesBareJSON(t *testing.T) {
 	body := `{"should_split":true,"groups":[{"order":1,"hunk_ids":["H1","H2"],"subject":"all"}]}`
 	stub := writeStub(t, body)
 	b := NewAgentBackend(stub, nil)
-	prop, err := b.Propose(context.Background(), sampleReq(), SchemaJSON())
+	prop, err := ProposeSplit(context.Background(), b, sampleReq(), SchemaJSON())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestAgentBackend_schemaPlaceholderSubstituted(t *testing.T) {
 	// this test (safe because tests in this package are not run in parallel).
 	t.Setenv("ARGFILE", argFile)
 
-	prop, err := b2.Propose(context.Background(), sampleReq(), SchemaJSON())
+	prop, err := ProposeSplit(context.Background(), b2, sampleReq(), SchemaJSON())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func TestAgentBackend_defaultArgsContainBareAndSchema(t *testing.T) {
 	t.Setenv("ARGFILE", argFile)
 
 	b := NewAgentBackend(stub, nil) // nil → default args
-	_, err := b.Propose(context.Background(), sampleReq(), SchemaJSON())
+	_, err := ProposeSplit(context.Background(), b, sampleReq(), SchemaJSON())
 	if err != nil {
 		t.Fatal(err)
 	}

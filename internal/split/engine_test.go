@@ -2,6 +2,7 @@ package split
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -16,31 +17,55 @@ import (
 	"github.com/wlame/regit/internal/model"
 )
 
-// fixedBackend implements llm.Backend, always returning the same proposal.
-// The proposal's Hunks field is overwritten with the request's hunks so that
-// coverage validation (every hunk assigned exactly once) can pass.
+// fixedBackend implements llm.Backend, always returning raw JSON for the same
+// proposal. ProposeSplit (called by engine) will parse and validate the JSON
+// against the request's hunk list, so the proposal's group hunk IDs must cover
+// all hunks exactly once.
 type fixedBackend struct{ p model.SplitProposal }
 
 func (f fixedBackend) Name() string { return "fixed" }
-func (f fixedBackend) Propose(_ context.Context, req llm.SplitRequest, _ []byte) (model.SplitProposal, error) {
-	// Attach the request's hunk list so the caller sees the right IDs.
-	f.p.Hunks = req.Hunks
-	return f.p, nil
+
+// Generate serialises the fixed proposal to JSON and returns it. The validate
+// function supplied by ProposeSplit will call ParseAndValidate against the
+// request's hunk list; coverage passes because the test sets up hunk IDs to
+// match.
+func (f fixedBackend) Generate(_ context.Context, _, _ string, _ []byte, _ func(string) error) (string, error) {
+	// Build a wire-format object that mirrors planWire so ParseAndValidate can
+	// round-trip it back into a SplitProposal.
+	type groupWire struct {
+		Order   int      `json:"order"`
+		HunkIDs []string `json:"hunk_ids"`
+		Subject string   `json:"subject"`
+	}
+	type wire struct {
+		ShouldSplit bool        `json:"should_split"`
+		Reason      string      `json:"reason"`
+		Groups      []groupWire `json:"groups"`
+	}
+	w := wire{ShouldSplit: f.p.ShouldSplit, Reason: f.p.Reason}
+	for _, g := range f.p.Groups {
+		w.Groups = append(w.Groups, groupWire{Order: g.Order, HunkIDs: g.HunkIDs, Subject: g.Subject})
+	}
+	b, err := json.Marshal(w)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }
 
 // backendReturning wraps a fixed proposal in a llm.Backend.
 func backendReturning(p model.SplitProposal) llm.Backend { return fixedBackend{p: p} }
 
-// countingBackend tracks how many times Propose is called.
-// It fails the test if Propose is invoked.
+// countingBackend tracks how many times Generate is called.
+// It fails the test if Generate is invoked.
 type countingBackend struct {
 	t *testing.T
 }
 
 func (c countingBackend) Name() string { return "counting" }
-func (c countingBackend) Propose(_ context.Context, _ llm.SplitRequest, _ []byte) (model.SplitProposal, error) {
-	c.t.Fatal("Propose should not be called when skipping small commits")
-	return model.SplitProposal{}, nil
+func (c countingBackend) Generate(_ context.Context, _, _ string, _ []byte, _ func(string) error) (string, error) {
+	c.t.Fatal("Generate should not be called when skipping small commits")
+	return "", nil
 }
 
 // idsFrom extracts hunk IDs from a slice of Hunks.
@@ -199,7 +224,7 @@ func TestEngine_proposeSkipsSmallCommit(t *testing.T) {
 	}
 }
 
-// sequentialBackend consumes proposals one per Propose call from a slice, so
+// sequentialBackend consumes proposals one per Generate call from a slice, so
 // the first call returns proposals[0], the second returns proposals[1], etc.
 // It tracks the total call count in `calls`.
 type sequentialBackend struct {
@@ -209,17 +234,38 @@ type sequentialBackend struct {
 
 func (s *sequentialBackend) Name() string { return "sequential" }
 
-// Propose returns the next proposal in the slice. The hunk list from the
-// request is NOT attached automatically — the caller's proposals must already
-// reference the correct IDs.  If the slice is exhausted, Propose returns an
-// error so a runaway repair loop fails loudly rather than silently looping.
-func (s *sequentialBackend) Propose(_ context.Context, _ llm.SplitRequest, _ []byte) (model.SplitProposal, error) {
+// Generate returns the next proposal in the slice serialised as JSON. The hunk
+// list from the request is NOT attached automatically — the caller's proposals
+// must already reference the correct IDs. If the slice is exhausted, Generate
+// returns an error so a runaway repair loop fails loudly rather than silently
+// looping.
+func (s *sequentialBackend) Generate(_ context.Context, _, _ string, _ []byte, _ func(string) error) (string, error) {
 	idx := s.calls
 	s.calls++
 	if idx >= len(s.proposals) {
-		return model.SplitProposal{}, fmt.Errorf("sequentialBackend exhausted after %d call(s)", idx)
+		return "", fmt.Errorf("sequentialBackend exhausted after %d call(s)", idx)
 	}
-	return s.proposals[idx], nil
+	p := s.proposals[idx]
+	// Build wire-format JSON that ProposeSplit/ParseAndValidate can round-trip.
+	type groupWire struct {
+		Order   int      `json:"order"`
+		HunkIDs []string `json:"hunk_ids"`
+		Subject string   `json:"subject"`
+	}
+	type wire struct {
+		ShouldSplit bool        `json:"should_split"`
+		Reason      string      `json:"reason"`
+		Groups      []groupWire `json:"groups"`
+	}
+	w := wire{ShouldSplit: p.ShouldSplit, Reason: p.Reason}
+	for _, g := range p.Groups {
+		w.Groups = append(w.Groups, groupWire{Order: g.Order, HunkIDs: g.HunkIDs, Subject: g.Subject})
+	}
+	b, err := json.Marshal(w)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }
 
 // TestEngine_baselineFail verifies that when the test command fails even on the

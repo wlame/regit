@@ -10,8 +10,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/wlame/regit/internal/model"
 )
 
 // HTTPBackend talks to any OpenAI-compatible /v1/chat/completions endpoint
@@ -44,11 +42,11 @@ func (b *HTTPBackend) Name() string { return "http:" + b.model }
 // should reach the user rather than burning tokens on further guesses.
 const maxAttempts = 2
 
-// Propose sends the split request to the endpoint, parses the response, and
-// retries once on a parse/validation error, appending the error to the user
-// prompt so the model can self-correct.
-func (b *HTTPBackend) Propose(ctx context.Context, req SplitRequest, schema []byte) (model.SplitProposal, error) {
-	system, user := BuildMessages(req)
+// Generate runs the given prompt against the endpoint and returns the raw model
+// text. It retries up to maxAttempts when validate(raw) returns an error,
+// strengthening the user prompt on each validation failure so the model can
+// self-correct. Transport errors retry with the unchanged prompt.
+func (b *HTTPBackend) Generate(ctx context.Context, system, user string, schema []byte, validate func(string) error) (string, error) {
 	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		raw, err := b.call(ctx, system, user, schema)
@@ -59,17 +57,17 @@ func (b *HTTPBackend) Propose(ctx context.Context, req SplitRequest, schema []by
 			lastErr = err
 			continue
 		}
-		prop, err := ParseAndValidate(raw, req.Hunks)
-		if err == nil {
-			return prop, nil
+		if verr := validate(raw); verr == nil {
+			return raw, nil
+		} else {
+			lastErr = verr
+			// Strengthen the instruction for the retry so the model knows exactly
+			// what constraint it violated.
+			user += "\n\nYour previous answer was invalid: " + verr.Error() +
+				". Return ONLY valid JSON matching the requested schema."
 		}
-		lastErr = err
-		// Strengthen the instruction for the retry so the model knows exactly
-		// what constraint it violated (missing hunk, duplicate assignment, etc.).
-		user += "\n\nYour previous answer was invalid: " + err.Error() +
-			". Return ONLY valid JSON assigning EVERY hunk id exactly once."
 	}
-	return model.SplitProposal{}, fmt.Errorf("llm proposal failed after %d attempts: %w", maxAttempts, lastErr)
+	return "", fmt.Errorf("llm generation failed after %d attempts: %w", maxAttempts, lastErr)
 }
 
 // chatRequest is the subset of the OpenAI chat schema we send.
@@ -105,7 +103,7 @@ func (b *HTTPBackend) call(ctx context.Context, system, user string, schema []by
 		ResponseFormat: map[string]any{
 			"type": "json_schema",
 			"json_schema": map[string]any{
-				"name":   "split_plan",
+				"name":   "response",
 				"schema": json.RawMessage(schema),
 			},
 		},

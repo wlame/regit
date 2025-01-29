@@ -2,6 +2,7 @@
 package llm
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -75,7 +76,7 @@ func BuildMessages(req SplitRequest) (system, user string) {
 // Models often prefix JSON with reasoning prose; we find the first '{' and
 // last '}' to tolerate that without a separate "extract-then-parse" step.
 func ParseAndValidate(raw string, hunks []model.Hunk) (model.SplitProposal, error) {
-	js := extractJSON(raw)
+	js := ExtractJSON(raw)
 	if js == "" {
 		return model.SplitProposal{}, fmt.Errorf("no JSON object found in response")
 	}
@@ -101,18 +102,33 @@ func ParseAndValidate(raw string, hunks []model.Hunk) (model.SplitProposal, erro
 	return prop, nil
 }
 
-// extractJSON returns the substring from the first '{' to the last '}'.
+// ExtractJSON returns the substring from the first '{' to the last '}'.
 // Returns "" when no balanced object is found.
 //
 // This is a first-'{'/last-'}' heuristic, not a full JSON parser: it tolerates
 // models that prefix their answer with reasoning prose, but it does not handle
 // nested unbalanced braces in string literals. Malformed spans are caught by the
-// caller's json.Unmarshal; on failure Propose retries with a stronger prompt.
-func extractJSON(s string) string {
+// caller's json.Unmarshal; on failure Generate retries with a stronger prompt.
+func ExtractJSON(s string) string {
 	i := strings.Index(s, "{")
 	j := strings.LastIndex(s, "}")
 	if i < 0 || j < 0 || j < i {
 		return ""
 	}
 	return s[i : j+1]
+}
+
+// ProposeSplit builds the split prompt, asks the backend to generate, and parses
+// the result into a SplitProposal. It is the split feature's adapter over the
+// generic Backend.Generate.
+func ProposeSplit(ctx context.Context, b Backend, req SplitRequest, schema []byte) (model.SplitProposal, error) {
+	system, user := BuildMessages(req)
+	raw, err := b.Generate(ctx, system, user, schema, func(raw string) error {
+		_, verr := ParseAndValidate(raw, req.Hunks)
+		return verr
+	})
+	if err != nil {
+		return model.SplitProposal{}, err
+	}
+	return ParseAndValidate(raw, req.Hunks)
 }

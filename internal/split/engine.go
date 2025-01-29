@@ -75,7 +75,7 @@ func (e *Engine) Propose(ctx context.Context, commit model.Commit, parentTree, r
 	// Try the cache before hitting the backend.
 	prop, hit := e.cache.Get(commit.Hash, fp)
 	if !hit {
-		prop, err = e.backend.Propose(ctx, llm.SplitRequest{
+		prop, err = llm.ProposeSplit(ctx, e.backend, llm.SplitRequest{
 			CommitMessage: commit.Message,
 			Hunks:         hunks,
 			Readme:        readme,
@@ -205,7 +205,7 @@ func (e *Engine) buildAndValidate(ctx context.Context, commit model.Commit, pare
 		// Ask the backend to regroup, feeding back which stage failed.
 		repairMsg := commit.Message + "\n\n(stage \"" + ordered[failed].Subject +
 			"\" failed tests; regroup so each stage builds)"
-		regrouped, rerr := e.backend.Propose(ctx, llm.SplitRequest{
+		regrouped, rerr := llm.ProposeSplit(ctx, e.backend, llm.SplitRequest{
 			CommitMessage: repairMsg,
 			Hunks:         prop.Hunks,
 			MaxCommits:    len(ordered),

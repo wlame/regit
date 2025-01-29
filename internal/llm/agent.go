@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
-
-	"github.com/wlame/regit/internal/model"
 )
 
 // SchemaPlaceholder is the token replaced at runtime with the inline JSON
@@ -42,30 +40,21 @@ func NewAgentBackend(command string, args []string) *AgentBackend {
 // The command path is included so operators can see which agent binary is in use.
 func (b *AgentBackend) Name() string { return "agent:" + b.command }
 
-// Propose sends the split request to the agent subprocess and returns an
-// ordered grouping of hunks. The full prompt (system + user context) is
-// written to the subprocess's stdin; stdout must be either a JSON envelope
-// produced by `claude --output-format json` or a bare JSON object.
-//
-// The subprocess is run under the caller's context, so a deadline or
-// cancellation propagates as a process kill via exec.CommandContext.
+// Generate runs the given prompt against the agent subprocess and returns the
+// raw model text. The full prompt (system + user + JSON instruction) is fed to
+// stdin; stdout is unwrapped from the agent envelope before validation.
 //
 // Any element of b.args equal to SchemaPlaceholder ("{schema}") is replaced
-// with the inline schema JSON (the value of schema) before the subprocess is
-// launched, forwarding it as the argument to --json-schema per claude's API.
-// If no element matches the placeholder, the schema is not forwarded (back-
-// compat path for custom agents that handle schema in another way).
-func (b *AgentBackend) Propose(ctx context.Context, req SplitRequest, schema []byte) (model.SplitProposal, error) {
-	system, user := BuildMessages(req)
-	// Combine system + user text into a single stdin payload. Agent CLIs such
-	// as `claude -p` receive a single prompt string rather than a structured
-	// message array; appending the return-JSON instruction mirrors the same
-	// constraint communicated to HTTP backends via the ResponseFormat field.
-	prompt := system + "\n\n" + user + "\n\nReturn ONLY the JSON object."
-
+// with the inline schema JSON before the subprocess is launched. The args slice
+// is copied so the backend is safe for concurrent use.
+//
+// Unlike the HTTP backend, the agent path previously had no retry loop. This
+// implementation adds one (up to maxAttempts) using validate, strengthening
+// the user prompt on each validation failure.
+func (b *AgentBackend) Generate(ctx context.Context, system, user string, schema []byte, validate func(string) error) (string, error) {
 	// Build the runtime args by substituting any SchemaPlaceholder element with
 	// the inline schema JSON. We copy b.args so the backend is reusable across
-	// concurrent Propose calls without data races.
+	// concurrent Generate calls without data races.
 	runtimeArgs := make([]string, len(b.args))
 	copy(runtimeArgs, b.args)
 	for i, arg := range runtimeArgs {
@@ -74,18 +63,33 @@ func (b *AgentBackend) Propose(ctx context.Context, req SplitRequest, schema []b
 		}
 	}
 
-	cmd := exec.CommandContext(ctx, b.command, runtimeArgs...)
-	cmd.Stdin = bytes.NewReader([]byte(prompt))
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-
-	if err := cmd.Run(); err != nil {
-		return model.SplitProposal{}, fmt.Errorf("agent %s: %w: %s", b.command, err, stderr.String())
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		// Combine system + user text into a single stdin payload. Agent CLIs
+		// such as `claude -p` receive a single prompt string rather than a
+		// structured message array; appending the return-JSON instruction
+		// mirrors the same constraint communicated to HTTP backends via
+		// the ResponseFormat field.
+		prompt := system + "\n\n" + user + "\n\nReturn ONLY the JSON object."
+		cmd := exec.CommandContext(ctx, b.command, runtimeArgs...)
+		cmd.Stdin = bytes.NewReader([]byte(prompt))
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &stdout, &stderr
+		if err := cmd.Run(); err != nil {
+			return "", fmt.Errorf("agent %s: %w: %s", b.command, err, stderr.String())
+		}
+		// unwrapAgentJSON extracts the inner JSON from the envelope before
+		// handing it to the caller's validate function.
+		raw := unwrapAgentJSON(stdout.String())
+		if verr := validate(raw); verr == nil {
+			return raw, nil
+		} else {
+			lastErr = verr
+			user += "\n\nYour previous answer was invalid: " + verr.Error() +
+				". Return ONLY valid JSON matching the requested schema."
+		}
 	}
-
-	// unwrapAgentJSON extracts the inner plan JSON from the envelope before
-	// handing it to ParseAndValidate, which expects a bare JSON object.
-	return ParseAndValidate(unwrapAgentJSON(stdout.String()), req.Hunks)
+	return "", fmt.Errorf("agent generation failed after %d attempts: %w", maxAttempts, lastErr)
 }
 
 // unwrapAgentJSON pulls the plan JSON out of an agent envelope. It prefers a
