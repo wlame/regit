@@ -28,7 +28,8 @@ func (f fixedBackend) Name() string { return "fixed" }
 // Generate serialises the fixed proposal to JSON and returns it. The validate
 // function supplied by ProposeSplit will call ParseAndValidate against the
 // request's hunk list; coverage passes because the test sets up hunk IDs to
-// match.
+// match. The validate param is intentionally ignored: llm.ProposeSplit validates
+// the returned raw via ParseAndValidate, so the mock returns pre-validated JSON.
 func (f fixedBackend) Generate(_ context.Context, _, _ string, _ []byte, _ func(string) error) (string, error) {
 	// Build a wire-format object that mirrors planWire so ParseAndValidate can
 	// round-trip it back into a SplitProposal.
@@ -63,6 +64,9 @@ type countingBackend struct {
 }
 
 func (c countingBackend) Name() string { return "counting" }
+
+// Generate fails the test immediately; validate is intentionally ignored since
+// llm.ProposeSplit (which calls Generate) handles validation itself.
 func (c countingBackend) Generate(_ context.Context, _, _ string, _ []byte, _ func(string) error) (string, error) {
 	c.t.Fatal("Generate should not be called when skipping small commits")
 	return "", nil
@@ -238,7 +242,8 @@ func (s *sequentialBackend) Name() string { return "sequential" }
 // list from the request is NOT attached automatically — the caller's proposals
 // must already reference the correct IDs. If the slice is exhausted, Generate
 // returns an error so a runaway repair loop fails loudly rather than silently
-// looping.
+// looping. The validate param is intentionally ignored: llm.ProposeSplit validates
+// the returned raw via ParseAndValidate, so the mock returns pre-validated JSON.
 func (s *sequentialBackend) Generate(_ context.Context, _, _ string, _ []byte, _ func(string) error) (string, error) {
 	idx := s.calls
 	s.calls++

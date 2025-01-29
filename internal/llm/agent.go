@@ -28,7 +28,7 @@ type AgentBackend struct {
 // Claude Code headless invocation flags: -p (print mode), --output-format json
 // (machine-readable envelope), --bare (skip CLAUDE.md/hooks/plugins/MCP for
 // deterministic output), and --json-schema with the SchemaPlaceholder token
-// (substituted with the actual inline schema JSON at call time in Propose).
+// (substituted with the actual inline schema JSON at call time in Generate).
 func NewAgentBackend(command string, args []string) *AgentBackend {
 	if args == nil {
 		args = []string{"-p", "--output-format", "json", "--bare", "--json-schema", SchemaPlaceholder}
@@ -76,7 +76,11 @@ func (b *AgentBackend) Generate(ctx context.Context, system, user string, schema
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 		if err := cmd.Run(); err != nil {
-			return "", fmt.Errorf("agent %s: %w: %s", b.command, err, stderr.String())
+			// Transport/subprocess error: retry with the unchanged prompt, matching
+			// HTTPBackend.Generate's documented contract (transport error → retry,
+			// do NOT append the strengthen text).
+			lastErr = fmt.Errorf("agent %s: %w: %s", b.command, err, stderr.String())
+			continue
 		}
 		// unwrapAgentJSON extracts the inner JSON from the envelope before
 		// handing it to the caller's validate function.

@@ -124,6 +124,10 @@ func ExtractJSON(s string) string {
 func ProposeSplit(ctx context.Context, b Backend, req SplitRequest, schema []byte) (model.SplitProposal, error) {
 	system, user := BuildMessages(req)
 	raw, err := b.Generate(ctx, system, user, schema, func(raw string) error {
+		// The closure intentionally discards the parsed result — validation only.
+		// The post-Generate ParseAndValidate call below materialises the value.
+		// Do NOT remove that second call: it is not redundant; the validate closure
+		// exists solely to drive Generate's retry loop, not to capture the result.
 		_, verr := ParseAndValidate(raw, req.Hunks)
 		return verr
 	})

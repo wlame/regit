@@ -132,6 +132,70 @@ func TestAgentBackend_schemaPlaceholderSubstituted(t *testing.T) {
 	}
 }
 
+// TestAgentBackend_validationRetryLoop verifies that AgentBackend.Generate retries
+// when the validate function rejects a response. A stateful POSIX sh stub uses a
+// sentinel file in a temp dir: on the first run (no sentinel) it prints garbage
+// JSON and creates the file; on the second run (sentinel present) it prints a
+// valid envelope. The test asserts Generate returns the valid raw after exactly 2
+// subprocess invocations.
+func TestAgentBackend_validationRetryLoop(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("stub script is POSIX sh")
+	}
+
+	// sentinelDir is exported to the stub via SENTINEL_DIR env var.
+	sentinelDir := t.TempDir()
+	stubDir := t.TempDir()
+	stubPath := filepath.Join(stubDir, "statefulagent")
+
+	// Valid structured-output envelope the stub returns on its second call.
+	validEnvelope := `{"structured_output":{"should_split":true,"groups":[{"order":1,"hunk_ids":["H1","H2"],"subject":"all"}]}}`
+
+	// The stub: if $SENTINEL_DIR/seen exists → second call, print valid JSON;
+	// else create the sentinel and print garbage.
+	script := "#!/bin/sh\ncat >/dev/null\n" +
+		"if [ -f \"$SENTINEL_DIR/seen\" ]; then\n" +
+		"  printf '%s' '" + validEnvelope + "'\n" +
+		"else\n" +
+		"  touch \"$SENTINEL_DIR/seen\"\n" +
+		"  printf 'not-json-garbage'\n" +
+		"fi\n"
+	if err := os.WriteFile(stubPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("SENTINEL_DIR", sentinelDir)
+
+	b := NewAgentBackend(stubPath, nil)
+
+	// validate rejects anything that is not valid JSON / not parseable as a plan.
+	calls := 0
+	validate := func(raw string) error {
+		calls++
+		_, err := ParseAndValidate(raw, sampleReq().Hunks)
+		return err
+	}
+
+	schema := SchemaJSON()
+	req := sampleReq()
+	system, user := BuildMessages(req)
+
+	raw, err := b.Generate(context.Background(), system, user, schema, validate)
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+
+	// The returned raw must be the unwrapped structured_output from the valid envelope.
+	if !strings.Contains(raw, "should_split") {
+		t.Errorf("expected valid JSON in raw, got: %s", raw)
+	}
+
+	// validate must have been called exactly twice: once for garbage, once for valid.
+	if calls != 2 {
+		t.Errorf("expected validate called 2 times, got %d", calls)
+	}
+}
+
 func TestAgentBackend_defaultArgsContainBareAndSchema(t *testing.T) {
 	// Verify that NewAgentBackend(cmd, nil) produces the expected default flags
 	// by running a stub that records its args and asserting --bare and
