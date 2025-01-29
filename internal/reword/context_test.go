@@ -74,6 +74,52 @@ func makeEmptyRepo(t *testing.T) *gitio.Repo {
 	return repo
 }
 
+// makeTwoCommitRepo builds a repo with a parent commit and a child that edits a
+// file, returning the open *gitio.Repo plus the parent and child tree hashes.
+// It reuses the gitCmd helper already in this file.
+func makeTwoCommitRepo(t *testing.T) (*gitio.Repo, string, string) {
+	t.Helper()
+	dir := t.TempDir()
+
+	gitCmd(t, dir, "init", "-q")
+	gitCmd(t, dir, "config", "commit.gpgsign", "false")
+
+	file := filepath.Join(dir, "a.txt")
+	if err := os.WriteFile(file, []byte("one\ntwo\nthree\n"), 0o644); err != nil {
+		t.Fatalf("write a.txt: %v", err)
+	}
+	gitCmd(t, dir, "add", "-A")
+	gitCmd(t, dir, "commit", "-q", "-m", "parent")
+	parent := gitCmd(t, dir, "rev-parse", "HEAD^{tree}")
+
+	if err := os.WriteFile(file, []byte("ONE\ntwo\nthree\n"), 0o644); err != nil {
+		t.Fatalf("rewrite a.txt: %v", err)
+	}
+	gitCmd(t, dir, "add", "-A")
+	gitCmd(t, dir, "commit", "-q", "-m", "child")
+	child := gitCmd(t, dir, "rev-parse", "HEAD^{tree}")
+
+	repo, err := gitio.Open(dir)
+	if err != nil {
+		t.Fatalf("gitio.Open: %v", err)
+	}
+	return repo, parent, child
+}
+
+// TestGatherDiff_returnsUnifiedDiff guards against signature drift on the thin
+// GatherDiff wrapper: it must return a unified diff (containing "diff --git")
+// for a real two-commit repo without error.
+func TestGatherDiff_returnsUnifiedDiff(t *testing.T) {
+	repo, parent, child := makeTwoCommitRepo(t)
+	out, err := GatherDiff(repo, parent, child, 30)
+	if err != nil {
+		t.Fatalf("GatherDiff: %v", err)
+	}
+	if !strings.Contains(out, "diff --git") {
+		t.Fatalf("GatherDiff output missing 'diff --git' marker:\n%s", out)
+	}
+}
+
 func TestReadREADME_capsSize(t *testing.T) {
 	const readmeSize = 5000
 	const maxBytes = 1000
