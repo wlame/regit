@@ -17,7 +17,7 @@ of strategies, edit messages, and apply the change with strong safety guarantees
 │     06-05 14:30 → 03-09 09:02 │       ✓ sequential                         │
 ├───────────────────────────────┴─────────────────────────────────────────────┤
 │ ● Even Spread · 24 commits edited · ✓ sequential                            │
-│ [s]trategy [e]dit [p]review [u]ndo [A]pply [r]eset [g]quotas [tab]focus [?]  │
+│ [s]trategy [e]dit [p]review [S]plit [u]ndo [A]pply [r]eset [tab]focus [?]    │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -61,6 +61,7 @@ regit --repo=/path/to/repo
 | `s` | open the strategy palette |
 | `e` / `enter` | edit selected commit (title, body, date) — `ctrl+d` drops the body |
 | `p` | preview before/after dates |
+| `S` | split the selected commit into smaller commits with an LLM (review, then `enter` to apply · `esc` to cancel) |
 | `A` | apply the rewrite (creates a backup first) |
 | `u` | undo the last apply |
 | `r` | reset pending edits |
