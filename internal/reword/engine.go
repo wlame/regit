@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -71,7 +72,11 @@ func (e *Engine) Generate(ctx context.Context, c model.Commit, parentTree, readm
 	}
 
 	// Build a stable cache key from every input that affects the result.
-	contextKey := strings.Join(opts.Context, ",")
+	// Sort context to make the cache key order-invariant.
+	sortedCtx := make([]string, len(opts.Context))
+	copy(sortedCtx, opts.Context)
+	sort.Strings(sortedCtx)
+	contextKey := strings.Join(sortedCtx, ",")
 	fp := Fingerprint(diffHash(diff), e.backend.Name(), contextKey, opts.UserHint, opts.Variants)
 
 	// Return the cached result if it is still valid for these exact inputs.
@@ -122,5 +127,5 @@ func (e *Engine) Generate(ctx context.Context, c model.Commit, parentTree, readm
 // the diff (different context lines, amended content) invalidates cached results.
 func diffHash(s string) string {
 	sum := sha256.Sum256([]byte(s))
-	return fmt.Sprintf("%x", sum[:])[:32]
+	return fmt.Sprintf("%x", sum[:16])
 }

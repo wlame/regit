@@ -120,3 +120,30 @@ func TestEngine_generateParsesAndCaches(t *testing.T) {
 		t.Fatalf("expected cache hit, backend called again (%d -> %d)", before, fb.calls)
 	}
 }
+
+func TestEngine_contextOrderInvariant(t *testing.T) {
+	repo, parent, child := rewordRepo(t)
+	fb := &fakeBackend{raw: `{"variants":[{"title":"Test","body":"body"}]}`}
+	eng := NewEngine(repo, fb, NewCache(t.TempDir()))
+
+	// First call with context ["a", "b"].
+	opts1 := Options{Variants: 1, ContextLines: 30, Context: []string{"a", "b"}, Now: time.Unix(0, 0)}
+	_, err := eng.Generate(context.Background(), child, parent, "readme text", opts1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls1 := fb.calls
+
+	// Second call with context ["b", "a"] (different order, same logical content).
+	// This should hit the cache, so backend call count should not increase.
+	opts2 := Options{Variants: 1, ContextLines: 30, Context: []string{"b", "a"}, Now: time.Unix(0, 0)}
+	_, err = eng.Generate(context.Background(), child, parent, "readme text", opts2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls2 := fb.calls
+
+	if calls2 != calls1 {
+		t.Fatalf("context order should be invariant: calls went from %d to %d (backend was called again)", calls1, calls2)
+	}
+}
