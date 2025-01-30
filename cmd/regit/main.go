@@ -31,10 +31,17 @@ func run() error {
 	// share the same path regardless of how the flag was positioned.
 	repoDir := *repoPath
 
-	// Subcommand dispatch: `regit split [<commit>] [flags]` runs headless.
+	// Subcommand dispatch: `regit split` and `regit reword` run headless.
 	// All other invocations fall through to the TUI.
 	if len(os.Args) > 1 && os.Args[1] == "split" {
 		return runSplit(repoDir, os.Args[2:])
+	}
+	if len(os.Args) > 1 && os.Args[1] == "reword" {
+		if err := runReword(repoDir, os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "regit:", err)
+			os.Exit(1)
+		}
+		return nil
 	}
 
 	cfg, err := config.Load()
