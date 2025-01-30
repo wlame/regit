@@ -152,9 +152,27 @@ func generateAhead[T any](
 // buildRewordBackend constructs an LLM backend from reword flags and config.
 // It mirrors buildBackend (for the split subcommand) but takes rewordFlags
 // so the two subcommands stay independent. API keys come from env only.
-func buildRewordBackend(cfg config.Config, f rewordFlags) (llm.Backend, error) {
+//
+// When --agent-scan is set, the agent is run with read-only scan defaults
+// (unless --agent-args is provided) and with cwd = repo root so that
+// `git show` inside the agent targets the correct repository.
+func buildRewordBackend(cfg config.Config, f rewordFlags, repoRoot string) (llm.Backend, error) {
 	// --agent wins over --llm and config.
 	if f.Agent != "" {
+		if f.AgentScan {
+			// Agent-scan mode: use caller-supplied args or the read-only scan
+			// defaults; always run the subprocess in the repo root directory.
+			var args []string
+			if f.AgentArgs != "" {
+				args = strings.Fields(f.AgentArgs)
+			} else {
+				// Use the canonical read-only scan defaults for Claude Code:
+				// --permission-mode plan restricts to read-only tools; the
+				// --allowedTools list further limits to git inspection commands.
+				args = llm.ScanDefaultArgs
+			}
+			return llm.NewAgentBackendInDir(f.Agent, args, repoRoot), nil
+		}
 		if f.AgentArgs != "" {
 			return llm.NewAgentBackend(f.Agent, strings.Fields(f.AgentArgs)), nil
 		}
@@ -201,6 +219,12 @@ func runReword(repoDir string, args []string) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
+	}
+
+	// --agent-scan requires --agent: the scan mode submits no diff, so an HTTP
+	// backend has no useful context to work with. Error early with a clear message.
+	if f.AgentScan && f.Agent == "" {
+		return fmt.Errorf("--agent-scan requires --agent: specify the agent CLI binary (e.g. --agent=claude)")
 	}
 
 	repo, err := gitio.Open(repoDir)
@@ -254,7 +278,8 @@ func runReword(repoDir string, args []string) error {
 
 	// Build backend — this is required (unlike the dry-run path in split, the
 	// reword engine always needs an LLM to produce proposals even in dry-run).
-	backend, err := buildRewordBackend(cfg, f)
+	// Pass the repo root so agent-scan mode can set the subprocess cwd correctly.
+	backend, err := buildRewordBackend(cfg, f, repo.Root())
 	if err != nil {
 		return err
 	}

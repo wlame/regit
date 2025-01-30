@@ -58,25 +58,68 @@ func NewEngine(repo *gitio.Repo, backend llm.Backend, cache *Cache) *Engine {
 // Generate returns ranked reword variants for a single commit c.
 //
 // parentTree is the tree hash of c's parent (pass EmptyTree for a root commit).
+// In agent-scan mode (opts.AgentScan == true), parentTree is not used: the
+// agent inspects the commit itself via git show, so no diff is gathered here.
+//
 // readme is the project README contents to include in the prompt; the caller
 // reads it once (via ReadREADME) and passes the same string for every commit.
+// In scan mode readme is ignored (the agent fetches its own context).
 //
 // Cache semantics: if a prior result was stored under the same commit hash and
-// fingerprint (diff + backend + context + hint + variants), it is returned
-// immediately without a backend call.
+// fingerprint (diff-or-hash + backend + context + hint + variants), it is
+// returned immediately without a backend call.
 func (e *Engine) Generate(ctx context.Context, c model.Commit, parentTree, readme string, opts Options) (Result, error) {
-	// Gather the wide-context diff for this commit.
+	// Sort context to make the cache key order-invariant.
+	sortedCtx := make([]string, len(opts.Context))
+	copy(sortedCtx, opts.Context)
+	sort.Strings(sortedCtx)
+	contextKey := strings.Join(sortedCtx, ",")
+
+	var system, user string
+
+	if opts.AgentScan {
+		// Agent-scan mode: skip DiffText — the agent will call `git show` itself.
+		// Use the commit hash as the fingerprint source so the cache is keyed by
+		// commit identity rather than a diff hash.
+		fp := Fingerprint(c.Hash, e.backend.Name(), contextKey, opts.UserHint, opts.Variants)
+
+		if r, ok := e.cache.Get(c.Hash, fp); ok {
+			return r, nil
+		}
+
+		system, user = BuildScanMessages(c.Hash, filepath.Base(e.repo.Root()), opts.UserHint, opts.Variants)
+
+		raw, err := e.backend.Generate(ctx, system, user, SchemaJSON(), func(raw string) error {
+			_, perr := ParseVariants(raw)
+			return perr
+		})
+		if err != nil {
+			return Result{}, fmt.Errorf("reword: backend generate: %w", err)
+		}
+
+		r, err := ParseVariants(raw)
+		if err != nil {
+			return Result{}, fmt.Errorf("reword: parse variants: %w", err)
+		}
+		r.CommitHash = c.Hash
+
+		_ = e.cache.Put(CacheEntry{
+			CommitHash:  c.Hash,
+			Fingerprint: fp,
+			Result:      r,
+			CreatedAt:   opts.Now,
+		})
+
+		return r, nil
+	}
+
+	// Normal mode: gather the wide-context diff for this commit.
 	diff, err := e.repo.DiffText(parentTree, c.TreeHash, opts.ContextLines)
 	if err != nil {
 		return Result{}, fmt.Errorf("reword: diff %s: %w", c.Hash, err)
 	}
 
 	// Build a stable cache key from every input that affects the result.
-	// Sort context to make the cache key order-invariant.
-	sortedCtx := make([]string, len(opts.Context))
-	copy(sortedCtx, opts.Context)
-	sort.Strings(sortedCtx)
-	contextKey := strings.Join(sortedCtx, ",")
 	fp := Fingerprint(diffHash(diff), e.backend.Name(), contextKey, opts.UserHint, opts.Variants)
 
 	// Return the cached result if it is still valid for these exact inputs.
@@ -94,7 +137,7 @@ func (e *Engine) Generate(ctx context.Context, c model.Commit, parentTree, readm
 		UserHint:   opts.UserHint,
 		Variants:   opts.Variants,
 	}
-	system, user := BuildMessages(req)
+	system, user = BuildMessages(req)
 
 	raw, err := e.backend.Generate(ctx, system, user, SchemaJSON(), func(raw string) error {
 		_, perr := ParseVariants(raw)

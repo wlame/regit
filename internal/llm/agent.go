@@ -19,21 +19,52 @@ const SchemaPlaceholder = "{schema}"
 // json --bare --json-schema <schema>`) as a subprocess. The full prompt is fed
 // on stdin; the agent's JSON envelope is parsed and its structured_output (or
 // message text) validated.
+//
+// When dir is non-empty, the subprocess is run with that working directory.
+// This is required for agent-scan mode so that `git show` inside the agent
+// targets the correct repository, especially when --repo points elsewhere.
 type AgentBackend struct {
 	command string
 	args    []string
+	dir     string // working directory for the subprocess; "" inherits the process cwd
 }
 
-// NewAgentBackend builds an agent backend. When args is nil it defaults to the
-// Claude Code headless invocation flags: -p (print mode), --output-format json
-// (machine-readable envelope), --bare (skip CLAUDE.md/hooks/plugins/MCP for
-// deterministic output), and --json-schema with the SchemaPlaceholder token
-// (substituted with the actual inline schema JSON at call time in Generate).
+// ScanDefaultArgs are the read-only headless args used when --agent-scan is
+// active and the user has not supplied --agent-args. They instruct Claude Code
+// to run in plan (read-only) permission mode with a curated tool allowlist, so
+// the agent can call git show / diff / log and grep but cannot modify files.
+// The --bare flag skips CLAUDE.md / hooks / plugins / MCP for deterministic
+// output. {schema} is substituted with the actual JSON schema at call time.
+var ScanDefaultArgs = []string{
+	"-p",
+	"--output-format", "json",
+	"--bare",
+	"--permission-mode", "plan",
+	"--allowedTools", "Read,Bash(git show *),Bash(git diff *),Bash(git log *),Bash(grep *),Bash(find *)",
+	"--json-schema", SchemaPlaceholder,
+}
+
+// NewAgentBackend builds an agent backend with the process's inherited working
+// directory. When args is nil it defaults to the Claude Code headless invocation
+// flags: -p (print mode), --output-format json (machine-readable envelope),
+// --bare (skip CLAUDE.md/hooks/plugins/MCP for deterministic output), and
+// --json-schema with the SchemaPlaceholder token (substituted with the actual
+// inline schema JSON at call time in Generate).
 func NewAgentBackend(command string, args []string) *AgentBackend {
 	if args == nil {
 		args = []string{"-p", "--output-format", "json", "--bare", "--json-schema", SchemaPlaceholder}
 	}
 	return &AgentBackend{command: command, args: args}
+}
+
+// NewAgentBackendInDir builds an agent backend that runs its subprocess with
+// cwd set to dir. This is required for agent-scan mode so that the agent's
+// `git show` commands target the correct repository when --repo is set.
+// When dir is empty it behaves identically to NewAgentBackend.
+func NewAgentBackendInDir(command string, args []string, dir string) *AgentBackend {
+	b := NewAgentBackend(command, args)
+	b.dir = dir
+	return b
 }
 
 // Name returns a human-readable identifier for logs and the TUI status line.
@@ -72,6 +103,11 @@ func (b *AgentBackend) Generate(ctx context.Context, system, user string, schema
 		// the ResponseFormat field.
 		prompt := system + "\n\n" + user + "\n\nReturn ONLY the JSON object."
 		cmd := exec.CommandContext(ctx, b.command, runtimeArgs...)
+		if b.dir != "" {
+			// Set the subprocess working directory so `git show` and similar
+			// commands target the correct repository (used in agent-scan mode).
+			cmd.Dir = b.dir
+		}
 		cmd.Stdin = bytes.NewReader([]byte(prompt))
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
