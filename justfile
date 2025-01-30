@@ -79,6 +79,11 @@ ci: fmt-check vet build test-race
 split commit="HEAD" *args:
     go run ./cmd/regit split {{commit}} {{args}}
 
+# Reword commit messages with the LLM (defaults to HEAD).
+# Usage: just reword <commit-ish> -- --llm=ollama/qwen2.5-coder --dry-run
+reword commit="HEAD" *args:
+    go run ./cmd/regit reword {{commit}} {{args}}
+
 # Remove build and coverage artifacts.
 clean:
     rm -rf {{bin_dir}} {{coverage_file}}

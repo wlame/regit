@@ -17,7 +17,7 @@ of strategies, edit messages, and apply the change with strong safety guarantees
 │     06-05 14:30 → 03-09 09:02 │       ✓ sequential                         │
 ├───────────────────────────────┴─────────────────────────────────────────────┤
 │ ● Even Spread · 24 commits edited · ✓ sequential                            │
-│ [s]trategy [e]dit [p]review [S]plit [u]ndo [A]pply [r]eset [tab]focus [?]    │
+│ [s]trategy [e]dit [p]review [S]plit [w]reword [u]ndo [A]pply [r]eset [?]     │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -62,6 +62,7 @@ regit --repo=/path/to/repo
 | `e` / `enter` | edit selected commit (title, body, date) — `ctrl+d` drops the body |
 | `p` | preview before/after dates |
 | `S` | split the selected commit into smaller commits with an LLM (review, then `enter` to apply · `esc` to cancel) |
+| `w` | reword the selected commit with the LLM — pick title/body variant with `←/→` (title) and `j/k` (body), `b` toggles no-body, `enter` to apply, `esc` to cancel |
 | `A` | apply the rewrite (creates a backup first) |
 | `u` | undo the last apply |
 | `r` | reset pending edits |
@@ -175,6 +176,87 @@ worktree. A failing stage triggers up to two LLM regrouping attempts; if it
 still fails the stage is marked `WIP:` in the commit subject. The test command
 must pass on the original commit before splitting begins; if it does not,
 `regit` aborts with a clear message so you can fix `--test-cmd`.
+
+## Commit rewording
+
+`regit reword` regenerates the commit message(s) of one or more existing commits
+using an external LLM. It reads the commit's diff with a wide context window
+(default 30 lines), asks the LLM to propose ranked title + body alternatives, and
+lets you accept or reject each proposal before the branch is rewritten. The same
+safety machinery used by every other rewrite operation protects the operation:
+a backup ref is created before anything moves, and the final tree is verified
+byte-identical to the original.
+
+```bash
+regit reword [<commit-ish>...]     # commits to reword (default: HEAD)
+  --llm=ollama/qwen2.5-coder       # or openai/gpt-4o, openrouter/..., lmstudio/...
+  --agent=claude                   # drive an agent CLI instead of HTTP
+  --agent-args="<flags>"           # replace default agent invocation args
+  --llm-base-url=<url>             # override the inferred OpenAI-compatible endpoint
+  --prompt="focus on the why"      # short user guidance passed to the LLM
+  --variants=3                     # ranked alternatives to request (0 = config default)
+  --context=readme,filestates      # comma-separated context keys to include in prompt
+  --context-lines=30               # git diff -U context depth (0 = config default, default: 30)
+  --agent-scan                     # agent inspects the commit itself via git show
+                                   # (read-only sandbox; requires --agent)
+  --dry-run                        # print proposals and write cache; apply nothing
+  --yes                            # skip Y/n confirmation (CI / one-shot)
+  --no-cache                       # ignore cached proposals (force a fresh LLM call)
+  --clear-cache                    # delete the reword cache directory and exit
+  --repo=<path>                    # path to the git repository (default: current dir)
+```
+
+Multiple commit-ishes may be supplied; they are de-duplicated and processed in
+root-first history order. In headless mode exactly one variant is requested per
+commit (no TUI to choose from); use the TUI's `w` key to browse multiple ranked
+alternatives interactively.
+
+### API key resolution
+
+Credentials are read from environment variables only — never from flags or config
+files. Resolution order for each run:
+
+1. `REGIT_LLM_API_KEY` — tool-wide override
+2. Provider-standard variable: `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, …
+3. No key required for local providers (`ollama`, `lmstudio`)
+
+### Agent safety modes
+
+By default `regit` gathers the commit's diff itself and sends it to the agent as
+context — **the agent has no access to the repository**. This is the safest mode
+and works with any backend.
+
+With `--agent-scan` the agent is instead given read-only access to the repository
+so it can run `git show` and other inspection commands itself. The subprocess is
+launched with `--permission-mode plan` and a restricted `--allowedTools` list
+(git read commands only), with its working directory set to the repository root.
+This mode requires `--agent`.
+
+### Cache
+
+Reword proposals are cached at `.git/regit/cache/reword/<commitHash>.json`.
+The cache key incorporates the diff hash (or commit hash in agent-scan mode),
+backend name, context keys, user hint, and variant count, so any input change
+produces a cache miss. Use `--no-cache` to force a fresh LLM call without
+clearing the cache, or `--clear-cache` to wipe the entire cache directory.
+
+### Background prefetch pipeline
+
+When rewording multiple commits, `regit` starts generating the next commit's
+proposal while you are reading and accepting the current one. The pipeline buffer
+depth is controlled by `reword.prefetch` in the config (default: 1 ahead). The
+TUI also prefetches the next commit below the cursor when you press `w`.
+
+### Configuration defaults
+
+```yaml
+reword:
+  variants: 3          # ranked alternatives per commit (TUI; headless always uses 1)
+  context_lines: 30    # git diff -U context depth passed to each diff call
+  context: [readme]    # supplementary context keys included in the prompt
+  prefetch: 1          # how many commits ahead to generate concurrently
+  cache: true          # persist proposals to .git/regit/cache/reword/
+```
 
 ## Development
 

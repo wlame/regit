@@ -6,14 +6,17 @@ Read this before touching code; update it when the shape of the project changes.
 ## What regit does
 
 `regit` is a terminal UI for **safely rewriting commit and author dates** on the
-current git branch, and for **splitting commits** using an LLM. Two independent
-features share a common safety/gitio core:
+current git branch, and for **splitting and rewording commits** using an LLM.
+Three independent features share a common safety/gitio core:
 
 1. **Date spreading** — spread a burst of commits across a calendar using
    configurable strategies (Even Spread, Manual Pin, Rate Fill, …), edit
    messages, and apply the rewrite with strong safety guarantees.
 2. **Commit splitting** (`regit split`) — split one existing commit into 2–4
    semantically meaningful commits using an external LLM to group its diff hunks.
+3. **Commit rewording** (`regit reword`) — regenerate the commit message of one
+   or more commits using an LLM; proposes ranked title + body alternatives, with
+   an interactive picker in the TUI (`w` key) and a headless Y/n flow on the CLI.
 
 ## Core domain types (`internal/model`)
 
@@ -31,13 +34,14 @@ one group, no unknown IDs) before any git object is created.
 ## Architecture: layered packages
 
 ```
-cmd/regit/          CLI entry points (main.go, split.go)
+cmd/regit/          CLI entry points (main.go, split.go, reword.go)
 internal/
   model/            Pure domain types — no imports from other internal packages
   strategy/         Pure date-distribution algorithms — no git, no UI
   gitio/            THE ONLY PACKAGE THAT SHELLS OUT TO git
   safety/           Guards, backup refs, undo stack
   split/            Commit-splitting orchestrator
+  reword/           Commit-rewording engine (variants, cache, prompt building)
   llm/              LLM backend abstraction
   config/           YAML + REGIT_* env configuration
   ui/               Bubble Tea TUI (depends on all of the above)
@@ -67,10 +71,19 @@ guards → LLM grouping → build intermediate trees → validate/repair loop �
 verify final tree == original tree → write cache. The `Engine.Propose` method
 returns a `SplitProposal` + per-group tree hashes without moving any ref.
 
+**`internal/reword`** — commit-rewording engine. `Engine.Generate` reads the
+commit's diff (or delegates to agent-scan mode), calls the backend, caches
+results under `.git/regit/cache/reword/`, and returns ranked `Variant` alternatives
+wrapped in a `Result`. `Result.ToEdit` converts the user's `Selection` (TitleIdx,
+BodyIdx, NoBody) into a `model.Edit` ready for `safety.Apply`.
+
 **`internal/llm`** — one interface (`Backend`) with two implementations:
 `HTTPBackend` (OpenAI-compatible `/v1/chat/completions`) and `AgentBackend`
-(drives an agent CLI with `-p` / stdin). `SplitRequest` and `SchemaJSON` are
-the inputs; the output is always a `model.SplitProposal`.
+(drives an agent CLI with `-p` / stdin). `Backend.Generate(ctx, system, user,
+schema, validate)` is the single generic call that both the split and reword
+engines build on. Split-specific helpers (`SplitRequest`, split `SchemaJSON`)
+and reword-specific helpers (`reword.Request`, reword `SchemaJSON`) live in
+their respective packages.
 
 **`internal/config`** — loads `$XDG_CONFIG_HOME/regit/config.yaml` and
 applies `REGIT_*` environment variable overrides. Env vars always win over
@@ -170,8 +183,9 @@ regit split <commit-ish>
 ## Where things live
 
 ```
-cmd/regit/main.go       Subcommand dispatch (split → runSplit; default → TUI)
+cmd/regit/main.go       Subcommand dispatch (split → runSplit; reword → runReword; default → TUI)
 cmd/regit/split.go      Flag parsing, backend wiring, orchestration for `regit split`
+cmd/regit/reword.go     Flag parsing, backend wiring, pipeline for `regit reword`
 internal/model/
   commit.go             Commit, SplitMessage
   edit.go               Edit (pending date/message change)
@@ -189,19 +203,25 @@ internal/split/
   cache.go              Cache, CacheEntry (.git/regit/cache/split/)
   size.go               ShouldSkipSplit, EffectiveMaxCommits, Fingerprint
   subcommits.go         BuildSubCommits (groups + trees → []gitio.SubCommit)
+internal/reword/
+  engine.go             Engine, Generate (normal + agent-scan modes), diffHash
+  cache.go              Cache, CacheEntry (.git/regit/cache/reword/)
+  types.go              Result, Variant, Selection, DefaultSelection, Options, Request
+  prompt.go             BuildMessages, BuildScanMessages, SchemaJSON, ParseVariants
 internal/llm/
-  backend.go            Backend interface, SplitRequest, FewShot
+  backend.go            Backend interface (generic Generate), FewShot
   http.go               HTTPBackend (OpenAI-compatible)
-  agent.go              AgentBackend (CLI driver)
-  schema.go             SchemaJSON (JSON schema for structured output)
+  agent.go              AgentBackend (CLI driver), ScanDefaultArgs
+  schema.go             Split-specific SchemaJSON (JSON schema for structured output)
 internal/safety/
   manager.go            Manager, Apply, ApplySplit, Undo
   guards.go             CheckGuards, Guard
 internal/config/
-  config.go             Config, Load, REGIT_* overrides
+  config.go             Config, Load, REGIT_* overrides, RewordConfig
 internal/ui/
   app.go                Main Bubble Tea model and update loop
   split.go              Split review screen + backend wiring for TUI
+  reword.go             Reword variant picker + async Generate cmd for TUI
   (other .go files)     Calendar, editor, strategy palette, preview, styles
 justfile                All dev recipes — prefer these over raw go commands
 AGENTS.md               This file
