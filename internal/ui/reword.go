@@ -40,7 +40,7 @@ func (r *rewordState) cycleTitle(delta int) {
 		return
 	}
 	n := len(res.Variants)
-	r.sel.TitleIdx = ((r.sel.TitleIdx + delta) % n + n) % n
+	r.sel.TitleIdx = ((r.sel.TitleIdx+delta)%n + n) % n
 }
 
 // cycleBody advances (delta=+1) or retreats (delta=-1) the body selection
@@ -52,7 +52,7 @@ func (r *rewordState) cycleBody(delta int) {
 		return
 	}
 	n := len(res.Variants)
-	r.sel.BodyIdx = ((r.sel.BodyIdx + delta) % n + n) % n
+	r.sel.BodyIdx = ((r.sel.BodyIdx+delta)%n + n) % n
 }
 
 // toggleNoBody flips the NoBody flag on the current selection.
@@ -246,7 +246,8 @@ func (m Model) beginReword() (tea.Model, tea.Cmd, bool) {
 			return m, nil, true
 		}
 		opts := buildRewordOptions(m)
-		cmds = append(cmds, generateRewordCmd(eng, c, parentTree, "", opts))
+		readme := reword.ReadmeForContext(m.repo, opts.Context)
+		cmds = append(cmds, generateRewordCmd(eng, c, parentTree, readme, opts))
 		m.rewordSt.inFlight[c.Hash] = true
 		m.setStatus(fmt.Sprintf("Generating reword variants for %s…", short(c.Hash)), statusNone)
 
@@ -259,7 +260,7 @@ func (m Model) beginReword() (tea.Model, tea.Cmd, bool) {
 				if _, nCached := m.rewordSt.buffer[nextC.Hash]; !nCached && !m.rewordSt.inFlight[nextC.Hash] {
 					nextParent, perr := resolveParentTree(&m, nextC)
 					if perr == nil {
-						cmds = append(cmds, generateRewordCmd(eng, nextC, nextParent, "", opts))
+						cmds = append(cmds, generateRewordCmd(eng, nextC, nextParent, readme, opts))
 						m.rewordSt.inFlight[nextC.Hash] = true
 					}
 					// prefetch failure is silent — the result just won't be cached

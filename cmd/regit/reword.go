@@ -55,10 +55,10 @@ type rewordFlags struct {
 	ClearCache bool
 }
 
-// parseRewordFlags parses `regit reword [<commit-ish>...] [flags]`. All leading
-// non-flag tokens are treated as the commit list; they may interleave with flags
-// as long as they appear before the first flag token (we pre-scan to extract them
-// so the flag set receives only flag tokens). Defaults to ["HEAD"] when no
+// parseRewordFlags parses `regit reword [<commit-ish>...] [flags]`. Positional
+// commit-ish arguments are collected from both before AND after flag tokens: the
+// pre-scan gathers leading non-flag tokens, and any remaining non-flag tokens
+// left in fs.Args() after Parse are appended. Defaults to ["HEAD"] when no
 // commit-ish is provided.
 func parseRewordFlags(args []string) (rewordFlags, error) {
 	// Pre-scan: collect all leading non-flag tokens as the commit list, and
@@ -94,6 +94,10 @@ func parseRewordFlags(args []string) (rewordFlags, error) {
 	if err := fs.Parse(flagArgs); err != nil {
 		return f, err
 	}
+
+	// Append any non-flag tokens that appear after the last flag (e.g.
+	// `--yes HEAD~2` — fs.Args() holds ["HEAD~2"] after Parse).
+	commits = append(commits, fs.Args()...)
 
 	if len(commits) > 0 {
 		f.Commits = commits
@@ -306,7 +310,7 @@ func runReword(repoDir string, args []string) error {
 	}
 
 	eng := reword.NewEngine(repo, backend, cache)
-	readme := readmeIfRequested(repo, cfg)
+	readme := reword.ReadmeForContext(repo, opts.Context)
 
 	// Pipeline: generate proposals for each target commit, prefetching the next
 	// while the user answers the current Y/n.

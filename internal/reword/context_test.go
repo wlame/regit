@@ -140,3 +140,29 @@ func TestReadREADME_capsSize(t *testing.T) {
 	}
 }
 
+// TestReadmeForContext verifies that ReadmeForContext returns the README when
+// the context slice contains "readme" and "" when it does not.
+func TestReadmeForContext_includesReadmeWhenKeyPresent(t *testing.T) {
+	repo := makeRepoWithREADME(t, 100)
+
+	// "readme" key present — should return non-empty string.
+	got := ReadmeForContext(repo, []string{"diff", "readme", "filestates"})
+	if got == "" {
+		t.Fatal("ReadmeForContext returned empty string when context includes 'readme'")
+	}
+	if len(got) > READMEMaxBytes {
+		t.Fatalf("ReadmeForContext returned %d bytes, want <= %d", len(got), READMEMaxBytes)
+	}
+
+	// "readme" key absent — should return "".
+	got = ReadmeForContext(repo, []string{"diff", "filestates"})
+	if got != "" {
+		t.Fatalf("ReadmeForContext should return empty string when 'readme' is not in context, got %q", got[:min(len(got), 40)])
+	}
+
+	// Empty context slice — should return "".
+	got = ReadmeForContext(repo, nil)
+	if got != "" {
+		t.Fatalf("ReadmeForContext should return empty string for nil context, got %q", got[:min(len(got), 40)])
+	}
+}

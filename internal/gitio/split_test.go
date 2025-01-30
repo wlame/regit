@@ -35,14 +35,14 @@ func TestApplySplit_emptyTailSplittingHEAD(t *testing.T) {
 
 	subs := []SubCommit{
 		{
-			Tree:          fullTree,
-			Subject:       "single piece",
-			AuthorName:    childCommit.AuthorName,
-			AuthorEmail:   childCommit.AuthorEmail,
-			CommitterName: childCommit.CommitterName,
+			Tree:           fullTree,
+			Subject:        "single piece",
+			AuthorName:     childCommit.AuthorName,
+			AuthorEmail:    childCommit.AuthorEmail,
+			CommitterName:  childCommit.CommitterName,
 			CommitterEmail: childCommit.CommitterEmail,
-			AuthorDate:    childCommit.OrigAuthorDate,
-			CommitDate:    childCommit.OrigCommitDate,
+			AuthorDate:     childCommit.OrigAuthorDate,
+			CommitDate:     childCommit.OrigCommitDate,
 		},
 	}
 

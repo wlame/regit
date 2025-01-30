@@ -29,6 +29,21 @@ func TestParseRewordFlags_defaultsHEAD(t *testing.T) {
 	}
 }
 
+// TestParseRewordFlags_commitAfterFlag verifies that a positional commit-ish
+// appearing after a flag (e.g. --yes HEAD~2) is not silently dropped.
+func TestParseRewordFlags_commitAfterFlag(t *testing.T) {
+	f, err := parseRewordFlags([]string{"--yes", "HEAD~2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Commits) != 1 || f.Commits[0] != "HEAD~2" {
+		t.Fatalf("commits = %v, want [HEAD~2]", f.Commits)
+	}
+	if !f.Yes {
+		t.Fatal("expected Yes=true")
+	}
+}
+
 // TestParseRewordFlags_agentScan verifies that --agent-scan is parsed correctly.
 func TestParseRewordFlags_agentScan(t *testing.T) {
 	f, err := parseRewordFlags([]string{"--agent=claude", "--agent-scan"})

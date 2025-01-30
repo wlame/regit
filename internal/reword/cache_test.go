@@ -39,10 +39,10 @@ func TestRewordCache_versionMismatchMiss(t *testing.T) {
 	fp := Fingerprint("d", "m", "readme", "hint", 3)
 	// Write a valid entry via Put.
 	if err := c.Put(CacheEntry{
-		CommitHash: "h1",
+		CommitHash:  "h1",
 		Fingerprint: fp,
-		Result: Result{CommitHash: "h1", Variants: []Variant{{Title: "T"}}},
-		CreatedAt: time.Unix(0, 0),
+		Result:      Result{CommitHash: "h1", Variants: []Variant{{Title: "T"}}},
+		CreatedAt:   time.Unix(0, 0),
 	}); err != nil {
 		t.Fatal(err)
 	}

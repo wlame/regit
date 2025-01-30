@@ -228,3 +228,88 @@ func TestAgentBackend_defaultArgsContainBareAndSchema(t *testing.T) {
 		t.Errorf("schema placeholder was not substituted; recorded:\n%s", recordedStr)
 	}
 }
+
+// TestNewAgentBackendInDir_cwdIsSet verifies that when NewAgentBackendInDir is
+// given a directory, the subprocess actually runs with that working directory.
+// A POSIX sh stub records its working directory (via pwd) to a sentinel file,
+// then emits a valid structured_output envelope so Generate succeeds.
+func TestNewAgentBackendInDir_cwdIsSet(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("stub script is POSIX sh")
+	}
+
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("EvalSymlinks: %v", err)
+	}
+
+	pwdFile := filepath.Join(t.TempDir(), "pwd.txt")
+	validEnvelope := `{"structured_output":{"should_split":true,"groups":[{"order":1,"hunk_ids":["H1","H2"],"subject":"all"}]}}`
+
+	// The stub writes its cwd to pwdFile then prints the valid envelope.
+	stubDir := t.TempDir()
+	stubPath := filepath.Join(stubDir, "cwdagent")
+	script := "#!/bin/sh\ncat >/dev/null\npwd >'" + pwdFile + "'\nprintf '%s' '" + validEnvelope + "'\n"
+	if err := os.WriteFile(stubPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	b := NewAgentBackendInDir(stubPath, nil, dir)
+	_, err = ProposeSplit(context.Background(), b, sampleReq(), SchemaJSON())
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+
+	recorded, err := os.ReadFile(pwdFile)
+	if err != nil {
+		t.Fatalf("read pwd file: %v", err)
+	}
+	gotDir, err := filepath.EvalSymlinks(strings.TrimSpace(string(recorded)))
+	if err != nil {
+		t.Fatalf("EvalSymlinks recorded pwd: %v", err)
+	}
+	if gotDir != dir {
+		t.Errorf("subprocess cwd = %q, want %q", gotDir, dir)
+	}
+}
+
+// TestScanDefaultArgs_isReadOnly asserts that ScanDefaultArgs contains the
+// --permission-mode plan and --allowedTools flags (restricting the agent to
+// read-only operations) and does NOT contain any write-capable tool names or
+// the --dangerously flag.
+func TestScanDefaultArgs_isReadOnly(t *testing.T) {
+	args := ScanDefaultArgs
+
+	// Must contain "--permission-mode" immediately followed by "plan".
+	foundPermMode := false
+	for i, arg := range args {
+		if arg == "--permission-mode" && i+1 < len(args) && args[i+1] == "plan" {
+			foundPermMode = true
+			break
+		}
+	}
+	if !foundPermMode {
+		t.Errorf("ScanDefaultArgs missing '--permission-mode plan'; got %v", args)
+	}
+
+	// Must contain "--allowedTools".
+	foundAllowedTools := false
+	for _, arg := range args {
+		if arg == "--allowedTools" {
+			foundAllowedTools = true
+			break
+		}
+	}
+	if !foundAllowedTools {
+		t.Errorf("ScanDefaultArgs missing '--allowedTools'; got %v", args)
+	}
+
+	// Must NOT contain write-capable tool names or the --dangerously flag.
+	forbidden := []string{"Write", "Edit", "--dangerously"}
+	joined := strings.Join(args, " ")
+	for _, f := range forbidden {
+		if strings.Contains(joined, f) {
+			t.Errorf("ScanDefaultArgs contains forbidden token %q; got %v", f, args)
+		}
+	}
+}

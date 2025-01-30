@@ -280,10 +280,10 @@ func splitProviderModel(s string) (provider, modelName string) {
 // compatible base URLs. Keeping these in a table avoids a chain of if/else and
 // makes adding a new provider a one-line change.
 var providerBaseURLs = map[string]string{
-	"ollama":      "http://localhost:11434/v1",
-	"lmstudio":    "http://localhost:1234/v1",
-	"openai":      "https://api.openai.com/v1",
-	"openrouter":  "https://openrouter.ai/api/v1",
+	"ollama":     "http://localhost:11434/v1",
+	"lmstudio":   "http://localhost:1234/v1",
+	"openai":     "https://api.openai.com/v1",
+	"openrouter": "https://openrouter.ai/api/v1",
 }
 
 // defaultBaseURL returns the base URL to use for the given provider. The
