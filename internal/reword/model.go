@@ -27,17 +27,35 @@ type Selection struct {
 // DefaultSelection selects the top-ranked variant's title and body.
 func DefaultSelection() Selection { return Selection{TitleIdx: 0, BodyIdx: 0, NoBody: false} }
 
+// clampIdx clamps i into [0, n-1]. Returns 0 when n == 0 (caller must guard).
+func clampIdx(i, n int) int {
+	if i < 0 {
+		return 0
+	}
+	if i >= n {
+		return n - 1
+	}
+	return i
+}
+
 // ToEdit maps a Selection over this Result onto the existing model.Edit, which
 // the rewrite engine consumes. The body is dropped when NoBody is set or the
 // chosen body is empty, yielding a one-line commit.
+//
+// If Variants is empty, ToEdit returns a zero Edit (a no-op). Out-of-range
+// TitleIdx and BodyIdx are clamped to the last valid index rather than panicking.
 func (r Result) ToEdit(sel Selection) model.Edit {
-	title := r.Variants[sel.TitleIdx].Title
+	if len(r.Variants) == 0 {
+		return model.Edit{}
+	}
+	n := len(r.Variants)
+	title := r.Variants[clampIdx(sel.TitleIdx, n)].Title
 	e := model.Edit{NewSubject: &title}
 	if sel.NoBody {
 		e.DropBody = true
 		return e
 	}
-	body := r.Variants[sel.BodyIdx].Body
+	body := r.Variants[clampIdx(sel.BodyIdx, n)].Body
 	if body == "" {
 		e.DropBody = true
 		return e

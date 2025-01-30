@@ -109,9 +109,13 @@ func renderRewordPicker(r reword.Result, sel reword.Selection) string {
 		}
 	}
 
-	// Variant indicator: 1-indexed for a human-friendly display.
+	// Variant indicator: show both title and body indices (1-indexed, human-friendly).
 	n := len(r.Variants)
-	b.WriteString(fmt.Sprintf("  variant %d/%d\n", titleIdx+1, n))
+	bodyIdx2 := sel.BodyIdx
+	if bodyIdx2 >= n {
+		bodyIdx2 = 0
+	}
+	b.WriteString(fmt.Sprintf("  title %d/%d · body %d/%d\n", titleIdx+1, n, bodyIdx2+1, n))
 
 	// Hint line.
 	b.WriteString("  ←/→ title · j/k body · b no-body · enter apply · esc cancel")
@@ -303,16 +307,16 @@ func (m Model) updateReword(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeMain
 		m.setStatus("Reword cancelled", statusWarn)
 		return m, nil
-	case "left", "h":
+	case "left":
 		m.rewordSt.cycleTitle(-1)
 		return m, nil
-	case "right", "l":
+	case "right":
 		m.rewordSt.cycleTitle(1)
 		return m, nil
-	case "j", "down":
+	case "j":
 		m.rewordSt.cycleBody(1)
 		return m, nil
-	case "k", "up":
+	case "k":
 		m.rewordSt.cycleBody(-1)
 		return m, nil
 	case "b":
@@ -322,6 +326,10 @@ func (m Model) updateReword(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Apply: look up the buffered result and set an edit on the plan.
 		hash := m.rewordSt.commit.Hash
 		if result, ok := m.rewordSt.buffer[hash]; ok {
+			if len(result.Variants) == 0 {
+				m.setStatus("No variants available", statusWarn)
+				return m, nil
+			}
 			edit := result.ToEdit(m.rewordSt.sel)
 			m.plan.SetEdit(hash, edit)
 			m.mode = modeMain

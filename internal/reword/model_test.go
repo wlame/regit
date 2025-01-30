@@ -41,3 +41,29 @@ func TestToEdit_emptyChosenBodyDropsBody(t *testing.T) {
 		t.Fatal("empty chosen body should drop the body")
 	}
 }
+
+func TestToEdit_emptyVariantsReturnsZeroEdit(t *testing.T) {
+	r := Result{CommitHash: "abc", Variants: nil}
+	e := r.ToEdit(Selection{TitleIdx: 0, BodyIdx: 0, NoBody: false})
+	if e.NewSubject != nil {
+		t.Fatalf("expected nil NewSubject, got %v", e.NewSubject)
+	}
+	if e.NewBody != nil {
+		t.Fatalf("expected nil NewBody, got %v", e.NewBody)
+	}
+	if e.DropBody {
+		t.Fatal("expected DropBody false")
+	}
+}
+
+func TestToEdit_outOfRangeIndicesClamped(t *testing.T) {
+	r := sampleResult() // 3 variants: indices 0,1,2
+	// TitleIdx=99 should clamp to 2 ("Third title"), BodyIdx=99 clamps to 2 ("third body").
+	e := r.ToEdit(Selection{TitleIdx: 99, BodyIdx: 99, NoBody: false})
+	if e.NewSubject == nil || *e.NewSubject != "Third title" {
+		t.Fatalf("expected clamped title 'Third title', got %v", e.NewSubject)
+	}
+	if e.NewBody == nil || *e.NewBody != "third body" {
+		t.Fatalf("expected clamped body 'third body', got %v", e.NewBody)
+	}
+}
