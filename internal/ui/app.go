@@ -17,6 +17,7 @@ import (
 	"github.com/wlame/regit/internal/config"
 	"github.com/wlame/regit/internal/gitio"
 	"github.com/wlame/regit/internal/model"
+	"github.com/wlame/regit/internal/reword"
 	"github.com/wlame/regit/internal/safety"
 	"github.com/wlame/regit/internal/split"
 	"github.com/wlame/regit/internal/strategy"
@@ -33,6 +34,7 @@ const (
 	modeHelp
 	modeRetitle
 	modeSplit
+	modeReword
 )
 
 type focusArea int
@@ -87,6 +89,7 @@ type Model struct {
 	confirmGuard safety.Guard
 
 	splitReview splitState
+	rewordSt    rewordState
 
 	statusMsg  string
 	statusKind statusKind
@@ -153,6 +156,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		return m, nil
+	case rewordResultMsg:
+		// Lazy-init the buffer/inFlight maps in case the message arrives before
+		// the user has opened the picker (prefetch of a neighbouring commit).
+		if m.rewordSt.buffer == nil {
+			m.rewordSt.buffer = make(map[string]reword.Result)
+		}
+		if m.rewordSt.inFlight == nil {
+			m.rewordSt.inFlight = make(map[string]bool)
+		}
+		if msg.err == nil {
+			m.rewordSt.buffer[msg.hash] = msg.result
+		}
+		delete(m.rewordSt.inFlight, msg.hash)
+		// Clear the generating status if this is the commit being viewed.
+		if m.mode == modeReword && msg.hash == m.rewordSt.commit.Hash {
+			if msg.err != nil {
+				m.setStatus("Reword generate failed: "+msg.err.Error(), statusErr)
+			} else {
+				m.setStatus("", statusNone)
+			}
+		}
+		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -182,6 +207,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateRetitle(msg)
 	case modeSplit:
 		return m.updateSplit(msg)
+	case modeReword:
+		return m.updateReword(msg)
 	case modeHelp:
 		if msg.String() == "?" || msg.String() == "esc" || msg.String() == "q" {
 			m.mode = modeMain
@@ -267,6 +294,8 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	case "S":
 		return m.beginSplit()
+	case "w":
+		return m.beginReword()
 	case "g":
 		model, cmd := m.applyQuotas()
 		return model, cmd, true
@@ -982,6 +1011,13 @@ func (m Model) View() string {
 		overlay = m.retitle.view(m.plan, m.st)
 	case modeSplit:
 		overlay = m.st.modal.Render(renderSplitReview(m.splitReview.proposal))
+	case modeReword:
+		// Show the buffered result if available; otherwise a generating indicator.
+		if result, ok := m.rewordSt.buffer[m.rewordSt.commit.Hash]; ok {
+			overlay = m.st.modal.Render(renderRewordPicker(result, m.rewordSt.sel))
+		} else {
+			overlay = m.st.modal.Render(renderRewordPicker(reword.Result{}, m.rewordSt.sel))
+		}
 	}
 
 	if overlay == "" {
