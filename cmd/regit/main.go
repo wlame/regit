@@ -37,11 +37,7 @@ func run() error {
 		return runSplit(repoDir, os.Args[2:])
 	}
 	if len(os.Args) > 1 && os.Args[1] == "reword" {
-		if err := runReword(repoDir, os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, "regit:", err)
-			os.Exit(1)
-		}
-		return nil
+		return runReword(repoDir, os.Args[2:])
 	}
 
 	cfg, err := config.Load()

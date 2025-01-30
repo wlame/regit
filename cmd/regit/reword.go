@@ -3,9 +3,11 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -296,6 +298,10 @@ func runReword(repoDir string, args []string) error {
 	stdin := bufio.NewReader(os.Stdin)
 	for gr := range ch {
 		if gr.err != nil {
+			if errors.Is(gr.err, context.Canceled) || errors.Is(gr.err, context.DeadlineExceeded) {
+				fmt.Fprintln(os.Stderr, "reword: cancelled")
+				break
+			}
 			fmt.Fprintf(os.Stderr, "reword: generate %s: %v (skipping)\n",
 				short(targets[gr.index].commit.Hash), gr.err)
 			continue
@@ -403,17 +409,26 @@ func buildRewordOptions(cfg config.Config, f rewordFlags) reword.Options {
 		opts.ContextLines = f.ContextLines
 	}
 	if f.Context != "" {
-		opts.Context = []string{f.Context}
+		opts.Context = splitCSV(f.Context)
 	}
 	return opts
+}
+
+// splitCSV splits a comma-separated string into trimmed, non-empty tokens.
+// Used to convert --context=readme,filestates into ["readme","filestates"].
+func splitCSV(s string) []string {
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if t := strings.TrimSpace(p); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // sortRewordItems sorts targets in root-first (ascending index) order, which is
 // the order the rewrite engine needs when replaying history.
 func sortRewordItems(items []rewordItem) {
-	for i := 1; i < len(items); i++ {
-		for j := i; j > 0 && items[j].index < items[j-1].index; j-- {
-			items[j], items[j-1] = items[j-1], items[j]
-		}
-	}
+	sort.Slice(items, func(i, j int) bool { return items[i].index < items[j].index })
 }

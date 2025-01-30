@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"sync"
 	"testing"
 
 	"github.com/wlame/regit/internal/reword"
@@ -44,15 +43,9 @@ func TestGenerateAhead_prefetchesNext(t *testing.T) {
 		genRelease[i] = make(chan struct{})
 	}
 
-	var mu sync.Mutex
-	startedOrder := []int{}
-
 	gen := func(ctx context.Context, item int) (reword.Result, error) {
 		// Signal that we've started generating this item.
 		close(genStarted[item-1])
-		mu.Lock()
-		startedOrder = append(startedOrder, item)
-		mu.Unlock()
 
 		// Block until the test releases us.
 		select {
