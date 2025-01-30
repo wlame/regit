@@ -29,8 +29,8 @@ type Options struct {
 	Context []string
 	// UserHint is free-text guidance the user typed (e.g. "focus on the why").
 	UserHint string
-	// AgentScan gates a future agent-scanning path (Task 10). This safe-mode
-	// engine ignores it; the flag is reserved here so callers can begin wiring it.
+	// AgentScan, when true, skips diff gathering and uses BuildScanMessages so
+	// the agent inspects the commit read-only (via git show) itself.
 	AgentScan bool
 	// Now is the wall-clock time used for cache entry timestamps. Callers must
 	// supply this; the engine never calls time.Now() itself.

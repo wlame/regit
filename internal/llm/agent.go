@@ -35,6 +35,9 @@ type AgentBackend struct {
 // the agent can call git show / diff / log and grep but cannot modify files.
 // The --bare flag skips CLAUDE.md / hooks / plugins / MCP for deterministic
 // output. {schema} is substituted with the actual JSON schema at call time.
+//
+// ScanDefaultArgs should be treated as read-only; Generate copies the args
+// before substituting {schema}, so the original slice is never modified.
 var ScanDefaultArgs = []string{
 	"-p",
 	"--output-format", "json",

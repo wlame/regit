@@ -42,7 +42,8 @@ type rewordFlags struct {
 	Context string
 	// ContextLines controls the -U<n> depth passed to git diff (0 = config default).
 	ContextLines int
-	// AgentScan gates the future agent-scanning code path (reserved for Task 10).
+	// AgentScan, when true, skips diff gathering and uses the agent's read-only
+	// inspection mode (requires --agent).
 	AgentScan bool
 	// DryRun prints proposals and writes cache without applying anything.
 	DryRun bool
@@ -85,7 +86,7 @@ func parseRewordFlags(args []string) (rewordFlags, error) {
 	fs.IntVar(&f.Variants, "variants", 0, "number of ranked alternatives to request (0 = config default)")
 	fs.StringVar(&f.Context, "context", "", "extra context string passed to the LLM")
 	fs.IntVar(&f.ContextLines, "context-lines", 0, "git diff -U context lines (0 = config default)")
-	fs.BoolVar(&f.AgentScan, "agent-scan", false, "enable agent-scanning path (reserved for Task 10)")
+	fs.BoolVar(&f.AgentScan, "agent-scan", false, "run the agent read-only to inspect the commit itself via git show (requires --agent)")
 	fs.BoolVar(&f.DryRun, "dry-run", false, "print proposals and write cache without applying")
 	fs.BoolVar(&f.Yes, "yes", false, "skip confirmation (CI/one-shot)")
 	fs.BoolVar(&f.NoCache, "no-cache", false, "ignore any cached proposals")
@@ -100,6 +101,14 @@ func parseRewordFlags(args []string) (rewordFlags, error) {
 		f.Commits = []string{"HEAD"}
 	}
 	return f, nil
+}
+
+// validateRewordFlags returns an error when flag combinations are invalid.
+func validateRewordFlags(f rewordFlags) error {
+	if f.AgentScan && f.Agent == "" {
+		return fmt.Errorf("--agent-scan requires --agent=<cmd>")
+	}
+	return nil
 }
 
 // rewordItem bundles a resolved commit with its parent tree hash, ready to pass
@@ -211,6 +220,11 @@ func runReword(repoDir string, args []string) error {
 		return err
 	}
 
+	// Validate flag combinations.
+	if err := validateRewordFlags(f); err != nil {
+		return err
+	}
+
 	// The reword-subcommand --repo flag wins over the top-level value.
 	if f.Repo != "." {
 		repoDir = f.Repo
@@ -219,12 +233,6 @@ func runReword(repoDir string, args []string) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
-	}
-
-	// --agent-scan requires --agent: the scan mode submits no diff, so an HTTP
-	// backend has no useful context to work with. Error early with a clear message.
-	if f.AgentScan && f.Agent == "" {
-		return fmt.Errorf("--agent-scan requires --agent: specify the agent CLI binary (e.g. --agent=claude)")
 	}
 
 	repo, err := gitio.Open(repoDir)

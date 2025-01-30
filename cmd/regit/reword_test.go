@@ -43,20 +43,43 @@ func TestParseRewordFlags_agentScan(t *testing.T) {
 	}
 }
 
-// TestBuildRewordBackend_agentScanRequiresAgent verifies that passing
-// --agent-scan without --agent to runReword (via buildRewordBackend path)
-// returns a clear error. We test the validation guard directly by calling
-// buildRewordBackend with an empty Agent field.
-func TestBuildRewordBackend_agentScanWithoutAgentErrors(t *testing.T) {
-	// Simulate parseRewordFlags result: --agent-scan without --agent.
-	f := rewordFlags{AgentScan: true, Agent: ""}
-	// The validation happens in runReword before buildRewordBackend is called, but
-	// we can exercise it via a small helper that mirrors the guard.
-	if f.AgentScan && f.Agent == "" {
-		// Expected: this is the condition that must produce an error in runReword.
-		return
+// TestValidateRewordFlags_agentScanRequiresAgent verifies that --agent-scan
+// without --agent is rejected with a clear error message.
+func TestValidateRewordFlags_agentScanRequiresAgent(t *testing.T) {
+	tests := []struct {
+		name    string
+		f       rewordFlags
+		wantErr bool
+		errText string
+	}{
+		{
+			name:    "--agent-scan without --agent",
+			f:       rewordFlags{AgentScan: true, Agent: ""},
+			wantErr: true,
+			errText: "--agent-scan requires --agent",
+		},
+		{
+			name:    "--agent-scan with --agent",
+			f:       rewordFlags{AgentScan: true, Agent: "claude"},
+			wantErr: false,
+		},
+		{
+			name:    "--agent-scan=false (no requirement)",
+			f:       rewordFlags{AgentScan: false},
+			wantErr: false,
+		},
 	}
-	t.Fatal("expected the guard condition (AgentScan && Agent=='') to be true")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateRewordFlags(tt.f)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validateRewordFlags() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr && !strings.Contains(err.Error(), tt.errText) {
+				t.Fatalf("error %q does not contain %q", err.Error(), tt.errText)
+			}
+		})
+	}
 }
 
 // TestBuildRewordBackend_agentScanBuildsInDirBackend verifies that
