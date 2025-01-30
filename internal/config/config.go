@@ -36,6 +36,15 @@ type SplitConfig struct {
 	Cache          bool     `yaml:"cache"`
 }
 
+// RewordConfig holds defaults for the LLM-backed commit-rewording feature.
+type RewordConfig struct {
+	Variants     int      `yaml:"variants"`
+	Context      []string `yaml:"context"`
+	ContextLines int      `yaml:"context_lines"`
+	Prefetch     int      `yaml:"prefetch"`
+	Cache        bool     `yaml:"cache"`
+}
+
 // Config holds every default the TUI seeds its forms with. Times-of-day are
 // stored as "HH:MM" strings for human-friendly YAML and parsed to minutes via
 // the accessor methods.
@@ -75,6 +84,9 @@ type Config struct {
 
 	// Split configures default parameters for the commit-splitting feature.
 	Split SplitConfig `yaml:"split"`
+
+	// Reword configures default parameters for the commit-rewording feature.
+	Reword RewordConfig `yaml:"reword"`
 }
 
 // Default returns the built-in configuration used when nothing overrides it.
@@ -102,6 +114,7 @@ func Default() Config {
 			WIPPrefix:      "WIP: ",
 			Cache:          true,
 		},
+		Reword: RewordConfig{Variants: 3, Context: []string{"readme"}, ContextLines: 30, Prefetch: 1, Cache: true},
 	}
 }
 
@@ -170,6 +183,11 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("REGIT_SPLIT_MAX_COMMITS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.Split.MaxCommits = n
+		}
+	}
+	if v := os.Getenv("REGIT_REWORD_VARIANTS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Reword.Variants = n
 		}
 	}
 }

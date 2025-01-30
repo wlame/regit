@@ -164,3 +164,23 @@ func TestLoad_regitEnvPrefixOverrides(t *testing.T) {
 		t.Fatalf("llm provider = %q", cfg.LLM.Provider)
 	}
 }
+
+func TestLoad_rewordDefaults(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Reword.Variants != 3 || cfg.Reword.ContextLines != 30 || cfg.Reword.Prefetch != 1 {
+		t.Fatalf("reword defaults: %+v", cfg.Reword)
+	}
+}
+
+func TestLoad_rewordEnvOverride(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("REGIT_REWORD_VARIANTS", "5")
+	cfg, _ := Load()
+	if cfg.Reword.Variants != 5 {
+		t.Fatalf("variants = %d", cfg.Reword.Variants)
+	}
+}
