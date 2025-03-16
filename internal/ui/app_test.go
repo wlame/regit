@@ -924,3 +924,18 @@ func TestPreviewOpens(t *testing.T) {
 		t.Error("preview should render the diff table")
 	}
 }
+
+func TestModel_ListWidthGrowsWithTerminal(t *testing.T) {
+	m := newTestModel(t) // sized to 120×40 by the helper
+	narrow := m.listWidth()
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 220, Height: 40})
+	wide := updated.(Model).listWidth()
+
+	if wide <= narrow {
+		t.Fatalf("list should widen on a 220-col terminal: narrow=%d wide=%d", narrow, wide)
+	}
+	if wide < 120 {
+		t.Fatalf("wide list should be ≥120 cols (old cap was 66), got %d", wide)
+	}
+}

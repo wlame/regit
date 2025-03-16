@@ -139,23 +139,11 @@ func (m Model) viewCommitList() string {
 	return pane.Width(width).Height(height + 1).Render(b.String())
 }
 
-// listWidth returns the commit pane's lipgloss width (border excluded):
-// 1.5× the original 44 columns when the terminal is wide enough, shrinking
-// so the right column (calendar + strategy) stays fully visible beside it.
+// listWidth returns the commit pane's lipgloss width (border excluded). The
+// sizing math lives in computeLayout (layout.go) so the list grows to fill a
+// wide terminal — up to listCeilWidth — instead of the old fixed 66-column cap.
 func (m Model) listWidth() int {
-	const preferred, minimum = 66, 44
-	if m.width == 0 {
-		return preferred
-	}
-	// Reserve the right column's full footprint plus both panes' borders.
-	avail := m.width - rightPaneWidth - 4
-	if avail > preferred {
-		return preferred
-	}
-	if avail < minimum {
-		return minimum
-	}
-	return avail
+	return computeLayout(m.width, m.height).listWidth
 }
 
 // rightPaneWidth is the lipgloss width (border excluded) shared by the
