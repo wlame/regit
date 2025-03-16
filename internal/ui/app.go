@@ -319,22 +319,11 @@ func (m Model) openEditorAtCursor() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// editorFieldWidth sizes the editor's title/body fields: 1.5× the original 50
-// columns when the terminal allows, shrinking on narrow terminals so the
-// modal (fields + label column + modal frame) still fits on screen.
+// editorFieldWidth sizes the editor's title/body fields. The math lives in
+// computeLayout (layout.go) so every region shares one source of truth; the
+// field stays within a readable [editorMinWidth, editorMaxWidth] band.
 func (m Model) editorFieldWidth() int {
-	const preferred, minimum = 75, 50
-	if m.width == 0 {
-		return minimum
-	}
-	avail := m.width - 17 // cursor + label column + modal padding and border
-	if avail > preferred {
-		return preferred
-	}
-	if avail < minimum {
-		return minimum
-	}
-	return avail
+	return computeLayout(m.width, m.height).editorWidth
 }
 
 // moveCursor handles navigation keys for whichever pane is focused.
