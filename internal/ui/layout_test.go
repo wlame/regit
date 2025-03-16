@@ -3,24 +3,26 @@ package ui
 import "testing"
 
 func TestComputeLayout_ListWidthBounds(t *testing.T) {
-	// list width == usable - rightPaneWidth(60) - paneFrames(4) == usable - 64,
-	// clamped to [listFloorWidth, listCeilWidth].
 	cases := []struct {
 		name         string
 		termW, termH int
 		wantList     int
+		wantDetail   int
 	}{
-		{"zero width renders at the 120 target floor", 0, 40, 56},               // 120-64
-		{"narrow clamps up to the list floor", 90, 40, listFloorWidth},          // 90-64=26 -> 44
-		{"target floor width", 120, 40, 56},                                     // 120-64
-		{"wide terminal uses the extra width", 220, 40, 156},                    // 220-64
-		{"ultrawide caps at 240 then the list ceiling", 400, 40, listCeilWidth}, // 240-64=176 -> 160
+		{"zero width renders at the 120 target floor", 0, 40, 56, 0},      // 120 < 142 -> 2-col, 120-64
+		{"narrow clamps up to the list floor", 90, 40, listFloorWidth, 0}, // 90-64=26 -> 44, 2-col
+		{"target floor width", 120, 40, 56, 0},                            // 120-64, 2-col
+		{"wide terminal seats the detail column", 220, 40, 122, 32},       // avail=220-66=154; list=154-32; detail=32
+		{"ultrawide caps at 240 then seats detail", 400, 40, 142, 32},     // avail=240-66=174; list=174-32; detail=32
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got := computeLayout(tc.termW, tc.termH)
 			if got.listWidth != tc.wantList {
 				t.Fatalf("listWidth = %d, want %d", got.listWidth, tc.wantList)
+			}
+			if got.detailWidth != tc.wantDetail {
+				t.Fatalf("detailWidth = %d, want %d", got.detailWidth, tc.wantDetail)
 			}
 			if got.contentWidth > maxContentWidth {
 				t.Fatalf("contentWidth = %d exceeds the %d cap", got.contentWidth, maxContentWidth)

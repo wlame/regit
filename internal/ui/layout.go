@@ -24,6 +24,14 @@ const (
 	// view.go.
 	paneFrames = 4
 
+	// detailMinWidth is the narrowest the commit-detail column may be before we
+	// drop it entirely and fall back to the two-column layout (detail-on-overlay).
+	detailMinWidth = 32
+
+	// paneFrames3 is the columns consumed by three panes' left/right borders
+	// (2 each) when the detail column is present, vs paneFrames for two panes.
+	paneFrames3 = 6
+
 	// chromeRows is the vertical budget taken by the title bar, status line,
 	// keybar, and the spacing around the body. minBodyHeight keeps the body
 	// usable on very short terminals.
@@ -46,6 +54,7 @@ const (
 type layoutDims struct {
 	contentWidth int // terminal width, capped at maxContentWidth (reserved for later phases; not yet wired)
 	listWidth    int // commit-list pane width (border excluded)
+	detailWidth  int // commit-detail pane width (0 when the detail column is hidden)
 	rightWidth   int // right column (calendar/strategy) width — currently fixed (reserved for later phases; not yet wired)
 	bodyHeight   int // rows available to the list/right body (reserved for later phases; not yet wired)
 	editorWidth  int // editor-modal field width
@@ -66,14 +75,29 @@ func computeLayout(termW, termH int) layoutDims {
 		usable = maxContentWidth
 	}
 
-	// The list takes every column not claimed by the fixed right column and the
-	// two panes' borders, within readable bounds.
-	listW := usable - rightPaneWidth - paneFrames
-	if listW < listFloorWidth {
-		listW = listFloorWidth
-	}
-	if listW > listCeilWidth {
-		listW = listCeilWidth
+	// Seat a detail column between the list and the fixed right column when the
+	// content is wide enough; otherwise keep Phase 0's two-column layout and let
+	// the detail panel surface as an on-demand overlay. The list keeps priority:
+	// it grows to listCeilWidth first, and the detail takes whatever remains.
+	var listW, detailW int
+	if usable >= listFloorWidth+detailMinWidth+rightPaneWidth+paneFrames3 {
+		avail := usable - rightPaneWidth - paneFrames3
+		listW = avail - detailMinWidth
+		if listW > listCeilWidth {
+			listW = listCeilWidth
+		}
+		if listW < listFloorWidth {
+			listW = listFloorWidth
+		}
+		detailW = avail - listW
+	} else {
+		listW = usable - rightPaneWidth - paneFrames
+		if listW < listFloorWidth {
+			listW = listFloorWidth
+		}
+		if listW > listCeilWidth {
+			listW = listCeilWidth
+		}
 	}
 
 	bodyH := termH - chromeRows
@@ -92,6 +116,7 @@ func computeLayout(termW, termH int) layoutDims {
 	return layoutDims{
 		contentWidth: usable,
 		listWidth:    listW,
+		detailWidth:  detailW,
 		rightWidth:   rightPaneWidth,
 		bodyHeight:   bodyH,
 		editorWidth:  editorW,
