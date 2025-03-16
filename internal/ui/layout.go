@@ -38,18 +38,24 @@ const (
 )
 
 // layoutDims is the computed column/row budget for the main screen, derived
-// entirely from the terminal size.
+// entirely from the terminal size. Only listWidth and editorWidth are consumed
+// by production code today; contentWidth, rightWidth, and bodyHeight are
+// reserved for later redesign phases (3-zone responsive breakpoints) and not yet
+// wired — height still flows through the listHeight() method, width through
+// rightPaneWidth const.
 type layoutDims struct {
-	contentWidth int // terminal width, capped at maxContentWidth
+	contentWidth int // terminal width, capped at maxContentWidth (reserved for later phases; not yet wired)
 	listWidth    int // commit-list pane width (border excluded)
-	rightWidth   int // right column (calendar/strategy) width — currently fixed
-	bodyHeight   int // rows available to the list/right body
+	rightWidth   int // right column (calendar/strategy) width — currently fixed (reserved for later phases; not yet wired)
+	bodyHeight   int // rows available to the list/right body (reserved for later phases; not yet wired)
 	editorWidth  int // editor-modal field width
 }
 
 // computeLayout turns a terminal size into the region budget for the main
 // screen. termW/termH are 0 before the first tea.WindowSizeMsg arrives; in that
 // case we render at the 120-column target floor until the real size is known.
+// Before the first size message, all computed field values assume this 120-column
+// floor, so no hard-coded pre-size width should be treated as load-bearing.
 func computeLayout(termW, termH int) layoutDims {
 	if termW <= 0 {
 		termW = 120
