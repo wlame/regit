@@ -9,8 +9,11 @@ import (
 // FileStat is the change summary for a single file within a commit, as shown in
 // the TUI's detail panel. Add/Del are line counts; for binary files both are 0
 // and Binary is true (git reports "-" instead of a count). Status is git's
-// single-letter code: A (added), M (modified), or D (deleted). Renames are not
-// detected in Phase 1, so a moved file appears as a D + an A.
+// single-letter code: A (added), M (modified), or D (deleted). M does double
+// duty: it is also the fallback CommitStat assigns to an entry that
+// --name-status did not classify (e.g. a mode-only change), so a caller should
+// read M as "modified or otherwise-unclassified". Renames are not detected in
+// Phase 1, so a moved file appears as a D + an A.
 type FileStat struct {
 	Status  string
 	Path    string

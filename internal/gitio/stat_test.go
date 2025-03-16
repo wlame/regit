@@ -80,11 +80,11 @@ func TestCommitStat_reportsPerFileChanges(t *testing.T) {
 	if got := byPath["keep.txt"]; got.Status != "M" || got.Add != 1 || got.Del != 0 {
 		t.Errorf("keep.txt = %+v, want M +1 -0", got)
 	}
-	if got := byPath["gone.txt"]; got.Status != "D" || got.Del != 1 {
-		t.Errorf("gone.txt = %+v, want D -1", got)
+	if got := byPath["gone.txt"]; got.Status != "D" || got.Add != 0 || got.Del != 1 {
+		t.Errorf("gone.txt = %+v, want D +0 -1", got)
 	}
-	if got := byPath["logo.bin"]; !got.Binary {
-		t.Errorf("logo.bin = %+v, want Binary", got)
+	if got := byPath["logo.bin"]; !got.Binary || got.Status != "A" {
+		t.Errorf("logo.bin = %+v, want Binary status A", got)
 	}
 
 	// Totals exclude the binary file (counts unknown for binaries).
