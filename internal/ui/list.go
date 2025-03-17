@@ -117,8 +117,8 @@ func (m Model) viewCommitList() string {
 
 	rows := m.buildListRows()
 	offset := m.listOffset
-	if offset > len(rows) {
-		offset = len(rows)
+	if offset >= len(rows) {
+		offset = max(0, len(rows)-1)
 	}
 	end := offset + visible
 	if end > len(rows) {

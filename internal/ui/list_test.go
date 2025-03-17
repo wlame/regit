@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -55,5 +56,29 @@ func TestRowOfCommit_findsCursorRow(t *testing.T) {
 	got := rowOfCommit(rows, 2)
 	if rows[got].isDivider || rows[got].displayIdx != 2 {
 		t.Errorf("rowOfCommit(2) landed on %+v", rows[got])
+	}
+}
+
+// An out-of-range listOffset (one that syncListViewport would normally never
+// leave behind) must clamp back into the valid row range at render time rather
+// than blanking the pane. This pins the defensive offset clamp in viewCommitList.
+//
+// The clamp lands on the last row, so the render falls back to the OLDEST
+// commit (display index N-1, the bottom of the newest-first list) — the point
+// is that a real commit row shows through instead of an empty slice.
+func TestViewCommitList_clampsOutOfRangeOffset(t *testing.T) {
+	m := newTestModelN(t, 5)
+	oldest := m.plan.Commits[0] // root commit = display index N-1 (bottom row)
+	hash8 := oldest.Hash[:8]
+
+	// Force the offset well past the end of the row sequence.
+	m.listOffset = len(m.buildListRows()) + 5
+
+	out := m.viewCommitList()
+	if strings.TrimSpace(out) == "" {
+		t.Fatal("an out-of-range offset must not blank the commit pane")
+	}
+	if !strings.Contains(out, hash8) {
+		t.Errorf("clamped render should still show a real commit row (%s)", hash8)
 	}
 }
