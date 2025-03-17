@@ -1077,8 +1077,12 @@ func TestListNav_dayGroupJumpsDoNotConsumeCalendarG(t *testing.T) {
 	m2 := newTestModelN(t, 3)
 	m2 = send(m2, "tab") // focus calendar
 	m2 = send(m2, "1")   // pin a quota so applyQuotas has work
-	m2 = send(m2, "g")   // re-apply quotas: must not be hijacked as list nav
-	if m2.statusKind == statusWarn && strings.Contains(m2.statusMsg, "No quotas") {
-		t.Error("g on the calendar should re-apply quotas, not act as list nav")
+	// Clear the status so the next action's effect is unambiguous: a positive
+	// signal proves g reached the quota path rather than doing nothing.
+	m2.statusMsg = ""
+	m2.statusKind = statusNone
+	m2 = send(m2, "g") // re-apply quotas: must not be hijacked as list nav
+	if m2.statusKind != statusOK || !strings.Contains(m2.statusMsg, "Manual Pin") {
+		t.Errorf("calendar g should re-apply quotas (Manual Pin), got kind=%v msg=%q", m2.statusKind, m2.statusMsg)
 	}
 }
