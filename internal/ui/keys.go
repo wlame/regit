@@ -40,6 +40,7 @@ var helpLines = []string{
 	"  w            reword the selected commit with the LLM (pick title/body variant, enter to apply, esc to cancel)",
 	"  D            drop the bodies of ALL editable commits (titles kept)",
 	"  R            regex-replace across ALL editable commit titles",
+	"  .            show full detail for the selected commit (overlay when narrow)",
 	"  p            preview the before/after dates",
 	"  A            apply the rewrite (creates a backup first)",
 	"  u            undo the last apply",

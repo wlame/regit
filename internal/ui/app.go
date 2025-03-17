@@ -35,6 +35,7 @@ const (
 	modeRetitle
 	modeSplit
 	modeReword
+	modeDetail
 )
 
 type focusArea int
@@ -91,6 +92,13 @@ type Model struct {
 	splitReview splitState
 	rewordSt    rewordState
 
+	// Lazily-fetched, hash-keyed commit file stats for the detail panel. A stat
+	// is requested via a tea.Cmd when the cursor settles on a commit and cached
+	// here so navigation never re-runs git for a commit already seen.
+	statCache    map[string]gitio.Stat
+	statErr      map[string]string
+	statInFlight map[string]bool
+
 	statusMsg  string
 	statusKind statusKind
 
@@ -132,10 +140,13 @@ func New(repo *gitio.Repo, mgr *safety.Manager, cfg config.Config, state model.R
 		listCursor: listCursor,
 		calCursor:  cursor,
 		calYear:    cursor.Year(),
-		quotas:     make(map[string]int),
-		picked:     make(map[string]bool),
-		strategies: strategy.Strategies(),
-		st:         newStyles(),
+		quotas:       make(map[string]int),
+		picked:       make(map[string]bool),
+		statCache:    make(map[string]gitio.Stat),
+		statErr:      make(map[string]string),
+		statInFlight: make(map[string]bool),
+		strategies:   strategy.Strategies(),
+		st:           newStyles(),
 	}
 	// The strategy pane always shows a configurable form; seed it with the
 	// default strategy so it is usable before the palette is ever opened.
@@ -147,14 +158,23 @@ func New(repo *gitio.Repo, mgr *safety.Manager, cfg config.Config, state model.R
 	return m
 }
 
-// Init satisfies tea.Model; regit needs no startup command.
-func (m Model) Init() tea.Cmd { return nil }
+// Init kicks off the first detail-stat fetch so the panel is populated before
+// the user moves the cursor.
+func (m Model) Init() tea.Cmd { return m.markAndFetch() }
 
 // Update is the central event handler, dispatching by mode.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		return m, nil
+	case commitStatMsg:
+		delete(m.statInFlight, msg.hash)
+		if msg.err != nil {
+			m.statErr[msg.hash] = msg.err.Error()
+		} else {
+			m.statCache[msg.hash] = msg.stat
+		}
 		return m, nil
 	case rewordResultMsg:
 		// Lazy-init the buffer/inFlight maps in case the message arrives before
@@ -209,6 +229,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateSplit(msg)
 	case modeReword:
 		return m.updateReword(msg)
+	case modeDetail:
+		if s := msg.String(); s == "." || s == "esc" || s == "q" {
+			m.mode = modeMain
+		}
+		return m, nil
 	case modeHelp:
 		if msg.String() == "?" || msg.String() == "esc" || msg.String() == "q" {
 			m.mode = modeMain
@@ -242,6 +267,7 @@ func (m Model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	default:
 		m.moveCursor(msg)
+		return m, m.markAndFetch()
 	}
 	return m, nil
 }
@@ -299,6 +325,9 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	case "g":
 		model, cmd := m.applyQuotas()
 		return model, cmd, true
+	case ".":
+		m.mode = modeDetail
+		return m, m.markAndFetch(), true
 	}
 	return m, nil, false
 }
@@ -778,6 +807,9 @@ func (m *Model) reload() error {
 	m.state = state
 	m.plan = model.NewPlan(commits)
 	m.quotas = make(map[string]int)
+	m.statCache = make(map[string]gitio.Stat)
+	m.statErr = make(map[string]string)
+	m.statInFlight = make(map[string]bool)
 	if m.listCursor >= len(commits) {
 		m.listCursor = max(0, len(commits)-1)
 	}
@@ -977,6 +1009,57 @@ func (m Model) applySplit() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// commitStatMsg carries an async CommitStat result back onto the Bubble Tea bus.
+type commitStatMsg struct {
+	hash string
+	stat gitio.Stat
+	err  error
+}
+
+// fetchStatCmd asks gitio for a commit's file stats off the UI goroutine.
+func fetchStatCmd(repo *gitio.Repo, hash string) tea.Cmd {
+	return func() tea.Msg {
+		stat, err := repo.CommitStat(hash)
+		return commitStatMsg{hash: hash, stat: stat, err: err}
+	}
+}
+
+// detailFetchCmd returns a command to fetch the cursor commit's stats, or nil
+// when there is nothing to fetch (no commits, or the stat is already cached,
+// already failed, or already in flight). When a non-nil command is returned the
+// caller must also set statInFlight[hash] = true so duplicate fetches are
+// suppressed; see markAndFetch below.
+func (m Model) detailFetchCmd() tea.Cmd {
+	if len(m.plan.Commits) == 0 {
+		return nil
+	}
+	hash := m.commitAtCursor().Hash
+	if _, ok := m.statCache[hash]; ok {
+		return nil
+	}
+	if _, failed := m.statErr[hash]; failed {
+		return nil
+	}
+	if m.statInFlight[hash] {
+		return nil
+	}
+	return fetchStatCmd(m.repo, hash)
+}
+
+// markAndFetch is the normal call site used inside Update: it marks the cursor
+// hash as in-flight (suppressing duplicate requests) and returns the fetch
+// command to Bubble Tea. Because statInFlight is a map (a reference type), the
+// mutation persists on the returned model even though Update uses value receivers.
+// Do not use detailFetchCmd() directly from Update — it is kept side-effect-free
+// so tests can call it without contaminating the in-flight set.
+func (m Model) markAndFetch() tea.Cmd {
+	cmd := m.detailFetchCmd()
+	if cmd != nil && len(m.plan.Commits) > 0 {
+		m.statInFlight[m.commitAtCursor().Hash] = true
+	}
+	return cmd
+}
+
 // View renders the current screen.
 func (m Model) View() string {
 	if m.quitting {
@@ -1007,6 +1090,10 @@ func (m Model) View() string {
 		} else {
 			overlay = m.st.modal.Render(renderRewordPicker(reword.Result{}, m.rewordSt.sel))
 		}
+	case modeDetail:
+		c := m.commitAtCursor()
+		stat, have := m.statCache[c.Hash]
+		overlay = m.st.modal.Render(renderDetail(c, stat, have, m.statErr[c.Hash], m.plan, m.loc, 50, m.st))
 	}
 
 	if overlay == "" {

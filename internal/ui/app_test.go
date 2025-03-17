@@ -939,3 +939,55 @@ func TestModel_ListWidthGrowsWithTerminal(t *testing.T) {
 		t.Fatalf("wide list should be ≥120 cols (old cap was 66), got %d", wide)
 	}
 }
+
+func TestDetail_paneRendersForCursorCommit(t *testing.T) {
+	m := newTestModelN(t, 3)
+	// Wide terminal -> the detail column is seated next to the list.
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 220, Height: 40})
+	m = updated.(Model)
+	if computeLayout(m.width, m.height).detailWidth == 0 {
+		t.Fatal("220-col terminal should seat the detail column")
+	}
+	if !strings.Contains(m.View(), "DETAIL") {
+		t.Errorf("wide main view should render the detail panel header")
+	}
+}
+
+func TestDetail_statCmdCachesResult(t *testing.T) {
+	m := newTestModelN(t, 3)
+	c := m.commitAtCursor()
+
+	cmd := m.detailFetchCmd()
+	if cmd == nil {
+		t.Fatal("a fresh cursor commit should produce a stat-fetch command")
+	}
+	msg := cmd() // run the command synchronously and feed the result back
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+
+	if _, ok := m.statCache[c.Hash]; !ok {
+		t.Errorf("running the stat command should cache the result for %s", short(c.Hash))
+	}
+	// A second request for the same (cached) commit issues no new command.
+	if m.detailFetchCmd() != nil {
+		t.Errorf("a cached commit should not refetch")
+	}
+}
+
+func TestDetail_overlayTogglesAtNarrowWidth(t *testing.T) {
+	m := newTestModelN(t, 3) // sized 120x40 -> detail column hidden
+	if computeLayout(m.width, m.height).detailWidth != 0 {
+		t.Fatal("120-col terminal should hide the detail column")
+	}
+	m = send(m, ".")
+	if m.mode != modeDetail {
+		t.Fatalf("'.' should open the detail overlay, got mode %v", m.mode)
+	}
+	if !strings.Contains(m.View(), "DETAIL") {
+		t.Error("detail overlay should render the panel")
+	}
+	m = send(m, "esc")
+	if m.mode != modeMain {
+		t.Fatalf("esc should close the detail overlay, got %v", m.mode)
+	}
+}

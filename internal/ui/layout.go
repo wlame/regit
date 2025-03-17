@@ -46,11 +46,11 @@ const (
 )
 
 // layoutDims is the computed column/row budget for the main screen, derived
-// entirely from the terminal size. Only listWidth and editorWidth are consumed
-// by production code today; contentWidth, rightWidth, and bodyHeight are
-// reserved for later redesign phases (3-zone responsive breakpoints) and not yet
-// wired — height still flows through the listHeight() method, width through
-// rightPaneWidth const.
+// entirely from the terminal size. listWidth, detailWidth, and editorWidth are
+// consumed by production rendering today; contentWidth, rightWidth, and
+// bodyHeight are reserved for later redesign phases (3-zone responsive
+// breakpoints) and not yet wired — height still flows through the listHeight()
+// method, width through rightPaneWidth const.
 type layoutDims struct {
 	contentWidth int // terminal width, capped at maxContentWidth (reserved for later phases; not yet wired)
 	listWidth    int // commit-list pane width (border excluded)

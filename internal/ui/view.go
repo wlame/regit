@@ -20,7 +20,13 @@ func (m Model) viewMain() string {
 		right = lipgloss.NewStyle().MaxHeight(max(8, avail)).Render(right)
 	}
 
-	body := lipgloss.JoinHorizontal(lipgloss.Top, list, right)
+	var body string
+	if dims := computeLayout(m.width, m.height); dims.detailWidth > 0 {
+		detail := m.viewDetailPane(dims.detailWidth)
+		body = lipgloss.JoinHorizontal(lipgloss.Top, list, detail, right)
+	} else {
+		body = lipgloss.JoinHorizontal(lipgloss.Top, list, right)
+	}
 	status := m.viewStatusBar()
 	keybar := m.st.keybar.Render(
 		"[s]trategy [S]plit [w]reword [e]dit [b]ase [D]rop-bodies [R]etitle [p]review [u]ndo [A]pply [r]eset [tab]focus [?]help [q]uit",
@@ -144,6 +150,19 @@ func (m Model) viewCommitList() string {
 // wide terminal — up to listCeilWidth — instead of the old fixed 66-column cap.
 func (m Model) listWidth() int {
 	return computeLayout(m.width, m.height).listWidth
+}
+
+// viewDetailPane frames the commit-detail panel for the cursor commit at the
+// given width, matched to the list pane's height. The body comes from the pure
+// renderDetail; this method only supplies state (the cached stat) and the frame.
+func (m Model) viewDetailPane(width int) string {
+	if len(m.plan.Commits) == 0 {
+		return m.st.pane.Width(width).Height(m.listHeight()+1).Render("")
+	}
+	c := m.commitAtCursor()
+	stat, have := m.statCache[c.Hash]
+	body := renderDetail(c, stat, have, m.statErr[c.Hash], m.plan, m.loc, width-2, m.st)
+	return m.st.pane.Width(width).Height(m.listHeight()+1).Render(body)
 }
 
 // rightPaneWidth is the lipgloss width (border excluded) shared by the
