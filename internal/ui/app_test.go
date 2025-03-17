@@ -991,3 +991,49 @@ func TestDetail_overlayTogglesAtNarrowWidth(t *testing.T) {
 		t.Fatalf("esc should close the detail overlay, got %v", m.mode)
 	}
 }
+
+// TestDetail_markAndFetchDedupsInFlight pins the in-flight dedup contract:
+// the first markAndFetch issues a command and marks the commit in flight, and a
+// second call for the same commit returns nil. The subtlety is that statInFlight
+// is a map (a reference type), so the mark set inside the value-receiver
+// markAndFetch persists on the caller's copy across calls.
+func TestDetail_markAndFetchDedupsInFlight(t *testing.T) {
+	m := newTestModelN(t, 3)
+	hash := m.commitAtCursor().Hash
+
+	first := m.markAndFetch()
+	if first == nil {
+		t.Fatal("first markAndFetch on a fresh commit should issue a command")
+	}
+	if !m.statInFlight[hash] {
+		t.Errorf("markAndFetch should mark %s in flight", short(hash))
+	}
+
+	second := m.markAndFetch()
+	if second != nil {
+		t.Error("second markAndFetch for an in-flight commit should return nil")
+	}
+}
+
+// TestDetail_reloadResetsStatCaches verifies that reload wipes every stat-side
+// map so a rebuilt plan never serves a stale commit's stats.
+func TestDetail_reloadResetsStatCaches(t *testing.T) {
+	m := newTestModelN(t, 3)
+	m.statCache["x"] = gitio.Stat{}
+	m.statErr["x"] = "boom"
+	m.statInFlight["x"] = true
+
+	if err := m.reload(); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+
+	if len(m.statCache) != 0 {
+		t.Errorf("reload should clear statCache, got %d entries", len(m.statCache))
+	}
+	if len(m.statErr) != 0 {
+		t.Errorf("reload should clear statErr, got %d entries", len(m.statErr))
+	}
+	if len(m.statInFlight) != 0 {
+		t.Errorf("reload should clear statInFlight, got %d entries", len(m.statInFlight))
+	}
+}

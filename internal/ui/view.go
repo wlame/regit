@@ -157,12 +157,12 @@ func (m Model) listWidth() int {
 // renderDetail; this method only supplies state (the cached stat) and the frame.
 func (m Model) viewDetailPane(width int) string {
 	if len(m.plan.Commits) == 0 {
-		return m.st.pane.Width(width).Height(m.listHeight()+1).Render("")
+		return m.st.pane.Width(width).Height(m.listHeight() + 1).Render("")
 	}
 	c := m.commitAtCursor()
 	stat, have := m.statCache[c.Hash]
 	body := renderDetail(c, stat, have, m.statErr[c.Hash], m.plan, m.loc, width-2, m.st)
-	return m.st.pane.Width(width).Height(m.listHeight()+1).Render(body)
+	return m.st.pane.Width(width).Height(m.listHeight() + 1).Render(body)
 }
 
 // rightPaneWidth is the lipgloss width (border excluded) shared by the
