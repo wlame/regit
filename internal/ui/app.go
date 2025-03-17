@@ -36,6 +36,7 @@ const (
 	modeSplit
 	modeReword
 	modeDetail
+	modePicker
 )
 
 type focusArea int
@@ -102,6 +103,8 @@ type Model struct {
 	statCache    map[string]gitio.Stat
 	statErr      map[string]string
 	statInFlight map[string]bool
+
+	picker pickerState // active branch/base picker overlay (modePicker)
 
 	statusMsg  string
 	statusKind statusKind
@@ -230,6 +233,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = modeMain
 		}
 		return m, nil
+	case modePicker:
+		return m.updatePicker(msg)
 	case modeHelp:
 		if msg.String() == "?" || msg.String() == "esc" || msg.String() == "q" {
 			m.mode = modeMain
@@ -331,6 +336,15 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	case ".":
 		m.mode = modeDetail
 		return m, m.markAndFetch(), true
+	case "B":
+		branches, err := m.repo.Branches()
+		if err != nil {
+			m.setStatus("List branches: "+err.Error(), statusErr)
+			return m, nil, true
+		}
+		m.picker = newPicker("Branches", branches)
+		m.mode = modePicker
+		return m, nil, true
 	}
 	return m, nil, false
 }
@@ -1133,6 +1147,66 @@ func (m Model) applySplit() (tea.Model, tea.Cmd) {
 	return m, m.markAndFetch()
 }
 
+// --- Picker ----------------------------------------------------------------
+
+// updatePicker drives the branch/base picker overlay. Letter keys type into the
+// filter, so actions use non-letter keys: enter switches to the highlighted
+// branch, tab sets it as the base (Task 6), arrows move, esc cancels.
+func (m Model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.mode = modeMain
+		return m, nil
+	case "up":
+		m.picker.moveCursor(-1)
+		return m, nil
+	case "down":
+		m.picker.moveCursor(1)
+		return m, nil
+	case "enter":
+		return m.pickerSwitchBranch()
+	}
+	cmd := m.picker.update(msg) // any other key filters the list
+	return m, cmd
+}
+
+// pickerSwitchBranch performs a real `git switch` to the highlighted branch,
+// then reloads. It is refused unless the working tree is clean AND there are no
+// unsaved pending edits — regit's safety model only ever edits the checked-out
+// branch, so we keep HEAD authoritative.
+func (m Model) pickerSwitchBranch() (tea.Model, tea.Cmd) {
+	name, ok := m.picker.selected()
+	if !ok {
+		return m, nil
+	}
+	if name == m.state.Branch {
+		m.mode = modeMain
+		m.setStatus("Already on "+name, statusWarn)
+		return m, nil
+	}
+	if m.state.IsDirty {
+		m.setStatus("Working tree has uncommitted changes — commit or stash before switching", statusErr)
+		return m, nil
+	}
+	if m.plan.HasChanges() {
+		m.setStatus("Unsaved edits — apply (A) or reset (r) before switching branch", statusErr)
+		return m, nil
+	}
+	if err := m.repo.SwitchBranch(name); err != nil {
+		m.setStatus(err.Error(), statusErr)
+		return m, nil
+	}
+	if err := m.reload(); err != nil {
+		m.mode = modeMain
+		m.setStatus("Switched, but reload failed: "+err.Error(), statusWarn)
+		return m, nil
+	}
+	m.listCursor = m.firstEditableDisplayIndex()
+	m.mode = modeMain
+	m.setStatus(fmt.Sprintf("Switched to %s — %d commit(s)", name, len(m.plan.Commits)), statusOK)
+	return m, m.markAndFetch()
+}
+
 // commitStatMsg carries an async CommitStat result back onto the Bubble Tea bus.
 type commitStatMsg struct {
 	hash string
@@ -1218,6 +1292,8 @@ func (m Model) View() string {
 		c := m.commitAtCursor()
 		stat, have := m.statCache[c.Hash]
 		overlay = m.st.modal.Render(renderDetail(c, stat, have, m.statErr[c.Hash], m.plan, m.loc, 50, m.st))
+	case modePicker:
+		overlay = viewPicker(m.picker, "enter switch · tab set base · ↑/↓ move · esc cancel", m.st)
 	}
 
 	if overlay == "" {

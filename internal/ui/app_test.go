@@ -1116,6 +1116,89 @@ func TestListNav_fastJumps(t *testing.T) {
 	}
 }
 
+// branchModel builds a Model whose repo is on `main` (3 commits) with an extra
+// local `feature` branch forked at the first commit, sized to a usable terminal.
+func branchModel(t *testing.T) Model {
+	t.Helper()
+	dir := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_DATE=2026-06-05T14:00:00+00:00",
+			"GIT_COMMITTER_DATE=2026-06-05T14:00:00+00:00")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	commit := func(name string) {
+		os.WriteFile(filepath.Join(dir, name+".txt"), []byte(name+"\n"), 0o644)
+		run("add", ".")
+		run("commit", "-q", "-m", "commit "+name)
+	}
+	run("init", "-q")
+	run("symbolic-ref", "HEAD", "refs/heads/main")
+	run("config", "user.name", "wlame")
+	run("config", "user.email", "vvlame@gmail.com")
+	run("config", "commit.gpgsign", "false")
+	commit("c0")
+	run("branch", "feature")
+	commit("c1")
+	commit("c2")
+
+	repo, err := gitio.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, _ := repo.ReadState()
+	commits, _ := repo.ReadCommits()
+	cfg := config.Default()
+	cfg.Timezone = "UTC"
+	m := New(repo, safety.NewManager(repo), cfg, state, commits)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	return updated.(Model)
+}
+
+func TestPicker_opensAndSwitchesBranch(t *testing.T) {
+	m := branchModel(t)
+	m = send(m, "B")
+	if m.mode != modePicker {
+		t.Fatalf("B should open the picker, got mode %v", m.mode)
+	}
+	if len(m.picker.items) != 2 { // main, feature
+		t.Fatalf("picker should list the 2 local branches, got %v", m.picker.items)
+	}
+
+	// Filter to "feature" and switch to it.
+	m.picker.filter.SetValue("feature")
+	updated, _ := m.Update(key("enter"))
+	m = updated.(Model)
+	if m.mode != modeMain {
+		t.Fatalf("switching should return to the main view, got %v", m.mode)
+	}
+	if m.state.Branch != "feature" {
+		t.Errorf("should have switched to feature, on %q", m.state.Branch)
+	}
+}
+
+func TestPicker_switchRefusedWithPendingEdits(t *testing.T) {
+	m := branchModel(t)
+	m = send(m, "s", "enter", "enter") // stage a strategy edit
+	if !m.plan.HasChanges() {
+		t.Fatal("strategy apply should stage edits")
+	}
+	m = send(m, "B")
+	m.picker.filter.SetValue("feature")
+	updated, _ := m.Update(key("enter"))
+	m = updated.(Model)
+	if m.state.Branch == "feature" {
+		t.Error("switch must be refused while there are unsaved edits")
+	}
+	if m.statusKind != statusErr {
+		t.Errorf("a refused switch should report an error status, got kind %v", m.statusKind)
+	}
+}
+
 func TestListNav_dayGroupJumpsDoNotConsumeCalendarG(t *testing.T) {
 	m := newTestModelN(t, 3) // all on one day -> day jump clamps to ends
 	// On the list, } jumps to the next (older) day group; with one day it lands
