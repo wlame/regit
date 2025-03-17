@@ -1246,3 +1246,55 @@ func TestListNav_dayGroupJumpsDoNotConsumeCalendarG(t *testing.T) {
 		t.Errorf("calendar g should re-apply quotas (Manual Pin), got kind=%v msg=%q", m2.statusKind, m2.statusMsg)
 	}
 }
+
+func TestAutoBase_mergeBaseOffFirstParentLineClaimsNoBase(t *testing.T) {
+	dir := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_DATE=2026-06-05T14:00:00+00:00",
+			"GIT_COMMITTER_DATE=2026-06-05T14:00:00+00:00")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	commit := func(name string) {
+		os.WriteFile(filepath.Join(dir, name+".txt"), []byte(name+"\n"), 0o644)
+		run("add", ".")
+		run("commit", "-q", "-m", "commit "+name)
+	}
+	run("init", "-q")
+	run("symbolic-ref", "HEAD", "refs/heads/main")
+	run("config", "user.name", "wlame")
+	run("config", "user.email", "vvlame@gmail.com")
+	run("config", "commit.gpgsign", "false")
+	commit("c0")
+	run("branch", "feature") // feature at c0
+	commit("c1")             // main: c0 -> c1
+	run("switch", "feature")
+	commit("f0")                                 // feature diverges: c0 -> f0
+	run("merge", "--no-ff", "--no-edit", "main") // real merge commit (parents f0, c1)
+
+	repo, err := gitio.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, _ := repo.ReadState()
+	commits, _ := repo.ReadCommits()
+	cfg := config.Default()
+	cfg.Timezone = "UTC"
+	m := New(repo, safety.NewManager(repo), cfg, state, commits)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m = updated.(Model)
+
+	// applyAutoBase auto-picks "main", but its merge-base (c1) entered feature
+	// via the merge's second parent — it's off feature's first-parent line — so
+	// there is no honest cone to freeze. The label and the freeze must agree.
+	if m.baseBranch != "" {
+		t.Errorf("baseBranch should be empty when the merge-base is off the first-parent line, got %q", m.baseBranch)
+	}
+	if m.plan.Base != 0 {
+		t.Errorf("plan.Base should be 0 (no freeze) when the merge-base is off the first-parent line, got %d", m.plan.Base)
+	}
+}

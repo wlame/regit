@@ -617,8 +617,17 @@ func (m *Model) applyAutoBase() {
 		m.plan.SetBase(0)
 		return
 	}
+	idx := baseIndexForMergeBase(m.plan.Commits, mergeBase)
+	if idx == 0 {
+		// The merge-base is off the first-parent line (e.g. the base branch was
+		// merged in), so there is no honest cone to freeze on this linear
+		// history. Claim no base rather than show a label without a freeze.
+		m.baseBranch = ""
+		m.plan.SetBase(0)
+		return
+	}
 	m.baseBranch = base
-	m.plan.SetBase(baseIndexForMergeBase(m.plan.Commits, mergeBase))
+	m.plan.SetBase(idx)
 }
 
 // firstEditableDisplayIndex returns the display-order index (newest = 0) where
@@ -1223,8 +1232,16 @@ func (m Model) pickerSetBase() (tea.Model, tea.Cmd) {
 		m.setStatus("No common history with "+name+": "+err.Error(), statusErr)
 		return m, nil
 	}
+	idx := baseIndexForMergeBase(m.plan.Commits, mergeBase)
+	if idx == 0 {
+		// Merge-base off the first-parent line: can't honestly freeze a cone
+		// here. Close the picker so the warning is visible; leave the base intact.
+		m.mode = modeMain
+		m.setStatus(name+" shares no first-parent history to freeze here", statusWarn)
+		return m, nil
+	}
 	m.baseBranch = name
-	m.plan.SetBase(baseIndexForMergeBase(m.plan.Commits, mergeBase))
+	m.plan.SetBase(idx)
 	m.mode = modeMain
 	m.setStatus(fmt.Sprintf("Base %s — editing %d commit(s), %d frozen",
 		name, len(m.plan.Active()), m.plan.Base), statusOK)
