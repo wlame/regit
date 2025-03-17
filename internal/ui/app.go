@@ -848,7 +848,7 @@ func (m Model) commitApply(confirmed bool) (tea.Model, tea.Cmd) {
 	}
 	m.mode = modeMain
 	m.setStatus(fmt.Sprintf("Applied ✓ backup at %s — press u to undo", short(res.BackupRef)), statusOK)
-	return m, nil
+	return m, m.markAndFetch()
 }
 
 func (m Model) doUndo() (tea.Model, tea.Cmd) {
@@ -866,7 +866,7 @@ func (m Model) doUndo() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.setStatus("Undid last apply — restored "+short(hash), statusOK)
-	return m, nil
+	return m, m.markAndFetch()
 }
 
 // reload re-reads commits and state after the history changes, resetting edits.
@@ -1081,7 +1081,7 @@ func (m Model) applySplit() (tea.Model, tea.Cmd) {
 	m.mode = modeMain
 	m.setStatus(fmt.Sprintf("Split %s into %d commits ✓ backup at %s",
 		short(c.Hash), len(subs), short(res.BackupRef)), statusOK)
-	return m, nil
+	return m, m.markAndFetch()
 }
 
 // commitStatMsg carries an async CommitStat result back onto the Bubble Tea bus.

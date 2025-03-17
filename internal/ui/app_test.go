@@ -1039,6 +1039,27 @@ func TestDetail_reloadResetsStatCaches(t *testing.T) {
 	}
 }
 
+// TestDetail_refetchesAfterApply verifies that the success path of commitApply
+// schedules a fresh detail-stat fetch after reload() wipes the stat caches.
+// Without the fix the apply path returns nil, leaving the panel stuck at
+// "stat loading…" until the user manually moves the cursor.
+func TestDetail_refetchesAfterApply(t *testing.T) {
+	m := newTestModelN(t, 3)
+	// Stage edits by applying a strategy (palette -> params pane -> apply).
+	m = send(m, "s", "enter", "enter")
+	if !m.plan.HasChanges() {
+		t.Fatal("applying a strategy should stage edits")
+	}
+	// Apply the rewrite: reload() wipes the stat caches, so the apply path must
+	// schedule a fresh fetch for the cursor commit (else the detail panel stays blank).
+	updated, cmd := m.Update(key("A"))
+	m = updated.(Model)
+	_ = m
+	if cmd == nil {
+		t.Fatal("apply should schedule a detail-stat refetch after reload wiped the cache")
+	}
+}
+
 func TestListNav_fastJumps(t *testing.T) {
 	m := newTestModelN(t, 60) // newest-first display; cursor starts at 0
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
