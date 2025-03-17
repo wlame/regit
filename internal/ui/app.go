@@ -1165,6 +1165,8 @@ func (m Model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		return m.pickerSwitchBranch()
+	case "tab":
+		return m.pickerSetBase()
 	}
 	cmd := m.picker.update(msg) // any other key filters the list
 	return m, cmd
@@ -1205,6 +1207,28 @@ func (m Model) pickerSwitchBranch() (tea.Model, tea.Cmd) {
 	m.mode = modeMain
 	m.setStatus(fmt.Sprintf("Switched to %s — %d commit(s)", name, len(m.plan.Commits)), statusOK)
 	return m, m.markAndFetch()
+}
+
+// pickerSetBase sets the highlighted branch as the base: it recomputes the
+// merge-base with the current branch and freezes everything up to it. Unlike a
+// switch, this does not touch HEAD or reload — it only moves the freeze boundary
+// on the current branch.
+func (m Model) pickerSetBase() (tea.Model, tea.Cmd) {
+	name, ok := m.picker.selected()
+	if !ok {
+		return m, nil
+	}
+	mergeBase, err := m.repo.MergeBase(m.state.Branch, name)
+	if err != nil {
+		m.setStatus("No common history with "+name+": "+err.Error(), statusErr)
+		return m, nil
+	}
+	m.baseBranch = name
+	m.plan.SetBase(baseIndexForMergeBase(m.plan.Commits, mergeBase))
+	m.mode = modeMain
+	m.setStatus(fmt.Sprintf("Base %s — editing %d commit(s), %d frozen",
+		name, len(m.plan.Active()), m.plan.Base), statusOK)
+	return m, nil
 }
 
 // commitStatMsg carries an async CommitStat result back onto the Bubble Tea bus.

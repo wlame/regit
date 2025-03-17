@@ -1199,6 +1199,32 @@ func TestPicker_switchRefusedWithPendingEdits(t *testing.T) {
 	}
 }
 
+func TestPicker_setBaseFreezesMergeBaseCone(t *testing.T) {
+	m := branchModel(t) // on main (c0,c1,c2); feature forked at c0
+	// On main with no upstream and current branch == main, nothing is frozen yet.
+	if m.plan.Base != 0 {
+		t.Fatalf("precondition: base should start at 0 on main, got %d", m.plan.Base)
+	}
+	m = send(m, "B")
+	m.picker.filter.SetValue("feature")
+	updated, _ := m.Update(key("tab")) // set feature as the base branch
+	m = updated.(Model)
+
+	if m.mode != modeMain {
+		t.Fatalf("setting base should return to the main view, got %v", m.mode)
+	}
+	if m.baseBranch != "feature" {
+		t.Errorf("base branch should be feature, got %q", m.baseBranch)
+	}
+	// merge-base(main, feature) is c0 (storage index 0), so Base freezes index 0.
+	if m.plan.Base != 1 {
+		t.Errorf("base should freeze the fork commit c0, got base %d", m.plan.Base)
+	}
+	if !m.plan.IsFrozen(0) {
+		t.Error("the fork commit c0 (storage 0) should be frozen")
+	}
+}
+
 func TestListNav_dayGroupJumpsDoNotConsumeCalendarG(t *testing.T) {
 	m := newTestModelN(t, 3) // all on one day -> day jump clamps to ends
 	// On the list, } jumps to the next (older) day group; with one day it lands

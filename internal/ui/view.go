@@ -29,7 +29,7 @@ func (m Model) viewMain() string {
 	}
 	status := m.viewStatusBar()
 	keybar := m.st.keybar.Render(
-		"[s]trategy [S]plit [w]reword [e]dit [b]ase [D]rop-bodies [R]etitle [p]review [u]ndo [A]pply [r]eset [tab]focus [?]help [q]uit",
+		"[s]trategy [S]plit [w]reword [e]dit [b]ase [B]ranch [D]rop-bodies [R]etitle [p]review [u]ndo [A]pply [r]eset [tab]focus [?]help [q]uit",
 	)
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, body, status, keybar)
