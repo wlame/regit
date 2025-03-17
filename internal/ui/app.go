@@ -250,6 +250,10 @@ func (m Model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.focus == focusParams {
 		return m.updateParamsPane(msg)
 	}
+	if m.focus == focusList && m.listNavKey(msg.String()) {
+		m.syncListViewport()
+		return m, m.markAndFetch()
+	}
 	if model, cmd, ok := m.globalAction(msg); ok {
 		return model, cmd
 	}
@@ -267,7 +271,9 @@ func (m Model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.openEditorAtCursor()
 		}
 	default:
-		m.moveCursor(msg)
+		if m.focus == focusCalendar {
+			m.moveCursor(msg)
+		}
 		m.syncListViewport()
 		return m, m.markAndFetch()
 	}
@@ -355,6 +361,73 @@ func (m Model) openEditorAtCursor() (tea.Model, tea.Cmd) {
 // field stays within a readable [editorMinWidth, editorMaxWidth] band.
 func (m Model) editorFieldWidth() int {
 	return computeLayout(m.width, m.height).editorWidth
+}
+
+// listNavKey handles fast list-navigation keys when the commit list is focused.
+// It returns true when it consumed the key. Routing this BEFORE globalAction
+// lets g/G mean top/bottom of the list (spec binding) while the calendar's own
+// g (re-apply quotas) still works when the calendar/params pane is focused.
+func (m *Model) listNavKey(key string) bool {
+	last := len(m.plan.Commits) - 1
+	if last < 0 {
+		return false
+	}
+	page := max(1, m.listHeight()-1)
+	switch key {
+	case "up", "k":
+		m.moveListCursor(-1)
+	case "down", "j":
+		m.moveListCursor(1)
+	case "ctrl+u":
+		m.moveListCursor(-page / 2)
+	case "ctrl+d":
+		m.moveListCursor(page / 2)
+	case "pgup":
+		m.moveListCursor(-page)
+	case "pgdown":
+		m.moveListCursor(page)
+	case "g", "home":
+		m.listCursor = 0
+	case "G", "end":
+		m.listCursor = last
+	case "{":
+		m.dayJump(-1)
+	case "}":
+		m.dayJump(1)
+	default:
+		return false
+	}
+	return true
+}
+
+// moveListCursor shifts the cursor by delta commits, clamped to the list bounds.
+func (m *Model) moveListCursor(delta int) {
+	m.listCursor += delta
+	if m.listCursor < 0 {
+		m.listCursor = 0
+	}
+	if last := len(m.plan.Commits) - 1; m.listCursor > last {
+		m.listCursor = last
+	}
+}
+
+// dayJump moves the cursor to the first commit of the next (dir=+1, older) or
+// previous (dir=-1, newer) author-date day group, clamping at the list ends.
+func (m *Model) dayJump(dir int) {
+	n := len(m.plan.Commits)
+	curKey := m.plan.EffectiveAuthorDate(m.commitAtDisplayIndex(m.listCursor)).In(m.loc).Format(dateLayout)
+	for i := m.listCursor + dir; i >= 0 && i < n; i += dir {
+		if k := m.plan.EffectiveAuthorDate(m.commitAtDisplayIndex(i)).In(m.loc).Format(dateLayout); k != curKey {
+			m.listCursor = i // first commit of the neighbouring day group
+			return
+		}
+	}
+	// No further group in that direction: clamp to the corresponding end.
+	if dir > 0 {
+		m.listCursor = n - 1
+	} else {
+		m.listCursor = 0
+	}
 }
 
 // moveCursor handles navigation keys for whichever pane is focused.

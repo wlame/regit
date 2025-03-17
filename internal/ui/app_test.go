@@ -1038,3 +1038,47 @@ func TestDetail_reloadResetsStatCaches(t *testing.T) {
 		t.Errorf("reload should clear statInFlight, got %d entries", len(m.statInFlight))
 	}
 }
+
+func TestListNav_fastJumps(t *testing.T) {
+	m := newTestModelN(t, 60) // newest-first display; cursor starts at 0
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m = updated.(Model)
+
+	// G / End -> oldest commit (last display index).
+	m = send(m, "G")
+	if m.listCursor != len(m.plan.Commits)-1 {
+		t.Fatalf("G should jump to the oldest commit, got cursor %d", m.listCursor)
+	}
+	// g / Home -> newest commit.
+	m = send(m, "g")
+	if m.listCursor != 0 {
+		t.Fatalf("g should jump to the newest commit, got cursor %d", m.listCursor)
+	}
+
+	// Ctrl-D moves a half page down; the cursor advances but stays in range.
+	before := m.listCursor
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	m = updated.(Model)
+	half := (m.listHeight() - 1) / 2
+	if m.listCursor != before+half {
+		t.Fatalf("Ctrl-D should move a half page (%d), got %d", half, m.listCursor)
+	}
+}
+
+func TestListNav_dayGroupJumpsDoNotConsumeCalendarG(t *testing.T) {
+	m := newTestModelN(t, 3) // all on one day -> day jump clamps to ends
+	// On the list, } jumps to the next (older) day group; with one day it lands
+	// on the oldest commit.
+	m = send(m, "}")
+	if m.listCursor != len(m.plan.Commits)-1 {
+		t.Errorf("} with a single day should land on the oldest commit, got %d", m.listCursor)
+	}
+	// The calendar's global g (re-apply quotas) still fires when not on the list.
+	m2 := newTestModelN(t, 3)
+	m2 = send(m2, "tab") // focus calendar
+	m2 = send(m2, "1")   // pin a quota so applyQuotas has work
+	m2 = send(m2, "g")   // re-apply quotas: must not be hijacked as list nav
+	if m2.statusKind == statusWarn && strings.Contains(m2.statusMsg, "No quotas") {
+		t.Error("g on the calendar should re-apply quotas, not act as list nav")
+	}
+}
