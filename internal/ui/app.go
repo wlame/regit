@@ -167,6 +167,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		m.syncListViewport()
 		return m, nil
 	case commitStatMsg:
 		delete(m.statInFlight, msg.hash)
@@ -267,6 +268,7 @@ func (m Model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	default:
 		m.moveCursor(msg)
+		m.syncListViewport()
 		return m, m.markAndFetch()
 	}
 	return m, nil

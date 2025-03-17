@@ -142,7 +142,6 @@ func TestView_commitEntriesAreSingleLine(t *testing.T) {
 	m = updated.(Model)
 
 	view := m.View()
-	// plan.Commits is oldest-first; the list displays newest-first.
 	newest := m.plan.Commits[len(m.plan.Commits)-1]
 	hash8 := newest.Hash[:8]
 	var entryLine string
@@ -155,23 +154,25 @@ func TestView_commitEntriesAreSingleLine(t *testing.T) {
 	if entryLine == "" {
 		t.Fatalf("newest commit %s not rendered", hash8)
 	}
-	if !strings.Contains(entryLine, "06-05 14:00") {
-		t.Errorf("entry line should carry the date, got: %q", entryLine)
-	}
+	// The per-row date moved to the detail panel; the row carries hash + subject.
 	if !strings.Contains(entryLine, "Refactor the authentication") {
 		t.Errorf("entry line should carry the subject, got: %q", entryLine)
 	}
 
-	// One line per commit: the visible window must hold listHeight-1 entries.
-	wantVisible := m.listHeight() - 1
+	// All test commits share one day, so the list shows exactly one date divider
+	// plus one line per visible commit within the listHeight-1 window.
+	if !strings.Contains(view, "commit(s)") {
+		t.Error("a date divider should head the day group")
+	}
+	window := m.listHeight() - 1
 	gotVisible := 0
 	for _, c := range m.plan.Commits {
 		if strings.Contains(view, c.Hash[:8]) {
 			gotVisible++
 		}
 	}
-	if gotVisible != wantVisible {
-		t.Errorf("want %d single-line entries visible, got %d", wantVisible, gotVisible)
+	if gotVisible != window-1 { // one window row is the divider
+		t.Errorf("want %d single-line commit entries visible, got %d", window-1, gotVisible)
 	}
 }
 
