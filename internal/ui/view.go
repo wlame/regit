@@ -48,7 +48,12 @@ func (m Model) viewTitle() string {
 	if m.plan.Base > 0 {
 		count = fmt.Sprintf("editing %d/%d commits", len(m.plan.Active()), len(m.plan.Commits))
 	}
-	return m.st.title.Render(fmt.Sprintf("regit · %s · branch: %s · %s", repoName, branch, count))
+	base := "none"
+	if m.baseBranch != "" {
+		base = m.baseBranch
+	}
+	return m.st.title.Render(fmt.Sprintf("regit · %s · branch: %s ▾ · base: %s ▾ · %s",
+		repoName, branch, base, count))
 }
 
 // listWidth returns the commit pane's lipgloss width (border excluded). The

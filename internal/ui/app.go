@@ -63,6 +63,10 @@ type Model struct {
 	loc   *time.Location
 	state model.RepoState
 	plan  *model.Plan
+	// baseBranch is the branch whose merge-base with the current branch defines
+	// the frozen cone (auto-detected on load; "" means no automatic freeze). The
+	// title bar shows it and the picker can change it.
+	baseBranch string
 
 	width, height int
 	mode          mode
@@ -111,23 +115,6 @@ func New(repo *gitio.Repo, mgr *safety.Manager, cfg config.Config, state model.R
 	loc := cfg.Location()
 	plan := model.NewPlan(commits)
 
-	// Start on the oldest commit not yet pushed to the upstream, so the user
-	// begins right at the sync point and can press [b] to freeze all pushed
-	// history. Only relocate when an actual pushed prefix exists (idx > 0);
-	// with no upstream every commit is "unpushed", so we keep the default of
-	// the newest commit instead of jumping to the root.
-	listCursor := 0
-	cursorCommit := len(commits) - 1
-	if idx, ok := plan.FirstUnpushedIndex(); ok && idx > 0 {
-		listCursor = len(commits) - 1 - idx // storage index -> display index
-		cursorCommit = idx
-	}
-
-	cursor := time.Now().In(loc)
-	if len(commits) > 0 {
-		cursor = commits[cursorCommit].OrigAuthorDate.In(loc)
-	}
-
 	m := Model{
 		repo:         repo,
 		mgr:          mgr,
@@ -137,9 +124,6 @@ func New(repo *gitio.Repo, mgr *safety.Manager, cfg config.Config, state model.R
 		plan:         plan,
 		mode:         modeMain,
 		focus:        focusList,
-		listCursor:   listCursor,
-		calCursor:    cursor,
-		calYear:      cursor.Year(),
 		quotas:       make(map[string]int),
 		picked:       make(map[string]bool),
 		statCache:    make(map[string]gitio.Stat),
@@ -148,12 +132,23 @@ func New(repo *gitio.Repo, mgr *safety.Manager, cfg config.Config, state model.R
 		strategies:   strategy.Strategies(),
 		st:           newStyles(),
 	}
-	// The strategy pane always shows a configurable form; seed it with the
-	// default strategy so it is usable before the palette is ever opened.
-	m.form = newParamsForm(m.strategies[m.defaultStrategyIndex()], cfg, cursor)
 
-	if idx, ok := plan.FirstUnpushedIndex(); ok && idx > 0 {
-		m.setStatus(fmt.Sprintf("%d commit(s) already pushed — press b here to freeze them", idx), statusOK)
+	// Auto-detect the base branch and freeze the shared-history cone, then start
+	// the cursor on the newest editable commit and seed the calendar there.
+	m.applyAutoBase()
+	m.listCursor = m.firstEditableDisplayIndex()
+
+	seed := time.Now().In(loc)
+	if len(commits) > 0 {
+		seed = m.commitAtDisplayIndex(m.listCursor).OrigAuthorDate.In(loc)
+	}
+	m.calCursor = seed
+	m.calYear = seed.Year()
+	m.form = newParamsForm(m.strategies[m.defaultStrategyIndex()], cfg, seed)
+
+	if m.baseBranch != "" && m.plan.Base > 0 {
+		m.setStatus(fmt.Sprintf("Base %s — editing %d commit(s), %d frozen",
+			m.baseBranch, len(m.plan.Active()), m.plan.Base), statusOK)
 	}
 	return m
 }
@@ -583,6 +578,47 @@ func (m Model) storageIndexAtCursor() int {
 	return len(m.plan.Commits) - 1 - m.listCursor
 }
 
+// applyAutoBase detects the base branch (spec §6.4 precedence) and freezes the
+// commits up to and including the merge-base. It is best-effort: any git failure
+// leaves the freeze unchanged rather than erroring. Called on load and after
+// every reload, so the freeze re-establishes itself (and survives apply/undo).
+func (m *Model) applyAutoBase() {
+	branches, err := m.repo.Branches()
+	if err != nil {
+		return
+	}
+	base := chooseBaseBranch(m.state, branches)
+	m.baseBranch = base
+	if base == "" {
+		m.plan.SetBase(0)
+		return
+	}
+	mergeBase, err := m.repo.MergeBase(m.state.Branch, base)
+	if err != nil {
+		m.plan.SetBase(0)
+		return
+	}
+	m.plan.SetBase(baseIndexForMergeBase(m.plan.Commits, mergeBase))
+}
+
+// firstEditableDisplayIndex returns the display-order index (newest = 0) where
+// the cursor should start: the newest commit when nothing is frozen, otherwise
+// the newest editable commit just below the frozen cone.
+func (m Model) firstEditableDisplayIndex() int {
+	n := len(m.plan.Commits)
+	if n == 0 || m.plan.Base == 0 {
+		return 0
+	}
+	idx := n - 1 - m.plan.Base // storage Base -> display index
+	if idx < 0 {
+		idx = 0
+	}
+	if idx > n-1 {
+		idx = n - 1
+	}
+	return idx
+}
+
 // setBaseAtCursor toggles the frozen-history boundary at the selected commit:
 // it becomes the first (oldest) editable commit and everything older is
 // frozen. Pressing b on the current base commit unfreezes the whole history.
@@ -888,6 +924,7 @@ func (m *Model) reload() error {
 	if m.listCursor >= len(commits) {
 		m.listCursor = max(0, len(commits)-1)
 	}
+	m.applyAutoBase()
 	return nil
 }
 

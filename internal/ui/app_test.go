@@ -338,20 +338,22 @@ func TestStartup_cursorOnFirstUnpushedCommit(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	m = updated.(Model)
 
-	// Storage indices 0,1 are pushed; 2 is the first unpushed ("local0").
-	if got := m.commitAtCursor().Subject; got != "commit local0" {
-		t.Errorf("cursor should start on the first unpushed commit, got %q", got)
+	// The upstream (origin/main) is auto-detected as the base, freezing exactly
+	// the two pushed commits — no manual `b` needed.
+	if m.baseBranch != "origin/main" {
+		t.Errorf("base branch should auto-detect the upstream, got %q", m.baseBranch)
 	}
-
-	// Pressing b here freezes exactly the two pushed commits.
-	m = send(m, "b")
 	if m.plan.Base != 2 {
-		t.Errorf("base should freeze the 2 pushed commits, got base %d", m.plan.Base)
+		t.Errorf("upstream should auto-freeze the 2 pushed commits, got base %d", m.plan.Base)
 	}
-	for _, c := range m.plan.Commits[:2] {
-		if m.plan.IsFrozen(0) && !c.IsPushed {
-			t.Error("frozen prefix should be exactly the pushed commits")
+	for i := 0; i < 2; i++ {
+		if !m.plan.IsFrozen(i) {
+			t.Errorf("pushed commit at storage index %d should be frozen", i)
 		}
+	}
+	// The cursor starts on the newest editable commit (just below the freeze).
+	if got := m.commitAtCursor().Subject; got != "commit local0" {
+		t.Errorf("cursor should start on the first editable commit, got %q", got)
 	}
 }
 
