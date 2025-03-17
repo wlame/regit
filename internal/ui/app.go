@@ -582,22 +582,28 @@ func (m Model) storageIndexAtCursor() int {
 // commits up to and including the merge-base. It is best-effort: any git failure
 // leaves the freeze unchanged rather than erroring. Called on load and after
 // every reload, so the freeze re-establishes itself (and survives apply/undo).
+//
+// baseBranch and plan.Base are always set together: baseBranch is non-empty ONLY
+// when a freeze was actually computed, so the title bar can never show a base
+// branch whose cone is not frozen. A Branches() failure leaves both unchanged.
 func (m *Model) applyAutoBase() {
 	branches, err := m.repo.Branches()
 	if err != nil {
-		return
+		return // can't determine; leave baseBranch and plan.Base unchanged together
 	}
 	base := chooseBaseBranch(m.state, branches)
-	m.baseBranch = base
 	if base == "" {
+		m.baseBranch = ""
 		m.plan.SetBase(0)
 		return
 	}
 	mergeBase, err := m.repo.MergeBase(m.state.Branch, base)
 	if err != nil {
+		m.baseBranch = ""
 		m.plan.SetBase(0)
 		return
 	}
+	m.baseBranch = base
 	m.plan.SetBase(baseIndexForMergeBase(m.plan.Commits, mergeBase))
 }
 
@@ -622,13 +628,19 @@ func (m Model) firstEditableDisplayIndex() int {
 // setBaseAtCursor toggles the frozen-history boundary at the selected commit:
 // it becomes the first (oldest) editable commit and everything older is
 // frozen. Pressing b on the current base commit unfreezes the whole history.
+//
+// A manual freeze is a cursor position, not a branch, so baseBranch is cleared
+// on both paths: the title then reads "base: none" to reflect that the boundary
+// no longer tracks any branch.
 func (m *Model) setBaseAtCursor() {
 	idx := m.storageIndexAtCursor()
 	if idx == m.plan.Base && m.plan.Base > 0 {
+		m.baseBranch = ""
 		m.plan.SetBase(0)
 		m.setStatus("Base cleared — editing the whole history", statusOK)
 		return
 	}
+	m.baseBranch = ""
 	m.plan.SetBase(idx)
 	m.setStatus(fmt.Sprintf("Base set at %s — editing %d commit(s), %d older frozen",
 		short(m.plan.Commits[m.plan.Base].Hash), len(m.plan.Active()), m.plan.Base), statusOK)

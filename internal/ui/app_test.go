@@ -357,6 +357,34 @@ func TestStartup_cursorOnFirstUnpushedCommit(t *testing.T) {
 	}
 }
 
+// With no upstream and the current branch being main, the no-anchor path leaves
+// baseBranch and plan.Base consistently empty/zero — nothing is auto-frozen.
+func TestAutoBase_noAnchorLeavesBaseEmpty(t *testing.T) {
+	m := newTestModelN(t, 3)
+	if m.baseBranch != "" {
+		t.Errorf("no anchor: baseBranch should be empty, got %q", m.baseBranch)
+	}
+	if m.plan.Base != 0 {
+		t.Errorf("no anchor: plan.Base should be 0, got %d", m.plan.Base)
+	}
+}
+
+// A manual base (the global b key) is a cursor freeze, not a branch, so it must
+// clear baseBranch — keeping the title's "base:" label honest as "none".
+func TestManualBase_clearsBranchLabel(t *testing.T) {
+	m := newTestModelN(t, 4)
+	m = send(m, "down", "down", "b") // freeze at storage index 1
+	if m.plan.Base == 0 {
+		t.Fatalf("manual b should set a base, got %d", m.plan.Base)
+	}
+	if m.baseBranch != "" {
+		t.Errorf("a manual freeze should clear the branch name, got %q", m.baseBranch)
+	}
+	if !strings.Contains(m.View(), "base: none") {
+		t.Error("title should report base: none for a manual freeze")
+	}
+}
+
 // Setting a base on a commit freezes everything older: strategies only edit
 // the active suffix, frozen commits reject the editor, and b on the base
 // commit clears the boundary again.
