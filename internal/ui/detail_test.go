@@ -39,7 +39,7 @@ func TestRenderDetail_showsStatAndMessage(t *testing.T) {
 
 	for _, want := range []string{
 		"a1b2c3d", "wlame", "v@gmail.com",
-		"2 files", "+42", "12", // diffstat header
+		"2 files", "·", "+42", "12", // diffstat header ("N files · +X −Y")
 		"api/login.go", "api/session.go",
 		"Fix login bug", "Reset the session on logout.",
 	} {
@@ -65,5 +65,45 @@ func TestRenderDetail_loadingAndError(t *testing.T) {
 	// The message must still render even when the stat failed.
 	if !strings.Contains(failed, "Fix login bug") {
 		t.Errorf("message should render despite stat error, got:\n%s", failed)
+	}
+}
+
+// When a pending edit moves the author date, the panel shows a "→" arrow line
+// with the new (effective) date alongside the original.
+func TestRenderDetail_showsEditedDateArrow(t *testing.T) {
+	c := detailCommit()
+	plan := model.NewPlan([]model.Commit{c})
+
+	// Apply a date edit so EffectiveAuthorDate differs from OrigAuthorDate.
+	// NewAuthorDate is a *time.Time so nil means "unchanged"; here we point it
+	// at a deliberately different day.
+	newDate := time.Date(2026, 5, 20, 9, 30, 0, 0, time.UTC)
+	plan.SetEdit(c.Hash, model.Edit{NewAuthorDate: &newDate})
+
+	out := renderDetail(c, gitio.Stat{}, false, "", plan, time.UTC, 40, newStyles())
+
+	if !strings.Contains(out, "→") {
+		t.Errorf("edited date should render a → arrow line, got:\n%s", out)
+	}
+	// The effective (new) date must appear in the panel.
+	if !strings.Contains(out, "2026-05-20 09:30") {
+		t.Errorf("edited date should show the new value, got:\n%s", out)
+	}
+}
+
+// The committer line only renders when the committer differs from the author;
+// detailCommit() keeps them equal, so this fixture diverges them on purpose.
+func TestRenderDetail_showsCommitterWhenDifferent(t *testing.T) {
+	c := detailCommit()
+	c.CommitterName = "rebot"
+	c.CommitterEmail = "rebot@ci.example"
+	plan := model.NewPlan([]model.Commit{c})
+
+	out := renderDetail(c, gitio.Stat{}, false, "", plan, time.UTC, 40, newStyles())
+
+	for _, want := range []string{"committer", "rebot", "rebot@ci.example"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("differing committer should render %q, got:\n%s", want, out)
+		}
 	}
 }
