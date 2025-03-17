@@ -82,3 +82,35 @@ func TestViewCommitList_clampsOutOfRangeOffset(t *testing.T) {
 		t.Errorf("clamped render should still show a real commit row (%s)", hash8)
 	}
 }
+
+func TestScrollMargin_isTwentyPercent(t *testing.T) {
+	cases := map[int]int{1: 1, 5: 1, 10: 2, 20: 4, 23: 5}
+	for visible, want := range cases {
+		if got := scrollMargin(visible); got != want {
+			t.Errorf("scrollMargin(%d) = %d, want %d", visible, got, want)
+		}
+	}
+}
+
+func TestScrollOffset_keepsCursorOffTheEdges(t *testing.T) {
+	const total, visible = 100, 20 // margin = 4
+	// Scrolling down: once the cursor reaches row 30 with the window at top, the
+	// offset advances so the cursor sits no closer than the margin to the bottom.
+	off := scrollOffset(0, 30, total, visible)
+	if off == 0 {
+		t.Fatalf("offset should advance once the cursor passes the bottom margin, got %d", off)
+	}
+	cursorFromTop := 30 - off
+	if cursorFromTop > visible-1-scrollMargin(visible) {
+		t.Errorf("cursor sits %d rows from top; should stay within the bottom margin", cursorFromTop)
+	}
+
+	// Near the top the margin collapses: the offset clamps to 0.
+	if got := scrollOffset(0, 2, total, visible); got != 0 {
+		t.Errorf("near the top the offset should be 0, got %d", got)
+	}
+	// Near the bottom the offset clamps so the last row is the final one.
+	if got := scrollOffset(0, total-1, total, visible); got != total-visible {
+		t.Errorf("at the bottom the offset should clamp to %d, got %d", total-visible, got)
+	}
+}

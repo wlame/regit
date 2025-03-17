@@ -55,21 +55,26 @@ func rowOfCommit(rows []listRow, displayIdx int) int {
 	return 0
 }
 
-// scrollMargin is the scroll-off margin in rows. Task 6 makes this 20% of the
-// viewport; for now it is a fixed 1 so the cursor merely stays on screen.
+// scrollMargin is the scroll-off margin: keep the cursor at least this many rows
+// from the viewport's top and bottom edges. It is round(0.20 × visible), min 1,
+// computed with integer arithmetic ((visible+2)/5 == the rounded value here) to
+// avoid a math import.
 func scrollMargin(visible int) int {
-	return 1
+	return max(1, (visible+2)/5)
 }
 
-// scrollOffset returns the new top-of-viewport row index. This stick-to-edge
-// version keeps the cursor row on screen; Task 6 replaces it with a margin rule.
+// scrollOffset returns the new top-of-viewport row index. The viewport scrolls
+// only when the cursor enters the top or bottom margin, so the cursor floats in
+// the middle band during steady navigation; at the true list ends the margin
+// collapses and the offset clamps.
 func scrollOffset(prevOffset, cursorRow, totalRows, visible int) int {
 	off := prevOffset
-	if cursorRow < off {
-		off = cursorRow
+	margin := scrollMargin(visible)
+	if cursorRow < off+margin {
+		off = cursorRow - margin
 	}
-	if cursorRow >= off+visible {
-		off = cursorRow - visible + 1
+	if cursorRow > off+visible-1-margin {
+		off = cursorRow - visible + 1 + margin
 	}
 	if maxOff := totalRows - visible; off > maxOff {
 		off = maxOff
