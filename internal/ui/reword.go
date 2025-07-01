@@ -375,7 +375,20 @@ func (m Model) updateReword(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.mode = modeMain
-		m.setStatus("Reword cancelled", statusWarn)
+		// If we were partway through a multi-reword walk (targetIdx > 0 means at
+		// least one commit was already applied before cancel), report how many were
+		// applied rather than claiming nothing happened.
+		// Note: targetIdx equals the applied count because advanceReword increments
+		// it only after each successful apply.
+		if len(m.rewordSt.targets) > 1 && m.rewordSt.targetIdx > 0 {
+			m.setStatus(fmt.Sprintf("Reworded %d/%d — rest cancelled", m.rewordSt.targetIdx, len(m.rewordSt.targets)), statusWarn)
+		} else {
+			m.setStatus("Reword cancelled", statusWarn)
+		}
+		// Reset the selection so no stale Set lingers — mirrors the completion
+		// path (enter-applies-last) which also clears the set.
+		m.sel.reset()
+		m.applyDefaultSelectionMode()
 		return m, nil
 	case "left":
 		m.rewordSt.cycleTitle(-1)
