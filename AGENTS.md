@@ -58,6 +58,15 @@ rich calendar/strategy workspace; Restructure is a menu that re-invokes the
 existing split/reword/retitle/drop-bodies actions; History/Authorship/Search are
 disabled stub tabs awaiting later phases.
 
+The commit list has a selection mode (selection.go) that gives each feature the
+selection it needs with a distinct visual language: Single (▸ cursor), Range (┃
+band, built with vim visual mode `v`), Set (○/● gutter, Space toggles · `a` all ·
+`n` clear), Active (whole non-frozen range, frozen cone dimmed), Global (list
+dimmed). The mode defaults from the workspace (Dates → Active, others → Single).
+Reword consumes a Set as multi-reword (walks the picker per selected commit);
+frozen commits are never selectable. Range/Global are built and tested, awaiting
+their future consumers (Join / Search).
+
 ### What each package does
 
 **`internal/model`** — shared vocabulary. Every other package imports it; it
@@ -237,6 +246,7 @@ internal/ui/
   workspace.go          Tab bar render + tab navigation (< / > switch); zone-3 dispatch (viewRightColumn)
   ws_dates.go           Dates workspace widget (calendar + strategy form)
   ws_restructure.go     Restructure feature menu + the disabled stub-tab panel
+  selection.go          Commit-list selection model: Single/Range/Set/Active/Global + visual-mode range, set toggling
   keys.go               Data-driven keymap table; generates the help overlay and keybar
   (other .go files)     Calendar, editor, strategy palette, preview, styles
 justfile                All dev recipes — prefer these over raw go commands

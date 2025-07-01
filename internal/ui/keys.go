@@ -20,6 +20,7 @@ const (
 	scopeWorkspace
 	scopeAction
 	scopeList
+	scopeSelection
 	scopeBranch
 	scopeCalendar
 	scopeStrategy
@@ -66,6 +67,14 @@ var keymap = []keyBinding{
 	{Key: "g / G", Scope: scopeList, Desc: "newest / oldest commit (home/end do the same)"},
 	{Key: "} / {", Scope: scopeList, Desc: "next / previous day group"},
 
+	// Selection (commit list)
+	{Key: "space", Scope: scopeSelection, Desc: "toggle the cursor commit in the selection set", Bar: "[space]select"},
+	{Key: "a", Scope: scopeSelection, Desc: "select all active commits"},
+	{Key: "n", Scope: scopeSelection, Desc: "clear the selection"},
+	{Key: "v", Scope: scopeSelection, Desc: "visual range — anchor, move to extend, v/enter to fix, esc to cancel"},
+	{Key: "esc", Scope: scopeSelection, Desc: "cancel the selection (back to the workspace default)"},
+	{Key: "(reword)", Scope: scopeSelection, Desc: "with a set selected, Reword runs multi-reword over every chosen commit"},
+
 	// Branch & base
 	{Key: "B", Scope: scopeBranch, Desc: "open the branch picker — enter switches branch, tab sets it as the base", Bar: "[B]ranch"},
 	{Key: "b", Scope: scopeBranch, Desc: "set/clear the base at the cursor commit (freeze older history)", Bar: "[b]ase"},
@@ -87,7 +96,7 @@ var keymap = []keyBinding{
 
 // scopeOrder and scopeTitles drive the help overlay's sectioning.
 var scopeOrder = []keyScope{
-	scopeGlobal, scopeWorkspace, scopeAction, scopeList, scopeBranch, scopeCalendar, scopeStrategy,
+	scopeGlobal, scopeWorkspace, scopeAction, scopeList, scopeSelection, scopeBranch, scopeCalendar, scopeStrategy,
 }
 
 var scopeTitles = map[keyScope]string{
@@ -95,6 +104,7 @@ var scopeTitles = map[keyScope]string{
 	scopeWorkspace: "WORKSPACES",
 	scopeAction:    "ACTIONS (any pane)",
 	scopeList:      "COMMIT LIST (focused)",
+	scopeSelection: "SELECTION (commit list)",
 	scopeBranch:    "BRANCH & BASE",
 	scopeCalendar:  "CALENDAR (focused)",
 	scopeStrategy:  "STRATEGY PANE (focused)",

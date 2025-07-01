@@ -53,3 +53,18 @@ func TestView_helpOverlayUsesGeneratedText(t *testing.T) {
 		t.Error("help overlay should render the generated keymap including WORKSPACES")
 	}
 }
+
+func TestHelpText_documentsSelectionKeys(t *testing.T) {
+	help := helpText()
+	for _, want := range []string{"SELECTION", "visual range", "select all active", "multi-reword"} {
+		if !strings.Contains(help, want) {
+			t.Errorf("help should document selection: missing %q", want)
+		}
+	}
+}
+
+func TestKeybarHint_includesSelect(t *testing.T) {
+	if !strings.Contains(keybarHint(), "select") {
+		t.Errorf("keybar should advertise selection, got: %s", keybarHint())
+	}
+}
