@@ -1350,3 +1350,67 @@ func TestTabs_switchingResetsFocusToList(t *testing.T) {
 		t.Errorf("switching workspace should reset focus to the list, got %v", m.focus)
 	}
 }
+
+func TestMenu_restructureTabFocusesMenu(t *testing.T) {
+	m := newTestModel(t)
+	m = send(m, ">") // Dates -> Restructure
+	m = send(m, "tab")
+	if m.focus != focusWorkspace {
+		t.Errorf("tab on Restructure should focus the feature menu, got %v", m.focus)
+	}
+}
+
+func TestMenu_restructureRunsRetitle(t *testing.T) {
+	m := newTestModel(t)
+	m = send(m, ">", "tab") // Restructure, focus the menu
+	// Menu order: Split(0), Reword(1), Retitle(2), Drop bodies(3).
+	m = send(m, "down", "down")
+	if m.wsMenuCursor != 2 {
+		t.Fatalf("cursor should be on Retitle (index 2), got %d", m.wsMenuCursor)
+	}
+	m = send(m, "enter")
+	if m.mode != modeRetitle {
+		t.Errorf("enter on Retitle should open the retitle modal, got mode %v", m.mode)
+	}
+}
+
+func TestMenu_restructureRunsDropBodies(t *testing.T) {
+	m := newTestModel(t) // commits c000..c002, each WITH a body
+	m = send(m, ">", "tab")
+	m = send(m, "down", "down", "down") // Drop bodies (index 3)
+	m = send(m, "enter")
+	if !m.plan.HasChanges() {
+		t.Error("running Drop bodies should stage body-drop edits")
+	}
+}
+
+func TestMenu_cursorClampsToMenuLength(t *testing.T) {
+	m := newTestModel(t)
+	m = send(m, ">", "tab")
+	for i := 0; i < 10; i++ {
+		m = send(m, "down")
+	}
+	if last := len(featuresFor(WSRestructure)) - 1; m.wsMenuCursor != last {
+		t.Errorf("cursor should clamp to the last feature %d, got %d", last, m.wsMenuCursor)
+	}
+}
+
+func TestMenu_tabReturnsToList(t *testing.T) {
+	m := newTestModel(t)
+	m = send(m, ">", "tab") // focus the menu
+	m = send(m, "tab")      // back to the list
+	if m.focus != focusList {
+		t.Errorf("tab from the menu should return to the list, got %v", m.focus)
+	}
+}
+
+func TestView_restructureRendersMenu(t *testing.T) {
+	m := newTestModel(t)
+	m = send(m, ">")
+	view := m.View()
+	for _, name := range []string{"RESTRUCTURE", "Split commit", "Drop bodies"} {
+		if !strings.Contains(view, name) {
+			t.Errorf("Restructure workspace should render %q", name)
+		}
+	}
+}

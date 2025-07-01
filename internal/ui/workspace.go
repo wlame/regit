@@ -51,14 +51,18 @@ func (m *Model) cycleWorkspace(delta int) {
 }
 
 // viewRightColumn renders zone 3 — the active workspace's widget. Dates shows the
-// calendar + strategy form; every other tab shows a "coming soon" stub until its
-// widget lands (the Restructure menu arrives in Task 3). The commit backbone
-// (list + detail) stays put across tabs; only this column swaps.
+// calendar + strategy form; Restructure shows its feature menu; the v1-stub tabs
+// show a "coming soon" panel. The commit backbone (list + detail) stays put
+// across tabs; only this column swaps.
 func (m Model) viewRightColumn() string {
-	if m.workspace == WSDates {
+	switch m.workspace {
+	case WSDates:
 		return m.viewDatesWorkspace()
+	case WSRestructure:
+		return m.viewRestructureMenu()
+	default:
+		return m.viewStubWorkspace()
 	}
-	return m.viewStubWorkspace()
 }
 
 // viewStubWorkspace renders a disabled (not-yet-built) workspace: its name and a

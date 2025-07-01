@@ -44,7 +44,8 @@ type focusArea int
 const (
 	focusList focusArea = iota
 	focusCalendar
-	focusParams // the strategy/params pane below the calendar
+	focusParams    // the strategy/params pane below the calendar
+	focusWorkspace // a menu workspace's feature list (e.g. Restructure)
 )
 
 type statusKind int
@@ -253,6 +254,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // --- Main view -------------------------------------------------------------
 
 func (m Model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.focus == focusWorkspace {
+		return m.updateWorkspaceMenu(msg)
+	}
 	if m.focus == focusParams {
 		return m.updateParamsPane(msg)
 	}
@@ -605,12 +609,17 @@ func (m Model) storageIndexAtCursor() int {
 }
 
 // focusAfterList returns the zone the focus moves to when tab is pressed on the
-// commit list. It depends on the active workspace: the Dates calendar, or (for a
-// workspace with no focusable zone-3 widget yet) the list itself, a no-op. Task 3
-// extends this for the Restructure menu.
+// commit list. It depends on the active workspace: the Dates calendar, the
+// Restructure feature menu, or (for a stub workspace with no focusable widget)
+// the list itself, a no-op.
 func (m Model) focusAfterList() focusArea {
-	if m.workspace == WSDates {
+	switch m.workspace {
+	case WSDates:
 		return focusCalendar
+	case WSRestructure:
+		if len(featuresFor(WSRestructure)) > 0 {
+			return focusWorkspace
+		}
 	}
 	return focusList
 }
