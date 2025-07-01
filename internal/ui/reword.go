@@ -18,10 +18,12 @@ import (
 // buffer stores results keyed by commit hash; inFlight tracks hashes for which
 // a Generate call is in progress so we never issue duplicate requests.
 type rewordState struct {
-	commit   model.Commit
-	buffer   map[string]reword.Result // hash -> result
-	inFlight map[string]bool          // hashes currently being generated
-	sel      reword.Selection
+	commit    model.Commit
+	buffer    map[string]reword.Result // hash -> result
+	inFlight  map[string]bool          // hashes currently being generated
+	sel       reword.Selection
+	targets   []string // hashes to reword in order (Set selection, or just the cursor)
+	targetIdx int      // index into targets of the commit currently in the picker
 }
 
 // rewordResultMsg is the async message returned when Generate completes.
@@ -198,6 +200,25 @@ func generateRewordCmd(eng *reword.Engine, c model.Commit, parentTree, readme st
 	}
 }
 
+// rewordTargets returns the commits to reword: the active Set selection (in
+// display order, newest first, frozen excluded) when a non-empty Set exists,
+// otherwise just the commit under the cursor (single reword).
+func (m Model) rewordTargets() []string {
+	if m.sel.mode == SelSet && len(m.sel.set) > 0 {
+		var out []string
+		for i := 0; i < len(m.plan.Commits); i++ {
+			c := m.commitAtDisplayIndex(i)
+			if m.sel.isSet(c.Hash) && !m.plan.IsFrozen(len(m.plan.Commits)-1-i) {
+				out = append(out, c.Hash)
+			}
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	return []string{m.commitAtCursor().Hash}
+}
+
 // beginReword starts the reword flow for the commit under the cursor. It
 // initialises the rewordState if needed, fires an async Generate command for
 // the selected commit (unless the result is already cached), and best-effort
@@ -210,7 +231,10 @@ func (m Model) beginReword() (tea.Model, tea.Cmd, bool) {
 		m.setStatus("No commit selected", statusWarn)
 		return m, nil, true
 	}
-	if m.plan.IsFrozen(m.storageIndexAtCursor()) {
+	// With no active Set the cursor IS the target, so a frozen cursor is refused.
+	// With a Set, rewordTargets already excludes frozen hashes, so the cursor's
+	// own frozen state is irrelevant.
+	if (m.sel.mode != SelSet || len(m.sel.set) == 0) && m.plan.IsFrozen(m.storageIndexAtCursor()) {
 		m.setStatus("Cannot reword a frozen commit — press b to move the base", statusWarn)
 		return m, nil, true
 	}
@@ -223,15 +247,18 @@ func (m Model) beginReword() (tea.Model, tea.Cmd, bool) {
 		m.rewordSt.inFlight = make(map[string]bool)
 	}
 
-	c := m.commitAtCursor()
+	targets := m.rewordTargets()
+	m.rewordSt.targets = targets
+	m.rewordSt.targetIdx = 0
+	c := m.commitByHash(targets[0])
 	m.rewordSt.commit = c
 	m.rewordSt.sel = reword.DefaultSelection()
 	m.mode = modeReword
 
 	var cmds []tea.Cmd
 
-	// Fire a generate command for the current commit if it is not already
-	// buffered or in-flight.
+	// Fire a generate command for the first target if it is not already buffered
+	// or in-flight.
 	if _, cached := m.rewordSt.buffer[c.Hash]; !cached && !m.rewordSt.inFlight[c.Hash] {
 		eng, err := buildRewordEngine(&m)
 		if err != nil {
@@ -249,27 +276,62 @@ func (m Model) beginReword() (tea.Model, tea.Cmd, bool) {
 		readme := reword.ReadmeForContext(m.repo, opts.Context)
 		cmds = append(cmds, generateRewordCmd(eng, c, parentTree, readme, opts))
 		m.rewordSt.inFlight[c.Hash] = true
-		m.setStatus(fmt.Sprintf("Generating reword variants for %s…", short(c.Hash)), statusNone)
+		if len(targets) > 1 {
+			m.setStatus(fmt.Sprintf("Rewording %d commits — generating %s…", len(targets), short(c.Hash)), statusNone)
+		} else {
+			m.setStatus(fmt.Sprintf("Generating reword variants for %s…", short(c.Hash)), statusNone)
+		}
 
-		// Best-effort prefetch the next commit in display order.
-		nextDisplayIdx := m.listCursor + 1
-		if nextDisplayIdx < len(m.plan.Commits) {
-			nextStorage := len(m.plan.Commits) - 1 - nextDisplayIdx
-			if !m.plan.IsFrozen(nextStorage) {
-				nextC := m.commitAtDisplayIndex(nextDisplayIdx)
-				if _, nCached := m.rewordSt.buffer[nextC.Hash]; !nCached && !m.rewordSt.inFlight[nextC.Hash] {
-					nextParent, perr := resolveParentTree(&m, nextC)
-					if perr == nil {
-						cmds = append(cmds, generateRewordCmd(eng, nextC, nextParent, readme, opts))
-						m.rewordSt.inFlight[nextC.Hash] = true
-					}
-					// prefetch failure is silent — the result just won't be cached
+		// Best-effort prefetch of the next target so its picker is ready.
+		if len(targets) > 1 {
+			nextC := m.commitByHash(targets[1])
+			if _, nCached := m.rewordSt.buffer[nextC.Hash]; !nCached && !m.rewordSt.inFlight[nextC.Hash] {
+				if nextParent, perr := resolveParentTree(&m, nextC); perr == nil {
+					cmds = append(cmds, generateRewordCmd(eng, nextC, nextParent, readme, opts))
+					m.rewordSt.inFlight[nextC.Hash] = true
 				}
 			}
 		}
 	}
 
 	return m, tea.Batch(cmds...), true
+}
+
+// advanceReword moves the picker to the next commit in a multi-reword queue. It
+// returns (model, cmd, true) when another target exists — firing its generate (if
+// not buffered) and resetting the picker selection — or (m, nil, false) when the
+// queue is exhausted.
+func (m Model) advanceReword() (tea.Model, tea.Cmd, bool) {
+	if m.rewordSt.targetIdx+1 >= len(m.rewordSt.targets) {
+		return m, nil, false
+	}
+	m.rewordSt.targetIdx++
+	hash := m.rewordSt.targets[m.rewordSt.targetIdx]
+	c := m.commitByHash(hash)
+	m.rewordSt.commit = c
+	m.rewordSt.sel = reword.DefaultSelection()
+
+	done := m.rewordSt.targetIdx
+	total := len(m.rewordSt.targets)
+	if _, cached := m.rewordSt.buffer[hash]; !cached && !m.rewordSt.inFlight[hash] {
+		eng, err := buildRewordEngine(&m)
+		if err != nil {
+			m.setStatus("build reword engine: "+err.Error(), statusErr)
+			return m, nil, true
+		}
+		parentTree, err := resolveParentTree(&m, c)
+		if err != nil {
+			m.setStatus("resolve parent tree: "+err.Error(), statusErr)
+			return m, nil, true
+		}
+		opts := buildRewordOptions(m)
+		readme := reword.ReadmeForContext(m.repo, opts.Context)
+		m.rewordSt.inFlight[hash] = true
+		m.setStatus(fmt.Sprintf("Reworded %d/%d — generating %s…", done, total, short(hash)), statusNone)
+		return m, generateRewordCmd(eng, c, parentTree, readme, opts), true
+	}
+	m.setStatus(fmt.Sprintf("Reworded %d/%d — review %s", done, total, short(hash)), statusOK)
+	return m, nil, true
 }
 
 // resolveParentTree returns the tree hash of the commit's parent, or the
@@ -331,10 +393,18 @@ func (m Model) updateReword(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.setStatus("No variants available", statusWarn)
 				return m, nil
 			}
-			edit := result.ToEdit(m.rewordSt.sel)
-			m.plan.SetEdit(hash, edit)
+			m.plan.SetEdit(hash, result.ToEdit(m.rewordSt.sel))
+			if next, cmd, more := m.advanceReword(); more {
+				return next, cmd // walk to the next commit in the set
+			}
 			m.mode = modeMain
-			m.setStatus(fmt.Sprintf("Reword applied to %s", short(hash)), statusOK)
+			m.sel.reset()
+			m.applyDefaultSelectionMode()
+			if total := len(m.rewordSt.targets); total > 1 {
+				m.setStatus(fmt.Sprintf("Reworded %d commits", total), statusOK)
+			} else {
+				m.setStatus(fmt.Sprintf("Reword applied to %s", short(hash)), statusOK)
+			}
 		} else {
 			// Still generating: stay in the picker and show a hint.
 			m.setStatus("Still generating — please wait…", statusWarn)
