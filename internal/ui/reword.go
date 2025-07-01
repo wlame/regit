@@ -311,26 +311,33 @@ func (m Model) advanceReword() (tea.Model, tea.Cmd, bool) {
 	m.rewordSt.commit = c
 	m.rewordSt.sel = reword.DefaultSelection()
 
-	done := m.rewordSt.targetIdx
+	appliedCount := m.rewordSt.targetIdx
 	total := len(m.rewordSt.targets)
 	if _, cached := m.rewordSt.buffer[hash]; !cached && !m.rewordSt.inFlight[hash] {
 		eng, err := buildRewordEngine(&m)
 		if err != nil {
+			// Set modeMain so the caller's more==true path exits the picker to
+			// the main view showing this error, instead of trapping the user in
+			// a picker whose variants will never load.
+			m.mode = modeMain
 			m.setStatus("build reword engine: "+err.Error(), statusErr)
 			return m, nil, true
 		}
 		parentTree, err := resolveParentTree(&m, c)
 		if err != nil {
+			// Same rationale: return more==true with modeMain so the caller
+			// surfaces this error in the main view rather than a dead picker.
+			m.mode = modeMain
 			m.setStatus("resolve parent tree: "+err.Error(), statusErr)
 			return m, nil, true
 		}
 		opts := buildRewordOptions(m)
 		readme := reword.ReadmeForContext(m.repo, opts.Context)
 		m.rewordSt.inFlight[hash] = true
-		m.setStatus(fmt.Sprintf("Reworded %d/%d — generating %s…", done, total, short(hash)), statusNone)
+		m.setStatus(fmt.Sprintf("Reworded %d/%d — generating %s…", appliedCount, total, short(hash)), statusNone)
 		return m, generateRewordCmd(eng, c, parentTree, readme, opts), true
 	}
-	m.setStatus(fmt.Sprintf("Reworded %d/%d — review %s", done, total, short(hash)), statusOK)
+	m.setStatus(fmt.Sprintf("Reworded %d/%d — review %s", appliedCount, total, short(hash)), statusOK)
 	return m, nil, true
 }
 
