@@ -24,9 +24,7 @@ func (m Model) viewMain() string {
 		body = lipgloss.JoinHorizontal(lipgloss.Top, list, right)
 	}
 	status := m.viewStatusBar()
-	keybar := m.st.keybar.Render(
-		"[s]trategy [S]plit [w]reword [e]dit [b]ase [B]ranch [D]rop-bodies [R]etitle [p]review [u]ndo [A]pply [r]eset [tab]focus [?]help [q]uit",
-	)
+	keybar := m.st.keybar.Render(keybarHint())
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, tabs, body, status, keybar)
 }

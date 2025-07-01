@@ -1,57 +1,129 @@
 package ui
 
-// helpLines is the content of the help overlay (the '?' screen). Kept here so the
-// keybinding documentation lives next to the code that handles the keys.
-var helpLines = []string{
-	"regit — rewrite commit dates safely",
-	"",
-	"GLOBAL",
-	"  ?            toggle this help",
-	"  q / ctrl+c  quit",
-	"  tab          cycle focus: commit list → calendar → strategy",
-	"  All ACTIONS keys below work from any pane; only navigation keys",
-	"  (arrows, h/j/k/l, digits, space, enter) depend on the focused pane.",
-	"",
-	"COMMIT LIST (focused)",
-	"  ↑/↓ or k/j   move selection",
-	"  ctrl+d/u     half page down / up      pgdn/pgup full page",
-	"  g / G        newest / oldest commit   home/end  same",
-	"  } / {        next / previous day group",
-	"  e / enter    edit selected commit (title, body, date)",
-	"  b            set the base here: edit this commit and newer, freeze older",
-	"               (press b on the base commit again to unfreeze everything)",
-	"",
-	"BRANCH & BASE",
-	"  B            open the branch picker (searchable)",
-	"               · enter: switch to the branch (clean tree + no edits)",
-	"               · tab: set it as the base (freeze its shared history)",
-	"  b            set/clear the base at the cursor commit (manual override)",
-	"",
-	"CALENDAR (focused)",
-	"  ↑/↓          move cursor by one day",
-	"  ←/→          move cursor by one week",
-	"  [ / ]        previous / next year",
-	"  0-9          pin a per-day quota, applied immediately (Manual Pin);",
-	"               digits typed on the same day combine: 2 then 4 pins 24",
-	"  space        pick/unpick the day for a random split (Picked Days);",
-	"               commit counts reshuffle live as days are toggled",
-	"  g            re-apply all pinned quotas",
-	"",
-	"STRATEGY PANE (focused)",
-	"  ↑/↓          move between fields",
-	"  ←/→          change the time-of-day model",
-	"  enter        apply the strategy with the current parameters",
-	"  tab / esc    back to the commit list",
-	"",
-	"ACTIONS",
-	"  s            open the strategy palette",
-	"  S            split the selected commit with the LLM (review → enter to apply, esc to cancel)",
-	"  w            reword the selected commit with the LLM (pick title/body variant, enter to apply, esc to cancel)",
-	"  D            drop the bodies of ALL editable commits (titles kept)",
-	"  R            regex-replace across ALL editable commit titles",
-	"  .            show full detail for the selected commit (overlay when narrow)",
-	"  p            preview the before/after dates",
-	"  A            apply the rewrite (creates a backup first)",
-	"  u            undo the last apply",
-	"  r            reset all pending edits",
+import (
+	"fmt"
+	"strings"
+)
+
+// keys.go is the single source of truth for the keymap. The help overlay (the
+// '?' screen) and the compact keybar hint are GENERATED from the keymap table, so
+// the documentation can never drift from the keys the code actually handles
+// (spec §6.8) — there is one table, not a hand-maintained help slice plus a
+// separately hard-coded keybar string.
+
+// keyScope groups a binding by the context it applies in, so the generated help
+// can section bindings and the keybar can show a curated subset.
+type keyScope int
+
+const (
+	scopeGlobal keyScope = iota
+	scopeWorkspace
+	scopeAction
+	scopeList
+	scopeBranch
+	scopeCalendar
+	scopeStrategy
+)
+
+// keyBinding is one row of the keymap data table. Bar is the short token shown in
+// the always-visible keybar (e.g. "[s]trategy"); an empty Bar omits the row from
+// the keybar but still documents it in the help overlay.
+type keyBinding struct {
+	Key   string
+	Scope keyScope
+	Desc  string
+	Bar   string
+}
+
+// keymap is the full keymap. Keybar order follows this slice's order.
+var keymap = []keyBinding{
+	// Global
+	{Key: "?", Scope: scopeGlobal, Desc: "toggle this help", Bar: "[?]help"},
+	{Key: "q / ctrl+c", Scope: scopeGlobal, Desc: "quit", Bar: "[q]uit"},
+	{Key: "tab", Scope: scopeGlobal, Desc: "cycle focus across the list and the active workspace widget", Bar: "[tab]focus"},
+
+	// Workspaces / tabs
+	{Key: "< / >", Scope: scopeWorkspace, Desc: "switch workspace tabs (Dates · Restructure · …)", Bar: "[<>]tabs"},
+	{Key: "tab", Scope: scopeWorkspace, Desc: "focus the active workspace's widget (calendar or feature menu)"},
+	{Key: "↑/↓ · enter", Scope: scopeWorkspace, Desc: "in a feature menu: move the cursor / run the selected feature"},
+
+	// Actions (work from any pane)
+	{Key: "s", Scope: scopeAction, Desc: "open the strategy palette (Dates)", Bar: "[s]trategy"},
+	{Key: "S", Scope: scopeAction, Desc: "split the selected commit with the LLM (review → enter applies, esc cancels)", Bar: "[S]plit"},
+	{Key: "w", Scope: scopeAction, Desc: "reword the selected commit with the LLM (pick a variant, enter applies)", Bar: "[w]reword"},
+	{Key: "e / enter", Scope: scopeAction, Desc: "edit the selected commit (title, body, date)", Bar: "[e]dit"},
+	{Key: "D", Scope: scopeAction, Desc: "drop the bodies of ALL editable commits (titles kept)", Bar: "[D]rop-bodies"},
+	{Key: "R", Scope: scopeAction, Desc: "regex-replace across ALL editable commit titles", Bar: "[R]etitle"},
+	{Key: ".", Scope: scopeAction, Desc: "show full detail for the selected commit (overlay when narrow)", Bar: "[.]detail"},
+	{Key: "p", Scope: scopeAction, Desc: "preview the before/after dates", Bar: "[p]review"},
+	{Key: "A", Scope: scopeAction, Desc: "apply the rewrite (creates a backup first)", Bar: "[A]pply"},
+	{Key: "u", Scope: scopeAction, Desc: "undo the last apply", Bar: "[u]ndo"},
+	{Key: "r", Scope: scopeAction, Desc: "reset all pending edits", Bar: "[r]eset"},
+
+	// Commit list (focused)
+	{Key: "↑/↓ or k/j", Scope: scopeList, Desc: "move the selection"},
+	{Key: "ctrl+d/u", Scope: scopeList, Desc: "half page down / up (pgdn/pgup move a full page)"},
+	{Key: "g / G", Scope: scopeList, Desc: "newest / oldest commit (home/end do the same)"},
+	{Key: "} / {", Scope: scopeList, Desc: "next / previous day group"},
+
+	// Branch & base
+	{Key: "B", Scope: scopeBranch, Desc: "open the branch picker — enter switches branch, tab sets it as the base", Bar: "[B]ranch"},
+	{Key: "b", Scope: scopeBranch, Desc: "set/clear the base at the cursor commit (freeze older history)", Bar: "[b]ase"},
+
+	// Calendar (focused)
+	{Key: "↑/↓", Scope: scopeCalendar, Desc: "move the cursor by one day"},
+	{Key: "←/→", Scope: scopeCalendar, Desc: "move the cursor by one week"},
+	{Key: "[ / ]", Scope: scopeCalendar, Desc: "previous / next year"},
+	{Key: "0-9", Scope: scopeCalendar, Desc: "pin a per-day quota, applied live (digits on one day combine: 2 then 4 = 24)"},
+	{Key: "space", Scope: scopeCalendar, Desc: "pick/unpick the day for a random split (reshuffles live)"},
+	{Key: "g", Scope: scopeCalendar, Desc: "re-apply all pinned quotas"},
+
+	// Strategy pane (focused)
+	{Key: "↑/↓", Scope: scopeStrategy, Desc: "move between fields"},
+	{Key: "←/→", Scope: scopeStrategy, Desc: "change the time-of-day model"},
+	{Key: "enter", Scope: scopeStrategy, Desc: "apply the strategy with the current parameters"},
+	{Key: "tab / esc", Scope: scopeStrategy, Desc: "back to the commit list"},
+}
+
+// scopeOrder and scopeTitles drive the help overlay's sectioning.
+var scopeOrder = []keyScope{
+	scopeGlobal, scopeWorkspace, scopeAction, scopeList, scopeBranch, scopeCalendar, scopeStrategy,
+}
+
+var scopeTitles = map[keyScope]string{
+	scopeGlobal:    "GLOBAL",
+	scopeWorkspace: "WORKSPACES",
+	scopeAction:    "ACTIONS (any pane)",
+	scopeList:      "COMMIT LIST (focused)",
+	scopeBranch:    "BRANCH & BASE",
+	scopeCalendar:  "CALENDAR (focused)",
+	scopeStrategy:  "STRATEGY PANE (focused)",
+}
+
+// helpText renders the '?' overlay body from the keymap, grouped by scope. The
+// caller wraps it in the modal style.
+func helpText() string {
+	var b strings.Builder
+	b.WriteString("regit — rewrite commit history safely\n")
+	for _, sc := range scopeOrder {
+		b.WriteString("\n" + scopeTitles[sc] + "\n")
+		for _, k := range keymap {
+			if k.Scope == sc {
+				b.WriteString(fmt.Sprintf("  %-14s %s\n", k.Key, k.Desc))
+			}
+		}
+	}
+	return b.String()
+}
+
+// keybarHint renders the always-visible one-line keybar from the keymap rows that
+// declare a Bar token, in table order.
+func keybarHint() string {
+	var toks []string
+	for _, k := range keymap {
+		if k.Bar != "" {
+			toks = append(toks, k.Bar)
+		}
+	}
+	return strings.Join(toks, " ")
 }

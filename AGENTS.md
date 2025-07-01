@@ -47,6 +47,17 @@ internal/
   ui/               Bubble Tea TUI (depends on all of the above)
 ```
 
+The TUI is a bounded tab chassis (internal/ui). Five fixed category tabs —
+Dates · Restructure · History · Authorship · Search — sit over a persistent
+commit backbone (list + detail). Tabs and per-tab feature menus are DATA: the
+`workspaces` table and the `features` registry in feature.go are the single
+source of truth, and the tab bar, menus, and key help are derived from them
+(add a feature = add a registry row; the action surface grows down, never wide).
+`< / >` switch tabs; `tab` focuses the active workspace's widget. Dates is the
+rich calendar/strategy workspace; Restructure is a menu that re-invokes the
+existing split/reword/retitle/drop-bodies actions; History/Authorship/Search are
+disabled stub tabs awaiting later phases.
+
 ### What each package does
 
 **`internal/model`** — shared vocabulary. Every other package imports it; it
@@ -222,6 +233,11 @@ internal/ui/
   app.go                Main Bubble Tea model and update loop
   split.go              Split review screen + backend wiring for TUI
   reword.go             Reword variant picker + async Generate cmd for TUI
+  feature.go            Data-driven registry: WorkspaceID, SelectionMode, the workspaces table + features registry
+  workspace.go          Tab bar render + tab navigation (< / > switch); zone-3 dispatch (viewRightColumn)
+  ws_dates.go           Dates workspace widget (calendar + strategy form)
+  ws_restructure.go     Restructure feature menu + the disabled stub-tab panel
+  keys.go               Data-driven keymap table; generates the help overlay and keybar
   (other .go files)     Calendar, editor, strategy palette, preview, styles
 justfile                All dev recipes — prefer these over raw go commands
 AGENTS.md               This file

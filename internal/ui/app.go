@@ -1349,7 +1349,7 @@ func (m Model) View() string {
 	case modeConfirm:
 		overlay = m.viewConfirm()
 	case modeHelp:
-		overlay = m.st.modal.Render(strings.Join(helpLines, "\n"))
+		overlay = m.st.modal.Render(helpText())
 	case modeRetitle:
 		overlay = m.retitle.view(m.plan, m.st)
 	case modeSplit:

@@ -936,7 +936,7 @@ func TestHelpToggle(t *testing.T) {
 	if m.mode != modeHelp {
 		t.Fatal("? should open help")
 	}
-	if !strings.Contains(m.View(), "rewrite commit dates") {
+	if !strings.Contains(m.View(), "rewrite commit history") {
 		t.Error("help view should render help content")
 	}
 	m = send(m, "?")
