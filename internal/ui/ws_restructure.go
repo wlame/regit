@@ -16,7 +16,10 @@ import (
 // highlighted row is shown only while the menu is focused, so the user can see
 // what tab they are on without the menu stealing visual focus from the list.
 func (m Model) viewRestructureMenu() string {
-	feats := featuresFor(WSRestructure)
+	// Key the feature list off m.workspace (the same field updateWorkspaceMenu
+	// reads) so the renderer and the menu handler can never disagree about which
+	// features are shown — this method is only reached for WSRestructure today.
+	feats := featuresFor(m.workspace)
 	var b strings.Builder
 	b.WriteString(m.st.modalTitle.Render("RESTRUCTURE") + "\n\n")
 	for i, f := range feats {
