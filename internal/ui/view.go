@@ -7,18 +7,14 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// viewMain composes the main screen: title bar, then the commit list beside
-// the right column (calendar over strategy form), then status bar and keybar.
+// viewMain composes the main screen: title bar, the category tab bar, the commit
+// backbone (list + detail) beside the active workspace's widget, then the status
+// bar and keybar.
 func (m Model) viewMain() string {
 	title := m.viewTitle()
+	tabs := m.viewTabBar()
 	list := m.viewCommitList()
-	right := lipgloss.JoinVertical(lipgloss.Left, m.viewCalendarPane(), m.viewStrategyPane())
-
-	// Never let the right column drive the frame past the terminal height:
-	// bubbletea tail-clips oversized frames, hiding the title bar.
-	if avail := m.height - 3; m.height > 0 && lipgloss.Height(right) > avail {
-		right = lipgloss.NewStyle().MaxHeight(max(8, avail)).Render(right)
-	}
+	right := m.viewRightColumn()
 
 	var body string
 	if dims := computeLayout(m.width, m.height); dims.detailWidth > 0 {
@@ -32,7 +28,7 @@ func (m Model) viewMain() string {
 		"[s]trategy [S]plit [w]reword [e]dit [b]ase [B]ranch [D]rop-bodies [R]etitle [p]review [u]ndo [A]pply [r]eset [tab]focus [?]help [q]uit",
 	)
 
-	return lipgloss.JoinVertical(lipgloss.Left, title, body, status, keybar)
+	return lipgloss.JoinVertical(lipgloss.Left, title, tabs, body, status, keybar)
 }
 
 func (m Model) viewTitle() string {
@@ -80,63 +76,6 @@ func (m Model) viewDetailPane(width int) string {
 // calendar and strategy panes: grid gutter + 27 two-char week columns + the
 // pane's own padding.
 const rightPaneWidth = calGutter + halfCols*cellWidth + 2
-
-// viewCalendarPane renders the half-year heatmap, legend, and selected-day
-// info at its natural (compact) height.
-func (m Model) viewCalendarPane() string {
-	counts := m.dayCounts()
-	cursor := m.calCursor.In(m.loc)
-	heat := renderCalendar(cursor, counts, m.quotas, m.picked, m.loc, m.st)
-	legend := renderLegend(m.st)
-
-	key := cursor.Format(dateLayout)
-	dayCount := counts[key]
-	quota, hasQuota := m.quotas[key]
-	info := fmt.Sprintf("Selected: %s (%s) · %d commit(s)",
-		key, cursor.Weekday().String()[:3], dayCount)
-	if hasQuota {
-		info += fmt.Sprintf(" · quota %d", quota)
-	}
-	if m.picked[key] {
-		info += " · picked"
-	}
-
-	seq := m.st.statusOK.Render("✓ sequential")
-	if !m.plan.IsValid() {
-		seq = m.st.statusErr.Render(fmt.Sprintf("✗ %d out-of-order", len(m.plan.Violations)))
-	}
-
-	_, _, half := halfRange(cursor, m.loc)
-	content := strings.Join([]string{
-		m.st.modalTitle.Render(fmt.Sprintf("%d · %s  [ ◀ ] [ ▶ ]", m.calYear, half)),
-		heat,
-		"",
-		legend,
-		info,
-		seq,
-	}, "\n")
-
-	pane := m.st.pane
-	if m.focus == focusCalendar {
-		pane = m.st.paneActive
-	}
-	return pane.Width(rightPaneWidth).Render(content)
-}
-
-// viewStrategyPane shows the currently selected strategy with its editable
-// parameters. Tab focuses it; enter re-applies with the current values.
-func (m Model) viewStrategyPane() string {
-	content := m.st.modalTitle.Render("STRATEGY") + "\n" + m.form.view(m.st)
-
-	pane := m.st.pane
-	if m.focus == focusParams {
-		pane = m.st.paneActive
-	}
-	// MaxWidth guards against long labels/errors wrapping inside the pane,
-	// which would inflate its height.
-	return pane.Width(rightPaneWidth).Render(
-		lipgloss.NewStyle().MaxWidth(rightPaneWidth - 2).Render(content))
-}
 
 func (m Model) viewStatusBar() string {
 	if m.statusMsg == "" {

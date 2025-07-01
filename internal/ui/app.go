@@ -69,6 +69,12 @@ type Model struct {
 	// title bar shows it and the picker can change it.
 	baseBranch string
 
+	// workspace is the active category tab; wsMenuCursor is the cursor within a
+	// menu workspace (Restructure). The tab bar and zone-3 widget are derived
+	// from these plus the workspaces/features tables (feature.go).
+	workspace    WorkspaceID
+	wsMenuCursor int
+
 	width, height int
 	mode          mode
 	focus         focusArea
@@ -262,7 +268,7 @@ func (m Model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.quotaTyping = false
 		switch m.focus {
 		case focusList:
-			m.focus = focusCalendar
+			m.focus = m.focusAfterList()
 		case focusCalendar:
 			m.focus = focusParams
 		}
@@ -344,6 +350,12 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		}
 		m.picker = newPicker("Branches", branches)
 		m.mode = modePicker
+		return m, nil, true
+	case ">":
+		m.nextWorkspace()
+		return m, nil, true
+	case "<":
+		m.prevWorkspace()
 		return m, nil, true
 	}
 	return m, nil, false
@@ -590,6 +602,17 @@ func (m Model) applyRetitle() (tea.Model, tea.Cmd) {
 // to the root-first storage index used by the plan.
 func (m Model) storageIndexAtCursor() int {
 	return len(m.plan.Commits) - 1 - m.listCursor
+}
+
+// focusAfterList returns the zone the focus moves to when tab is pressed on the
+// commit list. It depends on the active workspace: the Dates calendar, or (for a
+// workspace with no focusable zone-3 widget yet) the list itself, a no-op. Task 3
+// extends this for the Restructure menu.
+func (m Model) focusAfterList() focusArea {
+	if m.workspace == WSDates {
+		return focusCalendar
+	}
+	return focusList
 }
 
 // applyAutoBase detects the base branch (spec §6.4 precedence) and freezes the

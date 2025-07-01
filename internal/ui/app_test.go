@@ -1298,3 +1298,55 @@ func TestAutoBase_mergeBaseOffFirstParentLineClaimsNoBase(t *testing.T) {
 		t.Errorf("plan.Base should be 0 (no freeze) when the merge-base is off the first-parent line, got %d", m.plan.Base)
 	}
 }
+
+func TestTabs_switchWithAngleBrackets(t *testing.T) {
+	m := newTestModel(t) // defaults to the Dates workspace
+	if m.workspace != WSDates {
+		t.Fatalf("should start on Dates, got %v", m.workspace)
+	}
+	m = send(m, ">")
+	if m.workspace != WSRestructure {
+		t.Errorf("> should advance to Restructure, got %v", m.workspace)
+	}
+	m = send(m, "<")
+	if m.workspace != WSDates {
+		t.Errorf("< should return to Dates, got %v", m.workspace)
+	}
+	m = send(m, "<") // wrap from the first tab to the last
+	if m.workspace != WSSearch {
+		t.Errorf("< from Dates should wrap to Search, got %v", m.workspace)
+	}
+}
+
+func TestView_tabBarShowsAllWorkspaces(t *testing.T) {
+	m := newTestModel(t)
+	view := m.View()
+	for _, title := range []string{"Dates", "Restructure", "History", "Authorship", "Search"} {
+		if !strings.Contains(view, title) {
+			t.Errorf("tab bar should list %q", title)
+		}
+	}
+}
+
+func TestView_stubWorkspaceShowsComingSoon(t *testing.T) {
+	m := newTestModel(t)
+	m = send(m, ">", ">") // Dates -> Restructure -> History (a v1 stub)
+	if m.workspace != WSHistory {
+		t.Fatalf("expected History, got %v", m.workspace)
+	}
+	if !strings.Contains(m.View(), "Coming soon") {
+		t.Error("a stub workspace should render a 'Coming soon' panel")
+	}
+}
+
+func TestTabs_switchingResetsFocusToList(t *testing.T) {
+	m := newTestModel(t)
+	m = send(m, "tab") // Dates: list -> calendar
+	if m.focus != focusCalendar {
+		t.Fatalf("tab on Dates should focus the calendar, got %v", m.focus)
+	}
+	m = send(m, ">") // switch workspace
+	if m.focus != focusList {
+		t.Errorf("switching workspace should reset focus to the list, got %v", m.focus)
+	}
+}

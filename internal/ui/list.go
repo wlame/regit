@@ -94,14 +94,14 @@ func (m *Model) syncListViewport() {
 	m.listOffset = scrollOffset(m.listOffset, rowOfCommit(rows, m.listCursor), len(rows), visible)
 }
 
-// listHeight returns the list pane's line budget. One line is the COMMITS
-// header; the rest hold one row (commit or divider) each. The pane shrinks to
-// fit when the whole row sequence is shorter than the available space.
+// listHeight is the commit list's inner height in rows. It reserves a fixed
+// chrome budget for the title bar, tab bar, status line, keybar, and the pane
+// borders, and never exceeds what the loaded commits actually need.
 func (m Model) listHeight() int {
 	if m.height < 16 {
 		return 8
 	}
-	rows := m.height - 8
+	rows := m.height - 9 // title + tabs + status + keybar + spacing/borders
 	if fit := len(m.buildListRows()) + 1; rows > fit {
 		rows = max(8, fit)
 	}
