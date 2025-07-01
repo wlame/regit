@@ -48,6 +48,8 @@ func (m *Model) cycleWorkspace(delta int) {
 	m.workspace = workspaces[idx].ID
 	m.focus = focusList
 	m.wsMenuCursor = 0
+	m.sel.reset()
+	m.applyDefaultSelectionMode()
 }
 
 // viewRightColumn renders zone 3 — the active workspace's widget. Dates shows the

@@ -1466,3 +1466,64 @@ func TestListVisuals_defaultModeUnchanged(t *testing.T) {
 		}
 	}
 }
+
+func TestSelectionKeys_spaceTogglesSet(t *testing.T) {
+	m := newTestModel(t) // Dates, focusList, 3 commits, none frozen
+	cursorHash := m.commitAtCursor().Hash
+	m = send(m, " ")
+	if m.sel.mode != SelSet || !m.sel.isSet(cursorHash) {
+		t.Fatalf("space should select the cursor commit into a Set, got mode=%v", m.sel.mode)
+	}
+	m = send(m, " ")
+	if m.sel.isSet(cursorHash) {
+		t.Error("a second space should deselect the cursor commit")
+	}
+}
+
+func TestSelectionKeys_selectAllAndClear(t *testing.T) {
+	m := newTestModel(t)
+	m = send(m, "a")
+	if m.sel.mode != SelSet || len(m.sel.set) != len(m.plan.Active()) {
+		t.Fatalf("a should select all %d active commits, got %d", len(m.plan.Active()), len(m.sel.set))
+	}
+	m = send(m, "n")
+	if len(m.sel.set) != 0 {
+		t.Errorf("n should clear the set, got %d", len(m.sel.set))
+	}
+}
+
+func TestSelectionKeys_visualRangeExtendsWithMovement(t *testing.T) {
+	m := newTestModelN(t, 5)
+	m = send(m, "v")
+	if m.sel.mode != SelRange || !m.sel.visual {
+		t.Fatalf("v should enter visual Range mode, got mode=%v visual=%v", m.sel.mode, m.sel.visual)
+	}
+	m = send(m, "down", "down") // cursor 0 -> 2, range extends to [0,2]
+	if lo, hi := m.sel.rangeBounds(m.listCursor); lo != 0 || hi != 2 {
+		t.Errorf("range after two downs = [%d,%d], want [0,2]", lo, hi)
+	}
+	m = send(m, "v") // confirm
+	if m.sel.visual {
+		t.Error("a second v should fix the range")
+	}
+}
+
+func TestSelectionKeys_escResetsSelection(t *testing.T) {
+	m := newTestModel(t)
+	m = send(m, "a") // Set mode with all selected
+	m = send(m, "esc")
+	if m.sel.mode != SelActive { // Dates default is Active
+		t.Errorf("esc should reset to the workspace default (Active on Dates), got %v", m.sel.mode)
+	}
+}
+
+func TestSelection_defaultModeFollowsWorkspace(t *testing.T) {
+	m := newTestModel(t)
+	if m.sel.mode != SelActive {
+		t.Errorf("the Dates workspace should default to Active selection, got %v", m.sel.mode)
+	}
+	m = send(m, ">") // Dates -> Restructure
+	if m.sel.mode != SelSingle {
+		t.Errorf("Restructure should default to Single selection, got %v", m.sel.mode)
+	}
+}

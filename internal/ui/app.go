@@ -150,6 +150,8 @@ func New(repo *gitio.Repo, mgr *safety.Manager, cfg config.Config, state model.R
 	// Auto-detect the base branch and freeze the shared-history cone, then start
 	// the cursor on the newest editable commit and seed the calendar there.
 	m.applyAutoBase()
+	m.sel = newSelection()
+	m.applyDefaultSelectionMode()
 	m.listCursor = m.firstEditableDisplayIndex()
 
 	seed := time.Now().In(loc)
@@ -261,6 +263,11 @@ func (m Model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.focus == focusWorkspace {
 		return m.updateWorkspaceMenu(msg)
 	}
+	if m.focus == focusList {
+		if model, cmd, ok := m.listSelectionKey(msg); ok {
+			return model, cmd
+		}
+	}
 	if m.focus == focusParams {
 		return m.updateParamsPane(msg)
 	}
@@ -365,6 +372,63 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	case "<":
 		m.prevWorkspace()
 		return m, nil, true
+	}
+	return m, nil, false
+}
+
+// listSelectionKey handles the commit-list selection keys (Set toggling and
+// visual-mode range) when the list is focused. It returns ok=false for keys it
+// does not own (movement, enter-to-edit, globals) so they fall through. Movement
+// needs no special case: in visual mode the range is derived from the live cursor.
+func (m Model) listSelectionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
+	if len(m.plan.Commits) == 0 {
+		return m, nil, false
+	}
+	switch msg.String() {
+	case "v":
+		if m.sel.mode == SelRange && m.sel.visual {
+			m.sel.confirmVisual()
+			m.setStatus("Range fixed", statusOK)
+		} else {
+			m.sel.beginVisual(m.listCursor)
+			m.setStatus("Visual range — move to extend, v/enter to fix, esc to cancel", statusNone)
+		}
+		return m, nil, true
+	case " ":
+		if m.plan.IsFrozen(m.storageIndexAtCursor()) {
+			m.setStatus("Frozen commit — not selectable", statusWarn)
+			return m, nil, true
+		}
+		m.sel.toggle(m.commitAtCursor().Hash, false)
+		m.setStatus(fmt.Sprintf("%d commit(s) selected", len(m.sel.set)), statusOK)
+		return m, nil, true
+	case "a":
+		var hashes []string
+		for _, c := range m.plan.Active() {
+			hashes = append(hashes, c.Hash)
+		}
+		m.sel.selectAll(hashes)
+		m.setStatus(fmt.Sprintf("Selected all %d active commit(s)", len(hashes)), statusOK)
+		return m, nil, true
+	case "n":
+		m.sel.clear()
+		m.setStatus("Selection cleared", statusOK)
+		return m, nil, true
+	case "enter":
+		if m.sel.mode == SelRange && m.sel.visual {
+			m.sel.confirmVisual()
+			m.setStatus("Range fixed", statusOK)
+			return m, nil, true
+		}
+		return m, nil, false // not visual: fall through to open the editor
+	case "esc":
+		if m.sel.mode == SelSet || m.sel.mode == SelRange {
+			m.sel.reset()
+			m.applyDefaultSelectionMode()
+			m.setStatus("Selection reset", statusNone)
+			return m, nil, true
+		}
+		return m, nil, false
 	}
 	return m, nil, false
 }
@@ -626,6 +690,18 @@ func (m Model) focusAfterList() focusArea {
 		}
 	}
 	return focusList
+}
+
+// applyDefaultSelectionMode sets the list's selection mode from the active
+// workspace: Dates operates on the whole active range (Active), other workspaces
+// default to a single-commit cursor (Single). Called on load, reload, and every
+// workspace switch so the mode always matches the visible context.
+func (m *Model) applyDefaultSelectionMode() {
+	if m.workspace == WSDates {
+		m.sel.mode = SelActive
+	} else {
+		m.sel.mode = SelSingle
+	}
 }
 
 // applyAutoBase detects the base branch (spec §6.4 precedence) and freezes the
@@ -996,6 +1072,8 @@ func (m *Model) reload() error {
 		m.listCursor = max(0, len(commits)-1)
 	}
 	m.applyAutoBase()
+	m.sel.reset()
+	m.applyDefaultSelectionMode()
 	return nil
 }
 
