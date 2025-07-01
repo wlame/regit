@@ -82,6 +82,10 @@ type Model struct {
 
 	listCursor int
 	listOffset int
+	// sel is the commit-list selection (mode + range/set state). Its zero value
+	// is Single mode, so the list renders like a plain cursor list until a
+	// selection key (Task 3) or workspace default changes the mode.
+	sel selectionState
 
 	calCursor time.Time
 	calYear   int

@@ -3,6 +3,8 @@ package ui
 import (
 	"fmt"
 	"strings"
+
+	"github.com/wlame/regit/internal/model"
 )
 
 // listRow is one rendered line of the commit list: either a selectable commit
@@ -152,9 +154,10 @@ func (m Model) viewCommitList() string {
 	return pane.Width(width).Height(height + 1).Render(b.String())
 }
 
-// renderCommitRow renders a single commit line: cursor, short hash, an edit
-// marker, and the (effective) subject. The per-row date was dropped in Phase 1 —
-// the day is conveyed by the divider above and the full dates by the detail panel.
+// renderCommitRow renders a single commit line. The leading two-column gutter
+// reflects the selection mode: a ○/● circle in Set mode, a ┃ band in Range mode,
+// or the ▸/▌/space caret in Single/Active mode. Frozen commits are never
+// selectable, so they always take the dimmed Single/Active path.
 func (m Model) renderCommitRow(displayIdx, inner int, calKey string) string {
 	c := m.commitAtDisplayIndex(displayIdx)
 	edit, edited := m.plan.EditFor(c.Hash)
@@ -167,32 +170,46 @@ func (m Model) renderCommitRow(displayIdx, inner int, calKey string) string {
 		marker = "✎"
 	}
 
-	// Fixed columns before the subject: cursor(2) + hash(8) + gap(1) + marker(1) + gap(1).
+	// Fixed columns before the subject: gutter(2) + hash(8) + gap(1) + marker(1) + gap(1).
 	const fixed = 13
 	subj := truncate(m.plan.EffectiveSubject(c), max(1, inner-fixed))
 
+	frozen := m.plan.IsFrozen(len(m.plan.Commits) - 1 - displayIdx)
+	isCursor := displayIdx == m.listCursor
+
+	// Global mode dims the whole list — it is context only; focus is elsewhere.
+	if m.sel.mode == SelGlobal {
+		return m.st.dim.Render(fmt.Sprintf("  %s %s %s", short(c.Hash), marker, subj))
+	}
+	// Set / Range gutters apply only to editable (non-frozen) rows; frozen rows
+	// fall through to the dimmed Single/Active path below.
+	if !frozen {
+		switch m.sel.mode {
+		case SelSet:
+			return m.renderSetRow(c, isCursor, marker, subj)
+		case SelRange:
+			return m.renderRangeRow(c, displayIdx, isCursor, marker, subj)
+		}
+	}
+
+	// ---- Single / Active (and any frozen row): unchanged from before Phase 4 ----
 	onDay := calKey != "" && m.plan.EffectiveAuthorDate(c).In(m.loc).Format(dateLayout) == calKey
 	prefix := "  "
 	switch {
-	case displayIdx == m.listCursor:
+	case isCursor:
 		prefix = "▸ "
 	case onDay:
 		prefix = "▌ "
 	}
-
 	plain := fmt.Sprintf("%s%s %s %s", prefix, short(c.Hash), marker, subj)
-
-	// Frozen commits (before the base) render dimmed and are never editable.
-	if m.plan.IsFrozen(len(m.plan.Commits) - 1 - displayIdx) {
+	if frozen {
 		return m.st.dim.Render(plain)
 	}
 	if onDay {
-		// One style across the whole row keeps the highlight background continuous.
 		return m.st.dayHighlight.Render(plain)
 	}
-
 	styledPrefix := prefix
-	if displayIdx == m.listCursor {
+	if isCursor {
 		styledPrefix = m.st.listCursor.Render("▸ ")
 	}
 	styledMarker := marker
@@ -200,4 +217,40 @@ func (m Model) renderCommitRow(displayIdx, inner int, calKey string) string {
 		styledMarker = m.st.marker.Render(marker)
 	}
 	return fmt.Sprintf("%s%s %s %s", styledPrefix, m.st.hash.Render(short(c.Hash)), styledMarker, subj)
+}
+
+// renderSetRow renders a row in Set mode: a ○ (unselected) / ● (selected) gutter,
+// then hash, marker, subject. The cursor row's circle takes the cursor color so
+// the pick position stays visible while toggling.
+func (m Model) renderSetRow(c model.Commit, isCursor bool, marker, subj string) string {
+	circle := "○"
+	circleStyle := m.st.dim
+	if m.sel.isSet(c.Hash) {
+		circle, circleStyle = "●", m.st.picked
+	}
+	if isCursor {
+		circleStyle = m.st.listCursor
+	}
+	styledMarker := marker
+	if marker != " " {
+		styledMarker = m.st.marker.Render(marker)
+	}
+	return fmt.Sprintf("%s %s %s %s", circleStyle.Render(circle), m.st.hash.Render(short(c.Hash)), styledMarker, subj)
+}
+
+// renderRangeRow renders a row in Range visual mode: in-range rows carry a ┃ band
+// at the left edge (the cursor row colored); out-of-range rows dim.
+func (m Model) renderRangeRow(c model.Commit, displayIdx int, isCursor bool, marker, subj string) string {
+	if !m.sel.inRange(displayIdx, m.listCursor) {
+		return m.st.dim.Render(fmt.Sprintf("  %s %s %s", short(c.Hash), marker, subj))
+	}
+	bar := m.st.marker.Render("┃")
+	if isCursor {
+		bar = m.st.listCursor.Render("┃")
+	}
+	styledMarker := marker
+	if marker != " " {
+		styledMarker = m.st.marker.Render(marker)
+	}
+	return fmt.Sprintf("%s %s %s %s", bar, m.st.hash.Render(short(c.Hash)), styledMarker, subj)
 }

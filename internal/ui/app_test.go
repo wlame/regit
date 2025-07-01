@@ -1414,3 +1414,55 @@ func TestView_restructureRendersMenu(t *testing.T) {
 		}
 	}
 }
+
+func TestListVisuals_setModeShowsCircleGutter(t *testing.T) {
+	m := newTestModel(t) // 3 commits, none frozen, on Dates
+	m.sel.mode = SelSet
+	m.sel.set = map[string]bool{m.commitAtDisplayIndex(0).Hash: true}
+
+	list := m.viewCommitList()
+	if got := strings.Count(list, "●"); got != 1 {
+		t.Errorf("exactly one ● (selected) expected in the list, got %d", got)
+	}
+	if !strings.Contains(list, "○") {
+		t.Error("unselected commits should show the ○ gutter")
+	}
+	if strings.Contains(list, "▸ ") {
+		t.Error("Set mode replaces the list's ▸ caret with the circle gutter")
+	}
+}
+
+func TestListVisuals_rangeModeShowsBand(t *testing.T) {
+	m := newTestModelN(t, 5) // 5 commits, none frozen
+	m.sel.mode = SelRange
+	m.sel.anchor = 0 // anchor at the newest
+	m.listCursor = 2 // cursor 2 below it -> range [0,2]
+
+	list := m.viewCommitList()
+	if got := strings.Count(list, "┃"); got != 3 {
+		t.Errorf("a 3-commit range should draw 3 ┃ band marks, got %d", got)
+	}
+}
+
+func TestListVisuals_globalModeDimsAndDropsCaret(t *testing.T) {
+	m := newTestModel(t)
+	m.sel.mode = SelGlobal
+	if strings.Contains(m.viewCommitList(), "▸ ") {
+		t.Error("Global mode dims the list and shows no cursor caret")
+	}
+}
+
+func TestListVisuals_defaultModeUnchanged(t *testing.T) {
+	// Regression: the default (Single/Active) render keeps the ▸ caret and shows
+	// none of the new selection glyphs.
+	m := newTestModel(t)
+	list := m.viewCommitList()
+	if !strings.Contains(list, "▸ ") {
+		t.Error("default mode should still show the ▸ cursor caret")
+	}
+	for _, g := range []string{"●", "○", "┃"} {
+		if strings.Contains(list, g) {
+			t.Errorf("default mode should not show selection glyph %q", g)
+		}
+	}
+}
