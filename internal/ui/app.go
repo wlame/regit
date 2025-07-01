@@ -29,7 +29,7 @@ const (
 	modeMain mode = iota
 	modePalette
 	modeEditor
-	modePreview
+	modePipeline // the stage → preview → confirm → apply overlay (was modePreview)
 	modeConfirm
 	modeHelp
 	modeRetitle
@@ -101,6 +101,13 @@ type Model struct {
 	editor        editorState
 	retitle       retitleState
 	previewOffset int
+
+	// pending is the change staged for preview/apply (modePipeline); pendingGuard
+	// is its guard result computed when staged; pipelineApply distinguishes an
+	// apply (enter applies) from a read-only peek (enter closes).
+	pending       pendingChange
+	pendingGuard  safety.Guard
+	pipelineApply bool
 
 	confirmInput textinput.Model
 	confirmGuard safety.Guard
@@ -231,8 +238,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updatePalette(msg)
 	case modeEditor:
 		return m.updateEditor(msg)
-	case modePreview:
-		return m.updatePreview(msg)
+	case modePipeline:
+		return m.updatePipeline(msg)
 	case modeConfirm:
 		return m.updateConfirm(msg)
 	case modeRetitle:
@@ -333,9 +340,8 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		m.mode = modeRetitle
 		return m, nil, true
 	case "p":
-		m.mode = modePreview
-		m.previewOffset = 0
-		return m, nil, true
+		model, cmd := m.stagePlanApply(false)
+		return model, cmd, true
 	case "A":
 		model, cmd := m.beginApply()
 		return model, cmd, true
@@ -950,47 +956,117 @@ func (m Model) saveEditor() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// --- Preview ---------------------------------------------------------------
+// --- Pipeline overlay ------------------------------------------------------
 
-func (m Model) updatePreview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+// updatePipeline drives the preview overlay (modePipeline). Scrolling works in
+// both peek and apply mode; enter applies only in apply mode (routing through the
+// typed confirm first when the change rewrites pushed commits); esc/q close.
+func (m Model) updatePipeline(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "esc", "q", "p":
+	case "esc", "q":
 		m.mode = modeMain
+		m.pending = nil
+		return m, nil
 	case "up", "k":
 		if m.previewOffset > 0 {
 			m.previewOffset--
 		}
+		return m, nil
 	case "down", "j":
-		if m.previewOffset < len(m.plan.Commits)-1 {
+		if m.previewOffset < m.pendingPreviewLen()-1 {
 			m.previewOffset++
 		}
+		return m, nil
+	case "enter":
+		if !m.pipelineApply {
+			m.mode = modeMain
+			m.pending = nil
+			return m, nil
+		}
+		if m.pendingGuard.NeedsConfirmation {
+			ti := textinput.New()
+			ti.Prompt = "› "
+			ti.Placeholder = m.pendingGuard.ConfirmWord
+			ti.Focus()
+			m.confirmInput = ti
+			m.confirmGuard = m.pendingGuard
+			m.mode = modeConfirm
+			return m, nil
+		}
+		return m.commitPending(false)
 	}
 	return m, nil
 }
 
+// pendingPreviewLen is the number of body lines in the staged change's preview,
+// used to clamp the scroll offset.
+func (m Model) pendingPreviewLen() int {
+	if m.pending == nil {
+		return 0
+	}
+	return len(m.pending.preview(m.st).lines)
+}
+
+// commitPending applies the staged pendingChange through the safety manager,
+// reloads history, and reports the backup ref. It is the single apply funnel for
+// every mutation (plan edits and split).
+func (m Model) commitPending(confirmed bool) (tea.Model, tea.Cmd) {
+	if m.pending == nil {
+		m.mode = modeMain
+		return m, nil
+	}
+	opts := safety.ApplyOptions{
+		Sign:          gitio.DropSignatures,
+		UnixTimestamp: time.Now().Unix(),
+		Confirmed:     confirmed,
+	}
+	res, err := m.pending.apply(m.mgr, m.state, opts)
+	if err != nil {
+		m.mode = modeMain
+		m.pending = nil
+		m.setStatus(err.Error(), statusErr)
+		return m, nil
+	}
+	title := m.pending.title()
+	m.pending = nil
+	if err := m.reload(); err != nil {
+		m.mode = modeMain
+		m.setStatus("Applied, but reload failed: "+err.Error(), statusWarn)
+		return m, nil
+	}
+	m.mode = modeMain
+	m.setStatus(fmt.Sprintf("%s ✓ backup at %s — press u to undo", title, short(res.BackupRef)), statusOK)
+	return m, m.markAndFetch()
+}
+
 // --- Apply / Confirm -------------------------------------------------------
 
+// beginApply (A) stages the plan's edits for an explicit preview + apply.
 func (m Model) beginApply() (tea.Model, tea.Cmd) {
+	return m.stagePlanApply(true)
+}
+
+// stagePlanApply builds a planChange, runs its guard, and opens the pipeline
+// overlay. applyMode true means enter will apply (after the typed confirm when the
+// commits are already pushed); false is a read-only peek. A hard guard block (e.g.
+// a dirty tree) reports the reason and does not open the overlay.
+func (m Model) stagePlanApply(applyMode bool) (tea.Model, tea.Cmd) {
 	if !m.plan.HasChanges() {
 		m.setStatus("Nothing to apply — no commits edited yet", statusWarn)
 		return m, nil
 	}
-	guard := safety.CheckGuards(m.state, m.plan)
-	if guard.Blocked {
+	pc := newPlanChange(m.plan, m.loc)
+	guard := pc.guard(m.state)
+	if applyMode && guard.Blocked {
 		m.setStatus(guard.BlockReason, statusErr)
 		return m, nil
 	}
-	if guard.NeedsConfirmation {
-		ti := textinput.New()
-		ti.Prompt = "› "
-		ti.Placeholder = guard.ConfirmWord
-		ti.Focus()
-		m.confirmInput = ti
-		m.confirmGuard = guard
-		m.mode = modeConfirm
-		return m, nil
-	}
-	return m.commitApply(false)
+	m.pending = pc
+	m.pendingGuard = guard
+	m.pipelineApply = applyMode
+	m.previewOffset = 0
+	m.mode = modePipeline
+	return m, nil
 }
 
 func (m Model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1005,33 +1081,11 @@ func (m Model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = modeMain
 			return m, nil
 		}
-		return m.commitApply(true)
+		return m.commitPending(true)
 	}
 	var cmd tea.Cmd
 	m.confirmInput, cmd = m.confirmInput.Update(msg)
 	return m, cmd
-}
-
-func (m Model) commitApply(confirmed bool) (tea.Model, tea.Cmd) {
-	opts := safety.ApplyOptions{
-		Sign:          gitio.DropSignatures,
-		UnixTimestamp: time.Now().Unix(),
-		Confirmed:     confirmed,
-	}
-	res, err := m.mgr.Apply(m.plan, m.state, opts)
-	if err != nil {
-		m.mode = modeMain
-		m.setStatus(err.Error(), statusErr)
-		return m, nil
-	}
-	if err := m.reload(); err != nil {
-		m.setStatus("Applied, but reload failed: "+err.Error(), statusWarn)
-		m.mode = modeMain
-		return m, nil
-	}
-	m.mode = modeMain
-	m.setStatus(fmt.Sprintf("Applied ✓ backup at %s — press u to undo", short(res.BackupRef)), statusOK)
-	return m, m.markAndFetch()
 }
 
 func (m Model) doUndo() (tea.Model, tea.Cmd) {
@@ -1426,8 +1480,8 @@ func (m Model) View() string {
 		overlay = viewPalette(m.strategies, m.paletteCursor, m.st)
 	case modeEditor:
 		overlay = m.editor.view(m.commitByHash(m.editor.hash), m.st)
-	case modePreview:
-		overlay = viewPreview(m.plan, m.loc, m.previewOffset, m.previewVisibleRows(), m.st)
+	case modePipeline:
+		overlay = viewPipeline(m.pending.preview(m.st), m.previewOffset, m.previewVisibleRows(), m.pipelineApply, m.st)
 	case modeConfirm:
 		overlay = m.viewConfirm()
 	case modeHelp:

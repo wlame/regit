@@ -12,6 +12,7 @@ import (
 
 	"github.com/wlame/regit/internal/config"
 	"github.com/wlame/regit/internal/gitio"
+	"github.com/wlame/regit/internal/model"
 	"github.com/wlame/regit/internal/safety"
 )
 
@@ -806,14 +807,15 @@ func TestGlobalKeys_workFromAnyPane(t *testing.T) {
 	}
 	m = send(m, "b") // clear it again
 
-	// Params pane: p opens the preview, D drops bodies, s opens the palette.
-	m = send(m, "tab") // calendar -> params
+	// Params pane: p opens the pipeline preview, D drops bodies, s opens the palette.
+	m = send(m, "s", "enter", "enter") // apply Even Spread to stage edits
+	m = send(m, "tab", "tab")          // list -> calendar -> params
 	if m.focus != focusParams {
 		t.Fatal("setup: params pane should be focused")
 	}
 	m = send(m, "p")
-	if m.mode != modePreview {
-		t.Fatal("p should open the preview from the params pane")
+	if m.mode != modePipeline {
+		t.Fatal("p should open the pipeline preview from the params pane")
 	}
 	m = send(m, "esc")
 
@@ -914,7 +916,7 @@ func TestApplyAndUndo_roundTrip(t *testing.T) {
 	origHead, _ := m.repo.ResolveRef("HEAD")
 
 	m = send(m, "s", "enter", "enter") // spread
-	m = send(m, "A")                   // apply (clean local repo, no confirm)
+	m = send(m, "A", "enter")          // preview, then apply (clean local repo, no confirm)
 	if m.statusKind == statusErr {
 		t.Fatalf("apply errored: %s", m.statusMsg)
 	}
@@ -948,10 +950,10 @@ func TestHelpToggle(t *testing.T) {
 func TestPreviewOpens(t *testing.T) {
 	m := newTestModel(t)
 	m = send(m, "s", "enter", "enter", "p")
-	if m.mode != modePreview {
+	if m.mode != modePipeline {
 		t.Fatal("p should open preview")
 	}
-	if !strings.Contains(m.View(), "original → new") {
+	if !strings.Contains(m.View(), "→") {
 		t.Error("preview should render the diff table")
 	}
 }
@@ -1082,7 +1084,9 @@ func TestDetail_refetchesAfterApply(t *testing.T) {
 	}
 	// Apply the rewrite: reload() wipes the stat caches, so the apply path must
 	// schedule a fresh fetch for the cursor commit (else the detail panel stays blank).
-	updated, cmd := m.Update(key("A"))
+	updated, _ := m.Update(key("A")) // A opens the preview
+	m = updated.(Model)
+	updated, cmd := m.Update(key("enter")) // enter applies
 	m = updated.(Model)
 	_ = m
 	if cmd == nil {
@@ -1525,5 +1529,65 @@ func TestSelection_defaultModeFollowsWorkspace(t *testing.T) {
 	m = send(m, ">") // Dates -> Restructure
 	if m.sel.mode != SelSingle {
 		t.Errorf("Restructure should default to Single selection, got %v", m.sel.mode)
+	}
+}
+
+func TestPipeline_applyShowsPreviewThenApplies(t *testing.T) {
+	m := newTestModelN(t, 3) // clean local repo on main, no upstream
+	c := m.commitAtCursor()
+	nd := c.OrigAuthorDate.AddDate(0, 0, 3)
+	m.plan.SetEdit(c.Hash, model.Edit{NewAuthorDate: &nd})
+
+	m = send(m, "A")
+	if m.mode != modePipeline {
+		t.Fatalf("A should open the pipeline preview, got mode %v", m.mode)
+	}
+	if !m.pipelineApply {
+		t.Error("A should stage the change in apply mode")
+	}
+	if !strings.Contains(m.View(), "→") {
+		t.Error("the preview should render the date change arrow")
+	}
+	// enter applies on a clean local repo (no confirmation needed).
+	m = send(m, "enter")
+	if m.mode != modeMain {
+		t.Fatalf("enter should apply and return to main, got mode %v", m.mode)
+	}
+	if m.statusKind != statusOK {
+		t.Errorf("a successful apply should report statusOK, got %v", m.statusKind)
+	}
+}
+
+func TestPipeline_escCancelsWithoutApplying(t *testing.T) {
+	m := newTestModelN(t, 3)
+	c := m.commitAtCursor()
+	nd := c.OrigAuthorDate.AddDate(0, 0, 2)
+	m.plan.SetEdit(c.Hash, model.Edit{NewAuthorDate: &nd})
+
+	m = send(m, "A", "esc")
+	if m.mode != modeMain {
+		t.Fatalf("esc should cancel the pipeline, got mode %v", m.mode)
+	}
+	if !m.plan.HasChanges() {
+		t.Error("esc must not apply — the staged edit should still be pending")
+	}
+}
+
+func TestPipeline_peekDoesNotApply(t *testing.T) {
+	m := newTestModelN(t, 3)
+	c := m.commitAtCursor()
+	nd := c.OrigAuthorDate.AddDate(0, 0, 4)
+	m.plan.SetEdit(c.Hash, model.Edit{NewAuthorDate: &nd})
+
+	m = send(m, "p")
+	if m.mode != modePipeline || m.pipelineApply {
+		t.Fatalf("p should open the preview in peek (non-apply) mode, got mode=%v apply=%v", m.mode, m.pipelineApply)
+	}
+	m = send(m, "enter") // enter in peek mode just closes
+	if m.mode != modeMain {
+		t.Fatalf("enter in peek mode should close the overlay, got mode %v", m.mode)
+	}
+	if !m.plan.HasChanges() {
+		t.Error("peek must never apply")
 	}
 }
