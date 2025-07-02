@@ -1052,7 +1052,11 @@ func (m Model) beginApply() (tea.Model, tea.Cmd) {
 // a dirty tree) reports the reason and does not open the overlay.
 func (m Model) stagePlanApply(applyMode bool) (tea.Model, tea.Cmd) {
 	if !m.plan.HasChanges() {
-		m.setStatus("Nothing to apply — no commits edited yet", statusWarn)
+		if applyMode {
+			m.setStatus("Nothing to apply — no commits edited yet", statusWarn)
+		} else {
+			m.setStatus("No edits staged to preview", statusWarn)
+		}
 		return m, nil
 	}
 	pc := newPlanChange(m.plan, m.loc)

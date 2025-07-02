@@ -1591,3 +1591,14 @@ func TestPipeline_peekDoesNotApply(t *testing.T) {
 		t.Error("peek must never apply")
 	}
 }
+
+func TestPipeline_peekWithNoEditsReportsNothing(t *testing.T) {
+	m := newTestModel(t) // no edits staged
+	m = send(m, "p")
+	if m.mode != modeMain {
+		t.Errorf("p with no edits should stay in modeMain, got mode %v", m.mode)
+	}
+	if m.statusKind != statusWarn {
+		t.Errorf("p with no edits should set statusWarn, got %v", m.statusKind)
+	}
+}
