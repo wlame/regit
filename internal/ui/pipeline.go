@@ -107,10 +107,31 @@ func (c splitChange) title() string {
 	return fmt.Sprintf("Split %s into %d commit(s)", short(c.commitHash), len(c.groups))
 }
 
-// guard returns an empty guard: split's safety is enforced inside ApplySplit
-// (byte-identical tree verification), and today's split flow has no pre-guard, so
-// an empty guard preserves current behavior (see the plan's Global Constraints).
+// guard mirrors safety.Manager.ApplySplit's internal checks so the pipeline can
+// gate a split BEFORE applying (a graceful block/confirm) instead of failing at
+// apply time: a merge commit or a dirty tree is blocked, and any repo with pushed
+// (upstream) commits requires the typed branch-name confirmation — splitting
+// rewrites history, so it needs the same force-push acknowledgement a plan rewrite
+// does. Keeping this in lockstep with ApplySplit means the guard never disagrees
+// with what the apply will actually allow.
 func (c splitChange) guard(state model.RepoState) safety.Guard {
+	if c.commit.IsMerge {
+		return safety.Guard{Blocked: true, BlockReason: "cannot split a merge commit"}
+	}
+	if state.IsDirty {
+		return safety.Guard{
+			Blocked:     true,
+			BlockReason: "working tree has uncommitted changes; commit or stash them first",
+		}
+	}
+	if state.HasPushedCommits() {
+		return safety.Guard{
+			NeedsConfirmation: true,
+			ConfirmWord:       state.Branch,
+			ConfirmReason: "some commits are already on the upstream; splitting rewrites " +
+				"history and will require a force-push",
+		}
+	}
 	return safety.Guard{}
 }
 

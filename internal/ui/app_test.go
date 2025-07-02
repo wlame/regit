@@ -1782,3 +1782,31 @@ func TestPipeline_pushedRewriteRequiresTypedConfirm(t *testing.T) {
 		}
 	})
 }
+
+// TestPipeline_pushedSplitRoutesToConfirm proves a split of pushed history is no
+// longer un-appliable: its guard requires the typed branch confirmation, so enter
+// in the preview routes to modeConfirm (instead of erroring at apply time).
+func TestPipeline_pushedSplitRoutesToConfirm(t *testing.T) {
+	m := newTestModelN(t, 3)
+	// Simulate a repo whose commits are on an upstream (HasPushedCommits()).
+	m.state = model.RepoState{Branch: "main", HasUpstream: true, UpstreamRef: "origin/main", AheadOfRemote: 1}
+	target := m.plan.Commits[len(m.plan.Commits)-1] // newest
+	sc := splitChange{
+		commit:     target,
+		commitHash: target.Hash,
+		groups:     []model.HunkGroup{{Order: 1, Subject: "part one"}, {Order: 2, Subject: "part two"}},
+	}
+	m.pending = sc
+	m.pendingGuard = sc.guard(m.state)
+	m.pipelineApply = true
+	m.mode = modePipeline
+
+	updated, _ := m.Update(key("enter"))
+	m = updated.(Model)
+	if m.mode != modeConfirm {
+		t.Fatalf("a pushed split should route enter to the typed confirm, got mode %v", m.mode)
+	}
+	if m.confirmGuard.ConfirmWord != "main" {
+		t.Errorf("the confirm word should be the branch name, got %q", m.confirmGuard.ConfirmWord)
+	}
+}

@@ -1286,8 +1286,13 @@ func (m Model) beginSplit() (tea.Model, tea.Cmd, bool) {
 		m.setStatus("Split commit not found in plan — history may have changed", statusErr)
 		return m, nil, true
 	}
+	guard := sc.guard(m.state)
+	if guard.Blocked {
+		m.setStatus(guard.BlockReason, statusErr)
+		return m, nil, true
+	}
 	m.pending = sc
-	m.pendingGuard = sc.guard(m.state)
+	m.pendingGuard = guard
 	m.pipelineApply = true
 	m.previewOffset = 0
 	m.mode = modePipeline
