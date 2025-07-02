@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wlame/regit/internal/gitio"
 	"github.com/wlame/regit/internal/model"
 	"github.com/wlame/regit/internal/safety"
 )
@@ -87,6 +88,51 @@ func (c planChange) preview(st styles) previewModel {
 
 func (c planChange) apply(mgr *safety.Manager, state model.RepoState, opts safety.ApplyOptions) (safety.ApplyResult, error) {
 	return mgr.Apply(c.plan, state, opts)
+}
+
+// splitChange applies a reviewed split proposal: it replaces one commit with the
+// reviewed sub-commits and replays the tail, through safety.Manager.ApplySplit.
+// subs and tail are derived once at staging time (history cannot change while the
+// overlay is open), so apply just replays the stored values.
+type splitChange struct {
+	commit     model.Commit
+	parentHash string
+	subs       []gitio.SubCommit
+	tail       []model.Commit
+	groups     []model.HunkGroup
+	commitHash string
+}
+
+func (c splitChange) title() string {
+	return fmt.Sprintf("Split %s into %d commit(s)", short(c.commitHash), len(c.groups))
+}
+
+// guard returns an empty guard: split's safety is enforced inside ApplySplit
+// (byte-identical tree verification), and today's split flow has no pre-guard, so
+// an empty guard preserves current behavior (see the plan's Global Constraints).
+func (c splitChange) guard(state model.RepoState) safety.Guard {
+	return safety.Guard{}
+}
+
+// preview lists the proposed sub-commits: "N. Subject [intent] (tests: pass|WIP)".
+func (c splitChange) preview(st styles) previewModel {
+	lines := make([]string, 0, len(c.groups))
+	for _, g := range c.groups {
+		testStatus := "pass"
+		if g.WIP {
+			testStatus = "WIP"
+		}
+		intent := g.Intent
+		if intent == "" {
+			intent = "?"
+		}
+		lines = append(lines, fmt.Sprintf("%d. %s [%s] (tests: %s)", g.Order, g.Subject, intent, testStatus))
+	}
+	return previewModel{title: fmt.Sprintf("Split %s into %d", short(c.commitHash), len(c.groups)), lines: lines}
+}
+
+func (c splitChange) apply(mgr *safety.Manager, state model.RepoState, opts safety.ApplyOptions) (safety.ApplyResult, error) {
+	return mgr.ApplySplit(c.commit, c.parentHash, c.subs, c.tail, state, opts)
 }
 
 // viewPipeline renders the preview overlay for a pendingChange: title, the

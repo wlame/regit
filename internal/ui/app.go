@@ -33,7 +33,6 @@ const (
 	modeConfirm
 	modeHelp
 	modeRetitle
-	modeSplit
 	modeReword
 	modeDetail
 	modePicker
@@ -112,8 +111,7 @@ type Model struct {
 	confirmInput textinput.Model
 	confirmGuard safety.Guard
 
-	splitReview splitState
-	rewordSt    rewordState
+	rewordSt rewordState
 
 	// Lazily-fetched, hash-keyed commit file stats for the detail panel. A stat
 	// is requested via a tea.Cmd when the cursor settles on a commit and cached
@@ -244,8 +242,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateConfirm(msg)
 	case modeRetitle:
 		return m.updateRetitle(msg)
-	case modeSplit:
-		return m.updateSplit(msg)
 	case modeReword:
 		return m.updateReword(msg)
 	case modeDetail:
@@ -1235,9 +1231,36 @@ func max(a, b int) int {
 
 // --- Split -----------------------------------------------------------------
 
+// buildSplitChange turns a reviewed split proposal into a stageable splitChange:
+// it builds the sub-commits and derives the tail from the proposal's commit hash
+// (not the cursor, which the user may have moved). It returns ok=false with a
+// status set when the commit is no longer in the plan.
+func (m Model) buildSplitChange(c model.Commit, st splitState) (splitChange, bool) {
+	prop := st.proposal
+	subs := split.BuildSubCommits(c, prop.Groups, st.trees, m.cfg.Split.WIPPrefix)
+	idx := -1
+	for i, commit := range m.plan.Commits {
+		if commit.Hash == prop.CommitHash {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return splitChange{}, false
+	}
+	return splitChange{
+		commit:     c,
+		parentHash: prop.ParentHash,
+		subs:       subs,
+		tail:       m.plan.Commits[idx+1:],
+		groups:     prop.Groups,
+		commitHash: prop.CommitHash,
+	}, true
+}
+
 // beginSplit is called when the user presses [S]. It runs Engine.Propose on the
-// selected commit (blocking for v1) and switches to modeSplit so the user can
-// review the groups, then apply or cancel.
+// selected commit (blocking for v1) and stages the result as a splitChange in the
+// shared modePipeline overlay so the user can review the groups, then apply or cancel.
 func (m Model) beginSplit() (tea.Model, tea.Cmd, bool) {
 	if len(m.plan.Commits) == 0 {
 		m.setStatus("No commit selected", statusWarn)
@@ -1257,75 +1280,17 @@ func (m Model) beginSplit() (tea.Model, tea.Cmd, bool) {
 		m.setStatus(st.errMsg, statusErr)
 		return m, nil, true
 	}
-	m.splitReview = st
-	m.mode = modeSplit
-	return m, nil, true
-}
-
-// updateSplit handles keys while in modeSplit (the review screen).
-func (m Model) updateSplit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc", "q":
-		m.mode = modeMain
-		m.setStatus("Split cancelled", statusWarn)
-		return m, nil
-	case "enter":
-		return m.applySplit()
-	}
-	return m, nil
-}
-
-// applySplit calls safety.ApplySplit with the reviewed proposal and returns to
-// the main view, reloading history on success.
-func (m Model) applySplit() (tea.Model, tea.Cmd) {
-	c := m.commitByHash(m.splitReview.proposal.CommitHash)
-	if c.Hash == "" {
-		m.mode = modeMain
-		m.setStatus("Split commit no longer found — maybe history changed", statusErr)
-		return m, nil
-	}
-	prop := m.splitReview.proposal
-	trees := m.splitReview.trees
-
-	subs := split.BuildSubCommits(c, prop.Groups, trees, m.cfg.Split.WIPPrefix)
-
-	// Derive the tail from the commit hash recorded in the proposal rather than
-	// from the cursor position. The user may have moved the cursor between
-	// proposing the split and confirming it, which would cause the wrong tail to
-	// be replayed and silently corrupt history.
-	idx := -1
-	for i, commit := range m.plan.Commits {
-		if commit.Hash == prop.CommitHash {
-			idx = i
-			break
-		}
-	}
-	if idx < 0 {
-		m.mode = modeMain
+	sc, ok := m.buildSplitChange(c, st)
+	if !ok {
 		m.setStatus("Split commit not found in plan — history may have changed", statusErr)
-		return m, nil
+		return m, nil, true
 	}
-	tail := m.plan.Commits[idx+1:]
-
-	opts := safety.ApplyOptions{
-		Sign:          gitio.DropSignatures,
-		UnixTimestamp: time.Now().Unix(),
-	}
-	res, err := m.mgr.ApplySplit(c, prop.ParentHash, subs, tail, m.state, opts)
-	if err != nil {
-		m.mode = modeMain
-		m.setStatus(err.Error(), statusErr)
-		return m, nil
-	}
-	if err := m.reload(); err != nil {
-		m.mode = modeMain
-		m.setStatus("Split applied, but reload failed: "+err.Error(), statusWarn)
-		return m, nil
-	}
-	m.mode = modeMain
-	m.setStatus(fmt.Sprintf("Split %s into %d commits ✓ backup at %s",
-		short(c.Hash), len(subs), short(res.BackupRef)), statusOK)
-	return m, m.markAndFetch()
+	m.pending = sc
+	m.pendingGuard = sc.guard(m.state)
+	m.pipelineApply = true
+	m.previewOffset = 0
+	m.mode = modePipeline
+	return m, nil, true
 }
 
 // --- Picker ----------------------------------------------------------------
@@ -1492,8 +1457,6 @@ func (m Model) View() string {
 		overlay = m.st.modal.Render(helpText())
 	case modeRetitle:
 		overlay = m.retitle.view(m.plan, m.st)
-	case modeSplit:
-		overlay = m.st.modal.Render(renderSplitReview(m.splitReview.proposal))
 	case modeReword:
 		// Show the buffered result if available; otherwise a generating indicator.
 		if result, ok := m.rewordSt.buffer[m.rewordSt.commit.Hash]; ok {

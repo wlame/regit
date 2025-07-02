@@ -12,33 +12,12 @@ import (
 	"github.com/wlame/regit/internal/split"
 )
 
-// splitState holds the active split review data while in modeSplit.
+// splitState holds the active split review data while the split proposal is staged.
 type splitState struct {
 	proposal model.SplitProposal
 	trees    []string
-	// errMsg is non-empty if the engine call or apply failed.
+	// errMsg is non-empty if the engine call failed.
 	errMsg string
-}
-
-// renderSplitReview renders a split proposal as a review screen.
-// Each group gets a line: "N. Subject [intent] (tests: pass|WIP)"
-// This is a pure function that does no I/O — ideal for unit testing.
-func renderSplitReview(prop model.SplitProposal) string {
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf("Split proposal for %s\n\n", short(prop.CommitHash)))
-	for _, g := range prop.Groups {
-		testStatus := "pass"
-		if g.WIP {
-			testStatus = "WIP"
-		}
-		intent := g.Intent
-		if intent == "" {
-			intent = "?"
-		}
-		b.WriteString(fmt.Sprintf("%d. %s [%s] (tests: %s)\n", g.Order, g.Subject, intent, testStatus))
-	}
-	b.WriteString("\nenter apply · esc cancel")
-	return b.String()
 }
 
 // buildSplitEngine constructs a split Engine from the TUI's config, using

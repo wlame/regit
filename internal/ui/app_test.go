@@ -93,6 +93,54 @@ func send(m Model, keys ...string) Model {
 	return m
 }
 
+func TestSplitChange_previewListsGroups(t *testing.T) {
+	sc := splitChange{
+		commit:     model.Commit{Hash: "abc1234567890000"},
+		commitHash: "abc1234567890000",
+		groups: []model.HunkGroup{
+			{Order: 1, Subject: "Refactor the first thing", Intent: "cleanup", WIP: false},
+			{Order: 2, Subject: "Add the second feature", Intent: "feature", WIP: true},
+		},
+	}
+	st := newStyles()
+	pv := sc.preview(st)
+	body := strings.Join(pv.lines, "\n")
+	if !strings.Contains(body, "Refactor the first") || !strings.Contains(body, "WIP") {
+		t.Errorf("split preview should list both subjects and a WIP marker, got:\n%s", body)
+	}
+	if !strings.Contains(sc.title(), "2") {
+		t.Errorf("title should mention the 2 groups, got %q", sc.title())
+	}
+}
+
+func TestSplitChange_buildDerivesTailFromProposalCommit(t *testing.T) {
+	m := newTestModelN(t, 4) // commits c000..c003 (storage order; c000 oldest)
+	// Target the 2nd-oldest commit by hash so the tail is everything after it.
+	target := m.plan.Commits[1]
+	st := splitState{
+		proposal: model.SplitProposal{
+			CommitHash: target.Hash,
+			ParentHash: m.plan.Commits[0].Hash,
+			Groups: []model.HunkGroup{
+				{Order: 1, Subject: "part one"},
+				{Order: 2, Subject: "part two"},
+			},
+		},
+		trees: []string{"t1", "t2"},
+	}
+	sc, ok := m.buildSplitChange(target, st)
+	if !ok {
+		t.Fatal("buildSplitChange should find the target commit in the plan")
+	}
+	// Tail is the commits AFTER the split commit in storage order (c002, c003).
+	if len(sc.tail) != 2 || sc.tail[0].Hash != m.plan.Commits[2].Hash {
+		t.Errorf("tail should be the 2 commits after the split point, got %d", len(sc.tail))
+	}
+	if sc.commitHash != target.Hash {
+		t.Errorf("splitChange should record the proposal's commit hash")
+	}
+}
+
 func TestView_mainRendersWithoutPanic(t *testing.T) {
 	m := newTestModel(t)
 	out := m.View()

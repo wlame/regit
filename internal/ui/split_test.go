@@ -34,11 +34,9 @@ func sampleProposalForUI() model.SplitProposal {
 }
 
 func TestSplitReview_rendersGroups(t *testing.T) {
-	// Build a model in modeSplit with a fixed proposal of 2 groups and assert the
-	// rendered view lists both subjects and a WIP marker for a WIP group. Use the
-	// same view-string assertion approach as app_test.go (render and check
-	// strings.Contains).
-	view := renderSplitReview(sampleProposalForUI())
+	prop := sampleProposalForUI()
+	sc := splitChange{commit: model.Commit{Hash: prop.CommitHash}, commitHash: prop.CommitHash, groups: prop.Groups}
+	view := strings.Join(sc.preview(newStyles()).lines, "\n")
 	if !strings.Contains(view, "first") || !strings.Contains(view, "WIP") {
 		t.Fatalf("split review missing expected content:\n%s", view)
 	}
