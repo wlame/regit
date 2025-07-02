@@ -1237,7 +1237,8 @@ func max(a, b int) int {
 // status set when the commit is no longer in the plan.
 func (m Model) buildSplitChange(c model.Commit, st splitState) (splitChange, bool) {
 	prop := st.proposal
-	subs := split.BuildSubCommits(c, prop.Groups, st.trees, m.cfg.Split.WIPPrefix)
+	// Locate the split commit in the plan first so we only build sub-commits for a
+	// commit that is still present (and so the not-found path does no work).
 	idx := -1
 	for i, commit := range m.plan.Commits {
 		if commit.Hash == prop.CommitHash {
@@ -1251,7 +1252,7 @@ func (m Model) buildSplitChange(c model.Commit, st splitState) (splitChange, boo
 	return splitChange{
 		commit:     c,
 		parentHash: prop.ParentHash,
-		subs:       subs,
+		subs:       split.BuildSubCommits(c, prop.Groups, st.trees, m.cfg.Split.WIPPrefix),
 		tail:       m.plan.Commits[idx+1:],
 		groups:     prop.Groups,
 		commitHash: prop.CommitHash,
