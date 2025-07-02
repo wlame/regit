@@ -1650,3 +1650,135 @@ func TestPipeline_peekWithNoEditsReportsNothing(t *testing.T) {
 		t.Errorf("p with no edits should set statusWarn, got %v", m.statusKind)
 	}
 }
+
+// TestPipeline_pushedRewriteRequiresTypedConfirm covers the confirm-gated apply
+// path: when a plan edit touches a commit that is already upstream (IsPushed),
+// safety.CheckGuards returns NeedsConfirmation = true with ConfirmWord = branch
+// name. The pipeline must pause at modeConfirm and only proceed to apply when
+// the user types the exact branch name; a wrong word must cancel with an error
+// and leave the plan unchanged.
+func TestPipeline_pushedRewriteRequiresTypedConfirm(t *testing.T) {
+	// --- build a repo with two pushed commits then three local-only ones ---
+	dir := t.TempDir()
+	origin := t.TempDir()
+	git := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_DATE=2026-06-05T14:00:00+00:00",
+			"GIT_COMMITTER_DATE=2026-06-05T14:00:00+00:00")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	commit := func(name string) {
+		os.WriteFile(filepath.Join(dir, name+".txt"), []byte(name+"\n"), 0o644)
+		git("add", ".")
+		git("commit", "-q", "-m", "commit "+name)
+	}
+
+	exec.Command("git", "init", "-q", "--bare", origin).Run()
+	git("init", "-q")
+	git("symbolic-ref", "HEAD", "refs/heads/main")
+	git("config", "user.name", "wlame")
+	git("config", "user.email", "vvlame@gmail.com")
+	git("config", "commit.gpgsign", "false")
+	git("remote", "add", "origin", origin)
+
+	commit("p0")
+	commit("p1")
+	git("push", "-q", "-u", "origin", "main")
+	commit("local0")
+	commit("local1")
+	commit("local2")
+
+	repo, err := gitio.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, _ := repo.ReadState()
+	commits, _ := repo.ReadCommits()
+	cfg := config.Default()
+	cfg.Timezone = "UTC"
+
+	// newPushedModel is a local helper that constructs a fresh Model from the
+	// repo above and stages a date edit on the oldest pushed commit (Commits[0])
+	// so that anyPushed(plan) is true and the guard demands confirmation.
+	newPushedModel := func() Model {
+		m := New(repo, safety.NewManager(repo), cfg, state, commits)
+		updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+		m = updated.(Model)
+
+		// Commits[0] is the oldest commit (p0), which is pushed. Stage a date
+		// edit directly — bypassing the freeze — to trigger NeedsConfirmation.
+		pushed := m.plan.Commits[0]
+		nd := pushed.OrigAuthorDate.AddDate(0, 0, 1)
+		m.plan.SetEdit(pushed.Hash, model.Edit{NewAuthorDate: &nd})
+		return m
+	}
+
+	// --- sub-test: wrong confirmation word cancels apply ---
+	t.Run("wrong word cancels", func(t *testing.T) {
+		m := newPushedModel()
+
+		m = send(m, "A")
+		if m.mode != modePipeline {
+			t.Fatalf("A should open the pipeline preview, got mode %v", m.mode)
+		}
+
+		updated, _ := m.Update(key("enter"))
+		m = updated.(Model)
+		if m.mode != modeConfirm {
+			t.Fatalf("enter on a pushed edit should require confirmation, got mode %v", m.mode)
+		}
+
+		// Type the wrong word and confirm.
+		m.confirmInput.SetValue("nope")
+		updated, _ = m.Update(key("enter"))
+		m = updated.(Model)
+
+		if m.mode != modeMain {
+			t.Errorf("wrong confirm word should return to modeMain, got mode %v", m.mode)
+		}
+		if m.statusKind != statusErr {
+			t.Errorf("wrong confirm word should set statusErr, got %v", m.statusKind)
+		}
+		// The edit must still be staged — nothing was applied.
+		if !m.plan.HasChanges() {
+			t.Error("wrong confirm word must not apply — the edit should still be pending")
+		}
+	})
+
+	// --- sub-test: correct confirmation word (branch name) applies ---
+	t.Run("correct word applies", func(t *testing.T) {
+		m := newPushedModel()
+
+		m = send(m, "A")
+		if m.mode != modePipeline {
+			t.Fatalf("A should open the pipeline preview, got mode %v", m.mode)
+		}
+
+		updated, _ := m.Update(key("enter"))
+		m = updated.(Model)
+		if m.mode != modeConfirm {
+			t.Fatalf("enter on a pushed edit should require confirmation, got mode %v", m.mode)
+		}
+
+		// Type the branch name (the required confirm word) and confirm.
+		m.confirmInput.SetValue(m.state.Branch)
+		updated, _ = m.Update(key("enter"))
+		m = updated.(Model)
+
+		if m.mode != modeMain {
+			t.Errorf("correct confirm word should return to modeMain, got mode %v", m.mode)
+		}
+		if m.statusKind != statusOK {
+			t.Errorf("correct confirm word should set statusOK, got %v (msg: %q)", m.statusKind, m.statusMsg)
+		}
+		// After a successful apply the plan reloads from the rewritten history,
+		// so there are no longer any pending edits.
+		if m.plan.HasChanges() {
+			t.Error("after a successful apply the plan should have no pending changes")
+		}
+	})
+}
