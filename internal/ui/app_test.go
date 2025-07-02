@@ -1016,8 +1016,8 @@ func TestModel_ListWidthGrowsWithTerminal(t *testing.T) {
 	if wide <= narrow {
 		t.Fatalf("list should widen on a 220-col terminal: narrow=%d wide=%d", narrow, wide)
 	}
-	if wide < 120 {
-		t.Fatalf("wide list should be ≥120 cols (old cap was 66), got %d", wide)
+	if wide < listCeilWidth {
+		t.Fatalf("wide list should reach the ceiling (%d), got %d", listCeilWidth, wide)
 	}
 }
 

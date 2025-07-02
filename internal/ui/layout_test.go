@@ -12,8 +12,8 @@ func TestComputeLayout_ListWidthBounds(t *testing.T) {
 		{"zero width renders at the 120 target floor", 0, 40, 56, 0},      // 120 < 142 -> 2-col, 120-64
 		{"narrow clamps up to the list floor", 90, 40, listFloorWidth, 0}, // 90-64=26 -> 44, 2-col
 		{"target floor width", 120, 40, 56, 0},                            // 120-64, 2-col
-		{"wide terminal seats the detail column", 220, 40, 122, 32},       // avail=220-66=154; list=154-32; detail=32
-		{"ultrawide caps at 240 then seats detail", 400, 40, 142, 32},     // avail=240-66=174; list=174-32; detail=32
+		{"wide terminal caps the list at 80, detail stretches", 220, 40, 80, 74}, // avail=220-66=154; list capped 80; detail=154-80
+		{"ultrawide caps list at 80, detail stretches", 400, 40, 80, 94},         // avail=240-66=174; list capped 80; detail=174-80
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -28,6 +28,16 @@ func TestComputeLayout_ListWidthBounds(t *testing.T) {
 				t.Fatalf("contentWidth = %d exceeds the %d cap", got.contentWidth, maxContentWidth)
 			}
 		})
+	}
+}
+
+func TestComputeLayout_DetailStretchesPastMinimum(t *testing.T) {
+	got := computeLayout(220, 40)
+	if got.listWidth != 80 {
+		t.Fatalf("list should cap at 80, got %d", got.listWidth)
+	}
+	if got.detailWidth <= detailMinWidth {
+		t.Fatalf("detail should stretch past the %d minimum, got %d", detailMinWidth, got.detailWidth)
 	}
 }
 

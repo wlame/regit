@@ -15,9 +15,10 @@ const (
 
 	// listFloorWidth/listCeilWidth bound the commit-list pane. The floor matches
 	// the pre-redesign minimum so narrow terminals do not regress; the ceiling
-	// stops subjects from stretching uncomfortably wide.
+	// caps the list at a scannable ~80 columns so the detail pane absorbs the rest
+	// of a wide terminal and stretches.
 	listFloorWidth = 44
-	listCeilWidth  = 160
+	listCeilWidth  = 80
 
 	// paneFrames is the columns consumed by the list and right panes' left/right
 	// borders (2 each). rightPaneWidth (the fixed calendar column) is defined in
