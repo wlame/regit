@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -35,7 +36,7 @@ func TestRenderDetail_showsStatAndMessage(t *testing.T) {
 		Additions: 42,
 		Deletions: 12,
 	}
-	out := renderDetail(c, st, true, "", plan, time.UTC, 40, newStyles())
+	out := renderDetail(c, st, true, "", plan, time.UTC, 40, 40, newStyles())
 
 	for _, want := range []string{
 		"a1b2c3d", "wlame", "v@gmail.com",
@@ -53,12 +54,12 @@ func TestRenderDetail_loadingAndError(t *testing.T) {
 	c := detailCommit()
 	plan := model.NewPlan([]model.Commit{c})
 
-	loading := renderDetail(c, gitio.Stat{}, false, "", plan, time.UTC, 40, newStyles())
+	loading := renderDetail(c, gitio.Stat{}, false, "", plan, time.UTC, 40, 40, newStyles())
 	if !strings.Contains(loading, "loading") {
 		t.Errorf("missing stat should show a loading hint, got:\n%s", loading)
 	}
 
-	failed := renderDetail(c, gitio.Stat{}, false, "boom", plan, time.UTC, 40, newStyles())
+	failed := renderDetail(c, gitio.Stat{}, false, "boom", plan, time.UTC, 40, 40, newStyles())
 	if !strings.Contains(failed, "unavailable") {
 		t.Errorf("stat error should show an unavailable note, got:\n%s", failed)
 	}
@@ -80,7 +81,7 @@ func TestRenderDetail_showsEditedDateArrow(t *testing.T) {
 	newDate := time.Date(2026, 5, 20, 9, 30, 0, 0, time.UTC)
 	plan.SetEdit(c.Hash, model.Edit{NewAuthorDate: &newDate})
 
-	out := renderDetail(c, gitio.Stat{}, false, "", plan, time.UTC, 40, newStyles())
+	out := renderDetail(c, gitio.Stat{}, false, "", plan, time.UTC, 40, 40, newStyles())
 
 	if !strings.Contains(out, "→") {
 		t.Errorf("edited date should render a → arrow line, got:\n%s", out)
@@ -99,11 +100,48 @@ func TestRenderDetail_showsCommitterWhenDifferent(t *testing.T) {
 	c.CommitterEmail = "rebot@ci.example"
 	plan := model.NewPlan([]model.Commit{c})
 
-	out := renderDetail(c, gitio.Stat{}, false, "", plan, time.UTC, 40, newStyles())
+	out := renderDetail(c, gitio.Stat{}, false, "", plan, time.UTC, 40, 40, newStyles())
 
 	for _, want := range []string{"committer", "rebot", "rebot@ci.example"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("differing committer should render %q, got:\n%s", want, out)
 		}
+	}
+}
+
+func TestClampLines_truncatesWithEllipsis(t *testing.T) {
+	lines := []string{"a", "b", "c", "d", "e"}
+	out := clampLines(lines, 3)
+	got := strings.Split(out, "\n")
+	if len(got) != 3 {
+		t.Fatalf("clampLines(_,3) = %d lines, want 3", len(got))
+	}
+	if got[2] != "…" {
+		t.Errorf("last kept line should be the ellipsis, got %q", got[2])
+	}
+	if clampLines(lines, 10) != "a\nb\nc\nd\ne" {
+		t.Errorf("clampLines within budget should pass through unchanged")
+	}
+}
+
+func TestRenderDetail_boundsFileListAndKeepsMessage(t *testing.T) {
+	c := detailCommit()
+	plan := model.NewPlan([]model.Commit{c})
+	var files []gitio.FileStat
+	for i := 0; i < 40; i++ {
+		files = append(files, gitio.FileStat{Status: "M", Path: fmt.Sprintf("pkg/file%02d.go", i), Add: 1, Del: 1})
+	}
+	st := gitio.Stat{Files: files, Additions: 40, Deletions: 40}
+	const maxH = 14
+	out := renderDetail(c, st, true, "", plan, time.UTC, 40, maxH, newStyles())
+
+	if got := strings.Count(out, "\n") + 1; got > maxH {
+		t.Fatalf("detail rendered %d lines, exceeds maxHeight %d:\n%s", got, maxH, out)
+	}
+	if !strings.Contains(out, "more files") {
+		t.Errorf("overflowing file list should show a '… +N more files' line, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Fix login bug") {
+		t.Errorf("the message must stay visible when the file list overflows, got:\n%s", out)
 	}
 }

@@ -15,47 +15,101 @@ import (
 // panel: ISO date, 24h time, and the numeric timezone offset.
 const detailDateLayout = "2006-01-02 15:04 -0700"
 
-// renderDetail builds the commit-detail panel body for the cursor commit. It is
-// a pure function (no git, no Model) so it unit-tests without a terminal; the
-// lazy stat fetch and pane framing live in app.go / viewDetailPane.
+// renderDetail builds the commit-detail panel body for a commit, bounded to
+// maxHeight rows so it can never grow taller than its pane (lipgloss .Height is
+// only a minimum, so an unbounded body would overflow the frame). The header and
+// the commit message are kept; the changed-files list absorbs the rows left
+// between them and shows a "… +N more files" summary when it does not fit. A
+// final clampLines guarantees the height invariant even for a very long body.
 //
-// haveStat reports whether st is populated; statErr (when non-empty) is shown as
-// a non-fatal note while the dates and message still render. width is the inner
-// text width (the pane border/padding is added by the caller).
-func renderDetail(c model.Commit, st gitio.Stat, haveStat bool, statErr string, plan *model.Plan, loc *time.Location, width int, sty styles) string {
-	var b strings.Builder
-
-	b.WriteString(sty.modalTitle.Render("DETAIL "+short(c.Hash)) + "\n")
-	b.WriteString(sty.dim.Render(c.Hash) + "\n\n")
-
-	b.WriteString(fmt.Sprintf("%s %s\n", c.AuthorName, sty.dim.Render("<"+c.AuthorEmail+">")))
+// It is pure (no git, no Model) so it unit-tests without a terminal. width is the
+// inner text width; statErr (when non-empty) shows as a non-fatal note.
+func renderDetail(c model.Commit, st gitio.Stat, haveStat bool, statErr string, plan *model.Plan, loc *time.Location, width, maxHeight int, sty styles) string {
+	// Header block: identity, dates, diffstat (always shown).
+	var head []string
+	head = appendLines(head, sty.modalTitle.Render("DETAIL "+short(c.Hash)))
+	head = appendLines(head, sty.dim.Render(c.Hash))
+	head = appendLines(head, "")
+	head = appendLines(head, fmt.Sprintf("%s %s", c.AuthorName, sty.dim.Render("<"+c.AuthorEmail+">")))
 	if c.CommitterName != c.AuthorName || c.CommitterEmail != c.AuthorEmail {
-		b.WriteString(sty.dim.Render(fmt.Sprintf("committer %s <%s>\n", c.CommitterName, c.CommitterEmail)))
+		head = appendLines(head, sty.dim.Render(fmt.Sprintf("committer %s <%s>", c.CommitterName, c.CommitterEmail)))
 	}
-
-	authored := c.OrigAuthorDate.In(loc).Format(detailDateLayout)
-	b.WriteString(sty.dim.Render("authored ") + authored + "\n")
-	// When a pending edit moved the date, show the new value in green.
+	head = appendLines(head, sty.dim.Render("authored ")+c.OrigAuthorDate.In(loc).Format(detailDateLayout))
 	if eff := plan.EffectiveAuthorDate(c); !eff.Equal(c.OrigAuthorDate) {
-		b.WriteString(sty.dim.Render("       → ") + sty.newDate.Render(eff.In(loc).Format(detailDateLayout)) + "\n")
+		head = appendLines(head, sty.dim.Render("       → ")+sty.newDate.Render(eff.In(loc).Format(detailDateLayout)))
 	}
-	b.WriteString(sty.dim.Render("committed ") + c.OrigCommitDate.In(loc).Format(detailDateLayout) + "\n\n")
+	head = appendLines(head, sty.dim.Render("committed ")+c.OrigCommitDate.In(loc).Format(detailDateLayout))
+	head = appendLines(head, "")
+	head = appendLines(head, renderDiffstat(st, haveStat, statErr, sty))
 
-	b.WriteString(renderDiffstat(st, haveStat, statErr, sty) + "\n")
-	if haveStat {
-		for _, f := range st.Files {
-			b.WriteString(renderFileLine(f, sty) + "\n")
-		}
-	}
-	b.WriteString("\n")
-
-	// Effective subject (may be retitled/reworded), then the wrapped body.
-	b.WriteString(lipgloss.NewStyle().Bold(true).Width(width).Render(plan.EffectiveSubject(c)) + "\n")
+	// Message block: subject + wrapped body, built in full so it stays visible.
+	var msg []string
+	msg = appendLines(msg, "")
+	msg = appendLines(msg, lipgloss.NewStyle().Bold(true).Width(width).Render(plan.EffectiveSubject(c)))
 	if c.Body != "" {
-		b.WriteString("\n" + sty.dim.Render(lipgloss.NewStyle().Width(width).Render(c.Body)))
+		msg = appendLines(msg, "")
+		msg = appendLines(msg, sty.dim.Width(width).Render(c.Body))
 	}
 
-	return b.String()
+	// The file list gets the rows left between the header (plus one spacing row)
+	// and the message.
+	var files []string
+	if haveStat {
+		budget := maxHeight - len(head) - 1 - len(msg)
+		files = renderFileLines(st.Files, budget, sty)
+	}
+
+	all := head
+	all = append(all, "")
+	all = append(all, files...)
+	all = append(all, msg...)
+	return clampLines(all, maxHeight)
+}
+
+// appendLines splits s on newlines and appends each visual line, so later height
+// budgeting and clamping count real screen rows (a width-wrapped body is one
+// string holding several lines).
+func appendLines(dst []string, s string) []string {
+	return append(dst, strings.Split(s, "\n")...)
+}
+
+// renderFileLines renders up to budget file rows. When the files do not fit it
+// shows the first (budget-1) and a dim "… +N more files" summary so the message
+// below stays visible. A budget < 1 (a very long body) yields no file rows — the
+// diffstat header still reports the total count.
+func renderFileLines(filesStat []gitio.FileStat, budget int, sty styles) []string {
+	if budget < 1 || len(filesStat) == 0 {
+		return nil
+	}
+	if len(filesStat) <= budget {
+		out := make([]string, 0, len(filesStat))
+		for _, f := range filesStat {
+			out = append(out, renderFileLine(f, sty))
+		}
+		return out
+	}
+	show := budget - 1
+	out := make([]string, 0, budget)
+	for _, f := range filesStat[:show] {
+		out = append(out, renderFileLine(f, sty))
+	}
+	return append(out, sty.dim.Render(fmt.Sprintf("… +%d more files", len(filesStat)-show)))
+}
+
+// clampLines joins lines into at most max rows. When content is cut, the last
+// kept row becomes a "…" so the panel signals more content without ever growing
+// past max. A max < 1 yields the empty string.
+func clampLines(lines []string, max int) string {
+	if max < 1 {
+		return ""
+	}
+	if len(lines) <= max {
+		return strings.Join(lines, "\n")
+	}
+	kept := make([]string, max)
+	copy(kept, lines[:max])
+	kept[max-1] = "…"
+	return strings.Join(kept, "\n")
 }
 
 // renderDiffstat renders the "N files · +X −Y" header, or a loading/unavailable
