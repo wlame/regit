@@ -68,3 +68,16 @@ func TestKeybarHint_includesSelect(t *testing.T) {
 		t.Errorf("keybar should advertise selection, got: %s", keybarHint())
 	}
 }
+
+func TestHelpText_documentsPreviewThenApply(t *testing.T) {
+	help := helpText()
+	if !strings.Contains(help, "preview") {
+		t.Error("help should mention the apply preview step")
+	}
+	// The A action's description should make the preview-then-apply explicit.
+	for _, want := range []string{"[A]pply", "[p]review"} {
+		if !strings.Contains(keybarHint(), want) {
+			t.Errorf("keybar should still advertise %q", want)
+		}
+	}
+}

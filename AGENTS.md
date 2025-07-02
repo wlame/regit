@@ -67,6 +67,16 @@ Reword consumes a Set as multi-reword (walks the picker per selected commit);
 frozen commits are never selectable. Range/Global are built and tested, awaiting
 their future consumers (Join / Search).
 
+Every history mutation funnels through one stage → preview → confirm → apply
+pipeline (pipeline.go, spec §6.7). A feature stages a `pendingChange` (planChange
+for date/message edits via `A`; splitChange for a reviewed split via `S`); the
+`modePipeline` overlay shows its mandatory before/after preview; a typed
+branch-name confirm gates already-pushed rewrites; then `commitPending` applies it
+through `safety.Manager` (backup ref → op → byte-identical tree verify →
+branch-ref CAS) and reloads. `p` opens the same preview read-only. The safety
+contract is unchanged — the pipeline only makes the preview + confirm mandatory
+before the existing apply call.
+
 ### What each package does
 
 **`internal/model`** — shared vocabulary. Every other package imports it; it
@@ -247,6 +257,7 @@ internal/ui/
   ws_dates.go           Dates workspace widget (calendar + strategy form)
   ws_restructure.go     Restructure feature menu + the disabled stub-tab panel
   selection.go          Commit-list selection model: Single/Range/Set/Active/Global + visual-mode range, set toggling
+  pipeline.go           Apply pipeline: pendingChange interface + planChange/splitChange + the preview overlay
   keys.go               Data-driven keymap table; generates the help overlay and keybar
   (other .go files)     Calendar, editor, strategy palette, preview, styles
 justfile                All dev recipes — prefer these over raw go commands

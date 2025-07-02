@@ -56,8 +56,8 @@ var keymap = []keyBinding{
 	{Key: "D", Scope: scopeAction, Desc: "drop the bodies of ALL editable commits (titles kept)", Bar: "[D]rop-bodies"},
 	{Key: "R", Scope: scopeAction, Desc: "regex-replace across ALL editable commit titles", Bar: "[R]etitle"},
 	{Key: ".", Scope: scopeAction, Desc: "show full detail for the selected commit (overlay when narrow)", Bar: "[.]detail"},
-	{Key: "p", Scope: scopeAction, Desc: "preview the before/after dates", Bar: "[p]review"},
-	{Key: "A", Scope: scopeAction, Desc: "apply the rewrite (creates a backup first)", Bar: "[A]pply"},
+	{Key: "p", Scope: scopeAction, Desc: "preview the pending changes (read-only)", Bar: "[p]review"},
+	{Key: "A", Scope: scopeAction, Desc: "apply: preview the before/after, then enter to apply (confirm if pushed)", Bar: "[A]pply"},
 	{Key: "u", Scope: scopeAction, Desc: "undo the last apply", Bar: "[u]ndo"},
 	{Key: "r", Scope: scopeAction, Desc: "reset all pending edits", Bar: "[r]eset"},
 
