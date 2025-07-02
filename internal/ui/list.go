@@ -23,6 +23,13 @@ func (m Model) buildListRows() []listRow {
 	n := len(m.plan.Commits)
 	rows := make([]listRow, 0, n+8)
 
+	if !m.groupByDate {
+		for i := 0; i < n; i++ {
+			rows = append(rows, listRow{displayIdx: i})
+		}
+		return rows
+	}
+
 	// Pre-tally each day's commit count for the divider label.
 	dayTotals := make(map[string]int, n)
 	for i := 0; i < n; i++ {

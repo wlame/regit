@@ -83,6 +83,20 @@ func TestViewCommitList_clampsOutOfRangeOffset(t *testing.T) {
 	}
 }
 
+func TestBuildListRows_flatWhenGroupingOff(t *testing.T) {
+	m := twoDayModel(t)
+	m.groupByDate = false
+	rows := m.buildListRows()
+	for _, r := range rows {
+		if r.isDivider {
+			t.Fatalf("grouping off should emit no dividers, got %+v", r)
+		}
+	}
+	if len(rows) != 3 {
+		t.Errorf("flat list should have one row per commit, got %d", len(rows))
+	}
+}
+
 func TestScrollMargin_isTwentyPercent(t *testing.T) {
 	cases := map[int]int{1: 1, 5: 1, 10: 2, 20: 4, 23: 5}
 	for visible, want := range cases {

@@ -1783,6 +1783,26 @@ func TestPipeline_pushedRewriteRequiresTypedConfirm(t *testing.T) {
 	})
 }
 
+func TestDateGroupingToggle(t *testing.T) {
+	m := twoDayModel(t)
+	if !m.groupByDate {
+		t.Fatal("date grouping should default on")
+	}
+	m = send(m, "d")
+	if m.groupByDate {
+		t.Error("d should toggle date grouping off")
+	}
+	for _, r := range m.buildListRows() {
+		if r.isDivider {
+			t.Error("after toggling off, no dividers should be built")
+		}
+	}
+	m = send(m, "d")
+	if !m.groupByDate {
+		t.Error("d should toggle grouping back on")
+	}
+}
+
 // TestPipeline_pushedSplitRoutesToConfirm proves a split of pushed history is no
 // longer un-appliable: its guard requires the typed branch confirmation, so enter
 // in the preview routes to modeConfirm (instead of erroring at apply time).

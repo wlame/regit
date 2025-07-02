@@ -62,6 +62,7 @@ var keymap = []keyBinding{
 	{Key: "r", Scope: scopeAction, Desc: "reset all pending edits", Bar: "[r]eset"},
 
 	// Commit list (focused)
+	{Key: "d", Scope: scopeList, Desc: "toggle date grouping in the commit list", Bar: "[d]ates"},
 	{Key: "↑/↓ or k/j", Scope: scopeList, Desc: "move the selection"},
 	{Key: "ctrl+d/u", Scope: scopeList, Desc: "half page down / up (pgdn/pgup move a full page)"},
 	{Key: "g / G", Scope: scopeList, Desc: "newest / oldest commit (home/end do the same)"},

@@ -81,6 +81,10 @@ type Model struct {
 
 	listCursor int
 	listOffset int
+	// groupByDate controls whether the commit list inserts per-day date dividers
+	// (true, the default) or renders a flat newest-first list (false). Toggled
+	// with the 'd' key.
+	groupByDate bool
 	// sel is the commit-list selection (mode + range/set state). Its zero value
 	// is Single mode, so the list renders like a plain cursor list until a
 	// selection key (Task 3) or workspace default changes the mode.
@@ -149,7 +153,8 @@ func New(repo *gitio.Repo, mgr *safety.Manager, cfg config.Config, state model.R
 		statErr:      make(map[string]string),
 		statInFlight: make(map[string]bool),
 		strategies:   strategy.Strategies(),
-		st:           newStyles(),
+		st:          newStyles(),
+		groupByDate: true,
 	}
 
 	// Auto-detect the base branch and freeze the shared-history cone, then start
@@ -348,6 +353,15 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		m.plan.Edits = make(map[string]model.Edit)
 		m.plan.Violations = nil
 		m.setStatus("Cleared all pending edits", statusOK)
+		return m, nil, true
+	case "d":
+		m.groupByDate = !m.groupByDate
+		m.syncListViewport()
+		state := "off"
+		if m.groupByDate {
+			state = "on"
+		}
+		m.setStatus("Date grouping: "+state, statusOK)
 		return m, nil, true
 	case "S":
 		return m.beginSplit()
