@@ -1119,7 +1119,7 @@ func TestDetail_reloadResetsStatCaches(t *testing.T) {
 	}
 }
 
-// TestDetail_refetchesAfterApply verifies that the success path of commitApply
+// TestDetail_refetchesAfterApply verifies that the success path of commitPending
 // schedules a fresh detail-stat fetch after reload() wipes the stat caches.
 // Without the fix the apply path returns nil, leaving the panel stuck at
 // "stat loading…" until the user manually moves the cursor.
