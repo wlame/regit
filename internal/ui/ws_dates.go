@@ -53,7 +53,7 @@ func (m Model) viewCalendarPane() string {
 
 	_, _, half := halfRange(cursor, m.loc)
 	content := strings.Join([]string{
-		m.st.modalTitle.Render(fmt.Sprintf("%d · %s  [ ◀ ] [ ▶ ]", m.calYear, half)),
+		m.st.modalTitle.Render(fmt.Sprintf("%d · %s", m.calYear, half)),
 		heat,
 		"",
 		legend,
