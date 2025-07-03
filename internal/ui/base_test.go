@@ -43,3 +43,24 @@ func TestBaseIndexForMergeBase(t *testing.T) {
 		t.Errorf("base index for unknown hash = %d, want 0", got)
 	}
 }
+
+func TestStartsUnlocked(t *testing.T) {
+	cases := []struct {
+		name  string
+		state model.RepoState
+		want  bool
+	}{
+		{"trunk in sync -> unlocked", model.RepoState{Branch: "main", HasUpstream: true, UpstreamRef: "origin/main", AheadOfRemote: 0}, true},
+		{"master in sync -> unlocked", model.RepoState{Branch: "master", HasUpstream: true, UpstreamRef: "origin/master", AheadOfRemote: 0}, true},
+		{"trunk ahead -> locked", model.RepoState{Branch: "main", HasUpstream: true, UpstreamRef: "origin/main", AheadOfRemote: 3}, false},
+		{"trunk no upstream -> locked", model.RepoState{Branch: "main"}, false},
+		{"feature branch -> locked", model.RepoState{Branch: "feature", HasUpstream: true, UpstreamRef: "origin/feature", AheadOfRemote: 0}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := startsUnlocked(tc.state); got != tc.want {
+				t.Errorf("startsUnlocked = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

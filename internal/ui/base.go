@@ -36,3 +36,21 @@ func baseIndexForMergeBase(commits []model.Commit, mergeBaseHash string) int {
 	}
 	return 0
 }
+
+// trunkBranches are the trunk branch names where regit starts fully unlocked when
+// the branch is already in sync with its upstream. There is no local-only work to
+// protect, so the auto-base's "merge-base == HEAD" result (which freezes all but
+// the newest commit) would be unhelpful. Editing pushed commits is still gated by
+// the typed branch-name confirmation at apply time, so safety is unaffected.
+var trunkBranches = []string{"main", "master"}
+
+// startsUnlocked reports the "trunk + upstream in sync" case: HEAD is on a trunk
+// branch whose configured upstream already contains every local commit
+// (AheadOfRemote == 0). applyAutoBase consults this first and freezes nothing when
+// it is true.
+func startsUnlocked(state model.RepoState) bool {
+	if !slices.Contains(trunkBranches, state.Branch) {
+		return false
+	}
+	return state.HasUpstream && state.UpstreamRef != "" && state.AheadOfRemote == 0
+}

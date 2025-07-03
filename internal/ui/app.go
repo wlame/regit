@@ -808,6 +808,13 @@ func (m *Model) applyDefaultSelectionMode() {
 // when a freeze was actually computed, so the title bar can never show a base
 // branch whose cone is not frozen. A Branches() failure leaves both unchanged.
 func (m *Model) applyAutoBase() {
+	// Req #6: on an in-sync trunk branch, start with everything editable. The
+	// merge-base would otherwise equal HEAD and freeze all but the newest commit.
+	if startsUnlocked(m.state) {
+		m.baseBranch = ""
+		m.plan.SetBase(0)
+		return
+	}
 	branches, err := m.repo.Branches()
 	if err != nil {
 		return // can't determine; leave baseBranch and plan.Base unchanged together
