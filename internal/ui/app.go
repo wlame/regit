@@ -1410,9 +1410,11 @@ func (m Model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeMain
 		return m, nil
 	case "up":
+		m.picker.errMsg = ""
 		m.picker.moveCursor(-1)
 		return m, nil
 	case "down":
+		m.picker.errMsg = ""
 		m.picker.moveCursor(1)
 		return m, nil
 	case "enter":
@@ -1420,7 +1422,8 @@ func (m Model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "tab":
 		return m.pickerSetBase()
 	}
-	cmd := m.picker.update(msg) // any other key filters the list
+	m.picker.errMsg = "" // typing in the filter clears a stale error
+	cmd := m.picker.update(msg)
 	return m, cmd
 }
 
@@ -1434,20 +1437,19 @@ func (m Model) pickerSwitchBranch() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if name == m.state.Branch {
-		m.mode = modeMain
-		m.setStatus("Already on "+name, statusWarn)
+		m.picker.errMsg = "Already on " + name
 		return m, nil
 	}
 	if m.state.IsDirty {
-		m.setStatus("Working tree has uncommitted changes — commit or stash before switching", statusErr)
+		m.picker.errMsg = "Working tree has uncommitted changes — commit or stash before switching"
 		return m, nil
 	}
 	if m.plan.HasChanges() {
-		m.setStatus("Unsaved edits — apply (A) or reset (r) before switching branch", statusErr)
+		m.picker.errMsg = "Unsaved edits — apply (A) or reset before switching branch"
 		return m, nil
 	}
 	if err := m.repo.SwitchBranch(name); err != nil {
-		m.setStatus(err.Error(), statusErr)
+		m.picker.errMsg = err.Error()
 		return m, nil
 	}
 	if err := m.reload(); err != nil {
@@ -1472,15 +1474,12 @@ func (m Model) pickerSetBase() (tea.Model, tea.Cmd) {
 	}
 	mergeBase, err := m.repo.MergeBase(m.state.Branch, name)
 	if err != nil {
-		m.setStatus("No common history with "+name+": "+err.Error(), statusErr)
+		m.picker.errMsg = "No common history with " + name + ": " + err.Error()
 		return m, nil
 	}
 	idx := baseIndexForMergeBase(m.plan.Commits, mergeBase)
 	if idx == 0 {
-		// Merge-base off the first-parent line: can't honestly freeze a cone
-		// here. Close the picker so the warning is visible; leave the base intact.
-		m.mode = modeMain
-		m.setStatus(name+" shares no first-parent history to freeze here", statusWarn)
+		m.picker.errMsg = name + " shares no first-parent history to freeze here"
 		return m, nil
 	}
 	m.baseBranch = name

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -29,6 +30,15 @@ func TestPicker_filterAndSelect(t *testing.T) {
 	p.moveCursor(5) // past the end -> clamp to last
 	if sel, _ := p.selected(); sel != "feature/ui" {
 		t.Errorf("cursor should clamp to the last filtered item, got %q", sel)
+	}
+}
+
+func TestViewPicker_rendersError(t *testing.T) {
+	p := newPicker("Branches", []string{"main", "feature/ui"})
+	p.errMsg = "Working tree has uncommitted changes"
+	out := viewPicker(p, "enter switch · esc cancel", newStyles())
+	if !strings.Contains(out, "Working tree has uncommitted changes") {
+		t.Errorf("viewPicker should render errMsg, got:\n%s", out)
 	}
 }
 

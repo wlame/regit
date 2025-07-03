@@ -1246,8 +1246,13 @@ func TestPicker_switchRefusedWithPendingEdits(t *testing.T) {
 	if m.state.Branch == "feature" {
 		t.Error("switch must be refused while there are unsaved edits")
 	}
-	if m.statusKind != statusErr {
-		t.Errorf("a refused switch should report an error status, got kind %v", m.statusKind)
+	// Guard errors now surface inside the picker overlay (not the status bar),
+	// so the picker stays open and errMsg is set.
+	if m.mode != modePicker {
+		t.Errorf("a refused switch must keep the picker open, got %v", m.mode)
+	}
+	if m.picker.errMsg == "" {
+		t.Error("a refused switch should set picker.errMsg")
 	}
 }
 
@@ -1932,5 +1937,41 @@ func TestDropBodies_honorsSelection(t *testing.T) {
 	}
 	if dropped != 1 {
 		t.Errorf("only the selected commit's body should drop, got %d", dropped)
+	}
+}
+
+// mkBranch creates a git branch in the model's repo so a picker test can target
+// a branch other than the current one.
+func mkBranch(t *testing.T, m Model, name string) {
+	t.Helper()
+	cmd := exec.Command("git", "branch", name)
+	cmd.Dir = m.repo.Root()
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git branch %s: %v\n%s", name, err, out)
+	}
+}
+
+func TestBranchPicker_dirtyErrorStaysInOverlay(t *testing.T) {
+	m := newTestModelN(t, 3)
+	mkBranch(t, m, "other")
+	m.state.IsDirty = true // simulate an uncommitted working tree
+	m = send(m, "B")       // open the branch picker
+	if m.mode != modePicker {
+		t.Fatalf("B should open the picker, got %v", m.mode)
+	}
+	m = send(m, "o", "t", "h", "e", "r") // filter to the "other" branch
+	m = send(m, "enter")                 // switch attempt -> blocked (dirty)
+	if m.mode != modePicker {
+		t.Fatalf("a blocked switch must keep the picker open, got %v", m.mode)
+	}
+	if m.picker.errMsg == "" {
+		t.Fatal("the dirty-tree guard should set the picker error")
+	}
+	if !strings.Contains(m.View(), "uncommitted changes") {
+		t.Errorf("the error should render inside the picker overlay, got:\n%s", m.View())
+	}
+	m = send(m, "x") // typing in the filter clears the stale error
+	if m.picker.errMsg != "" {
+		t.Error("typing should clear the picker error")
 	}
 }

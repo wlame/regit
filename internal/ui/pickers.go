@@ -17,6 +17,10 @@ type pickerState struct {
 	items  []string
 	filter textinput.Model
 	cursor int
+	// errMsg is a guard failure (dirty tree, unsaved edits, …) shown inside the
+	// overlay; the main status bar is hidden behind the picker, so errors must
+	// surface here.
+	errMsg string
 }
 
 // newPicker builds a picker over items with a focused, empty filter.
@@ -99,6 +103,9 @@ func viewPicker(p pickerState, footer string, st styles) string {
 		} else {
 			b.WriteString("  " + st.dim.Render(it) + "\n")
 		}
+	}
+	if p.errMsg != "" {
+		b.WriteString(st.statusErr.Render("✗ "+p.errMsg) + "\n")
 	}
 	b.WriteString("\n" + st.help.Render(footer))
 	return st.modal.Render(b.String())
