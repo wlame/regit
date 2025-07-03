@@ -58,6 +58,17 @@ rich calendar/strategy workspace; Restructure is a menu that re-invokes the
 existing split/reword/retitle/drop-bodies actions; History/Authorship/Search are
 disabled stub tabs awaiting later phases.
 
+The commit backbone is the list — capped at 80 columns (layout.go `listCeilWidth`) —
+beside a detail panel that stretches to fill the rest of a wide terminal. The
+detail's changed-files list is bounded to the pane height: overflow collapses to a
+`… +N more files` line and the whole body is hard-clamped (detail.go `clampLines`),
+so a many-file commit can never push the frame past the screen. `d` toggles
+date-grouping in the list (`[d]ates`); off renders a flat newest-first list. On an
+in-sync trunk branch (main/master with everything already pushed) history starts
+fully editable instead of freezing all but the newest commit (base.go
+`startsUnlocked`); the apply-time pushed-commit confirmation is unchanged, so this
+is a convenience default, not a safety relaxation.
+
 The commit list has a selection mode (selection.go) that gives each feature the
 selection it needs with a distinct visual language: Single (▸ cursor), Range (┃
 band, built with vim visual mode `v`), Set (○/● gutter, Space toggles · `a` all ·
@@ -66,6 +77,11 @@ dimmed). The mode defaults from the workspace (Dates → Active, others → Sing
 Reword consumes a Set as multi-reword (walks the picker per selected commit);
 frozen commits are never selectable. Range/Global are built and tested, awaiting
 their future consumers (Join / Search).
+
+Bulk actions (Drop bodies, Retitle) and the Restructure panel's affected-commit
+count operate on `affectedCommits()` — the explicit Set/Range selection when one
+exists, else the whole active range. Drop bodies opens a confirmation popup
+(`modeDropBodies`) reporting how many commits would change before any edit is staged.
 
 Every history mutation funnels through one stage → preview → confirm → apply
 pipeline (pipeline.go, spec §6.7). A feature stages a `pendingChange` (planChange
