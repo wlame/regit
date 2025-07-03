@@ -53,7 +53,7 @@ commit backbone (list + detail). Tabs and per-tab feature menus are DATA: the
 `workspaces` table and the `features` registry in feature.go are the single
 source of truth, and the tab bar, menus, and key help are derived from them
 (add a feature = add a registry row; the action surface grows down, never wide).
-`< / >` switch tabs; `tab` focuses the active workspace's widget. Dates is the
+`< / >` (or `[ / ]`) switch tabs; `tab` focuses the active workspace's widget. Dates is the
 rich calendar/strategy workspace; Restructure is a menu that re-invokes the
 existing split/reword/retitle/drop-bodies actions; History/Authorship/Search are
 disabled stub tabs awaiting later phases.
@@ -85,7 +85,8 @@ exists, else the whole active range. Drop bodies opens a confirmation popup
 
 Every history mutation funnels through one stage → preview → confirm → apply
 pipeline (pipeline.go, spec §6.7). A feature stages a `pendingChange` (planChange
-for date/message edits via `A`; splitChange for a reviewed split via `S`); the
+for date/message edits, applied with `A`; splitChange for a reviewed split, run
+from the Restructure menu); the
 `modePipeline` overlay shows its mandatory before/after preview; a typed
 branch-name confirm gates already-pushed rewrites; then `commitPending` applies it
 through `safety.Manager` (backup ref → op → byte-identical tree verify →
@@ -135,9 +136,9 @@ their respective packages.
 applies `REGIT_*` environment variable overrides. Env vars always win over
 the file. Never read `os.Getenv` anywhere else for configuration values.
 
-**`internal/ui`** — Bubble Tea TUI. Imports all packages above. The `[S]plit`
-action uses the same `split.Engine` that `cmd/regit/split.go` uses —
-one code path, not two.
+**`internal/ui`** — Bubble Tea TUI. Imports all packages above. The Split action
+(in the Restructure menu) uses the same `split.Engine` that `cmd/regit/split.go`
+uses — one code path, not two.
 
 ## How to build, run, and test
 
