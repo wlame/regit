@@ -385,10 +385,10 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		m.picker = newPicker("Branches", branches)
 		m.mode = modePicker
 		return m, nil, true
-	case ">":
+	case ">", "]":
 		m.nextWorkspace()
 		return m, nil, true
-	case "<":
+	case "<", "[":
 		m.prevWorkspace()
 		return m, nil, true
 	}
@@ -573,14 +573,6 @@ func (m *Model) moveCursor(msg tea.KeyMsg) {
 		moved = true
 	case "right", "l":
 		m.calCursor = m.calCursor.AddDate(0, 0, 7)
-		moved = true
-	case "[":
-		m.calYear--
-		m.calCursor = m.calCursor.AddDate(-1, 0, 0)
-		moved = true
-	case "]":
-		m.calYear++
-		m.calCursor = m.calCursor.AddDate(1, 0, 0)
 		moved = true
 	case " ":
 		// Toggle the day in the Picked Days set and reshuffle immediately.

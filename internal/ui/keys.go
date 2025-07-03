@@ -44,7 +44,7 @@ var keymap = []keyBinding{
 	{Key: "tab", Scope: scopeGlobal, Desc: "cycle focus across the list and the active workspace widget", Bar: "[tab]focus"},
 
 	// Workspaces / tabs
-	{Key: "< / >", Scope: scopeWorkspace, Desc: "switch workspace tabs (Dates · Restructure · …)", Bar: "[<>]tabs"},
+	{Key: "< / > or [ / ]", Scope: scopeWorkspace, Desc: "switch workspace tabs (Dates · Restructure · …)", Bar: "[<>]tabs"},
 	{Key: "tab", Scope: scopeWorkspace, Desc: "focus the active workspace's widget (calendar or feature menu)"},
 	{Key: "↑/↓ · enter", Scope: scopeWorkspace, Desc: "in a feature menu: move the cursor / run the selected feature"},
 
@@ -83,7 +83,6 @@ var keymap = []keyBinding{
 	// Calendar (focused)
 	{Key: "↑/↓", Scope: scopeCalendar, Desc: "move the cursor by one day"},
 	{Key: "←/→", Scope: scopeCalendar, Desc: "move the cursor by one week"},
-	{Key: "[ / ]", Scope: scopeCalendar, Desc: "previous / next year"},
 	{Key: "0-9", Scope: scopeCalendar, Desc: "pin a per-day quota, applied live (digits on one day combine: 2 then 4 = 24)"},
 	{Key: "space", Scope: scopeCalendar, Desc: "pick/unpick the day for a random split (reshuffles live)"},
 	{Key: "g", Scope: scopeCalendar, Desc: "re-apply all pinned quotas"},

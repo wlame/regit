@@ -1375,6 +1375,25 @@ func TestTabs_switchWithAngleBrackets(t *testing.T) {
 	}
 }
 
+func TestTabs_switchWithSquareBrackets(t *testing.T) {
+	m := newTestModel(t) // starts on Dates
+	if m.workspace != WSDates {
+		t.Fatalf("should start on Dates, got %v", m.workspace)
+	}
+	m = send(m, "]")
+	if m.workspace != WSRestructure {
+		t.Errorf("] should advance to Restructure, got %v", m.workspace)
+	}
+	m = send(m, "[")
+	if m.workspace != WSDates {
+		t.Errorf("[ should return to Dates, got %v", m.workspace)
+	}
+	m = send(m, "[") // wrap from the first tab to the last
+	if m.workspace != WSSearch {
+		t.Errorf("[ should wrap to the last tab, got %v", m.workspace)
+	}
+}
+
 func TestView_tabBarShowsAllWorkspaces(t *testing.T) {
 	m := newTestModel(t)
 	view := m.View()
