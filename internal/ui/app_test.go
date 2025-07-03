@@ -93,6 +93,21 @@ func send(m Model, keys ...string) Model {
 	return m
 }
 
+// runRestructureFeature invokes a Restructure feature by name through the same
+// Run the menu's Enter calls — independent of menu focus/cursor state and of any
+// global hotkey. The menu navigation path itself is covered by TestMenu_restructureRuns*.
+func runRestructureFeature(t *testing.T, m Model, name string) Model {
+	t.Helper()
+	for _, f := range featuresFor(WSRestructure) {
+		if f.Name == name {
+			model, _ := f.Run(m)
+			return model.(Model)
+		}
+	}
+	t.Fatalf("no Restructure feature named %q", name)
+	return m
+}
+
 func TestSplitChange_previewListsGroups(t *testing.T) {
 	sc := splitChange{
 		commit:     model.Commit{Hash: "abc1234567890000"},
@@ -476,7 +491,8 @@ func TestBaseBoundary_freezesOlderCommits(t *testing.T) {
 func TestBulkDropBodies_marksActiveOnly(t *testing.T) {
 	m := newTestModelN(t, 4)
 	m = send(m, "down", "down", "b") // base at storage index 1: root frozen
-	m = send(m, "D", "enter")
+	m = runRestructureFeature(t, m, "Drop bodies")
+	m = send(m, "enter")
 
 	root := m.plan.Commits[0]
 	if _, ok := m.plan.EditFor(root.Hash); ok {
@@ -500,7 +516,7 @@ func TestBulkDropBodies_marksActiveOnly(t *testing.T) {
 // shows the effective (edited) titles.
 func TestRetitle_regexReplacesActiveTitles(t *testing.T) {
 	m := newTestModelN(t, 3) // titles: "Refactor the authentication ... c00N"
-	m = send(m, "R")
+	m = runRestructureFeature(t, m, "Retitle (regex)")
 	if m.mode != modeRetitle {
 		t.Fatalf("R should open the retitle modal, got %v", m.mode)
 	}
@@ -526,7 +542,7 @@ func TestRetitle_regexReplacesActiveTitles(t *testing.T) {
 	}
 
 	// Replacing back to the original clears the edits entirely.
-	m = send(m, "R")
+	m = runRestructureFeature(t, m, "Retitle (regex)")
 	for _, ch := range "Fix" {
 		m = send(m, string(ch))
 	}
@@ -544,7 +560,7 @@ func TestRetitle_regexReplacesActiveTitles(t *testing.T) {
 // results never keep leading/trailing whitespace.
 func TestRetitle_trailingSpaceInPatternIsHonored(t *testing.T) {
 	m := newTestModelN(t, 3) // titles: "Refactor the authentication ..."
-	m = send(m, "R")
+	m = runRestructureFeature(t, m, "Retitle (regex)")
 	for _, ch := range "Refactor the " { // note the trailing space
 		m = send(m, string(ch))
 	}
@@ -562,7 +578,7 @@ func TestRetitle_trailingSpaceInPatternIsHonored(t *testing.T) {
 // also work with no pattern at all.
 func TestRetitle_togglesCapitalizeAndEnsureDot(t *testing.T) {
 	m := newTestModelN(t, 3)
-	m = send(m, "R")
+	m = runRestructureFeature(t, m, "Retitle (regex)")
 	for _, ch := range "Refactor" {
 		m = send(m, string(ch))
 	}
@@ -586,7 +602,8 @@ func TestRetitle_togglesCapitalizeAndEnsureDot(t *testing.T) {
 
 	// Toggles alone (no pattern) are a valid operation: re-running ensure-dot
 	// changes nothing further, so it reports no matches.
-	m = send(m, "R", "tab", "tab", "tab", " ", "enter")
+	m = runRestructureFeature(t, m, "Retitle (regex)")
+	m = send(m, "tab", "tab", "tab", " ", "enter")
 	if m.mode != modeRetitle || m.retitle.errMsg == "" {
 		t.Error("a no-op toggle run should stay open and report no changes")
 	}
@@ -623,7 +640,8 @@ func TestRetitleTransform_edgeCases(t *testing.T) {
 // Invalid patterns and zero-match patterns keep the modal open with an error.
 func TestRetitle_invalidPatternShowsError(t *testing.T) {
 	m := newTestModelN(t, 3)
-	m = send(m, "R", "(", "enter")
+	m = runRestructureFeature(t, m, "Retitle (regex)")
+	m = send(m, "(", "enter")
 	if m.mode != modeRetitle {
 		t.Fatal("invalid pattern should keep the modal open")
 	}
@@ -643,7 +661,7 @@ func TestRetitle_invalidPatternShowsError(t *testing.T) {
 func TestRetitle_respectsBase(t *testing.T) {
 	m := newTestModelN(t, 3)
 	m = send(m, "down", "b") // base at storage index 1: root frozen
-	m = send(m, "R")
+	m = runRestructureFeature(t, m, "Retitle (regex)")
 	for _, ch := range "Refactor" {
 		m = send(m, string(ch))
 	}
@@ -867,7 +885,8 @@ func TestGlobalKeys_workFromAnyPane(t *testing.T) {
 	}
 	m = send(m, "esc")
 
-	m = send(m, "D", "enter") // open the popup then confirm
+	m = runRestructureFeature(t, m, "Drop bodies") // open the popup then confirm
+	m = send(m, "enter")
 	if len(m.plan.Edits) != 3 {
 		t.Errorf("D+enter should drop bodies from the params pane, got %d edits", len(m.plan.Edits))
 	}
@@ -1883,7 +1902,7 @@ func TestPipeline_pushedSplitRoutesToConfirm(t *testing.T) {
 
 func TestDropBodies_popupConfirms(t *testing.T) {
 	m := newTestModelN(t, 3)
-	m = send(m, "D")
+	m = runRestructureFeature(t, m, "Drop bodies")
 	if m.mode != modeDropBodies {
 		t.Fatalf("D should open the drop-bodies popup, got %v", m.mode)
 	}
@@ -1910,7 +1929,8 @@ func TestDropBodies_popupConfirms(t *testing.T) {
 
 func TestDropBodies_escCancels(t *testing.T) {
 	m := newTestModelN(t, 3)
-	m = send(m, "D", "esc")
+	m = runRestructureFeature(t, m, "Drop bodies")
+	m = send(m, "esc")
 	if m.mode != modeMain {
 		t.Errorf("esc should close the popup, got %v", m.mode)
 	}
@@ -1943,7 +1963,7 @@ func TestAffectedCommits_rangeExcludesFrozenRootFirst(t *testing.T) {
 func TestDropBodies_honorsSelection(t *testing.T) {
 	m := newTestModelN(t, 4)
 	m = send(m, " ") // select the cursor (newest) commit
-	m = send(m, "D")
+	m = runRestructureFeature(t, m, "Drop bodies")
 	if !strings.Contains(m.View(), "Will drop the body of 1") {
 		t.Errorf("with one commit selected the popup should target 1, got:\n%s", m.View())
 	}
