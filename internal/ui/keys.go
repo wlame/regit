@@ -50,16 +50,12 @@ var keymap = []keyBinding{
 
 	// Actions (work from any pane)
 	{Key: "s", Scope: scopeAction, Desc: "open the strategy palette (Dates)", Bar: "[s]trategy"},
-	{Key: "S", Scope: scopeAction, Desc: "split the selected commit with the LLM (review → enter applies, esc cancels)", Bar: "[S]plit"},
-	{Key: "w", Scope: scopeAction, Desc: "reword the selected commit with the LLM (pick a variant, enter applies)", Bar: "[w]reword"},
 	{Key: "e / enter", Scope: scopeAction, Desc: "edit the selected commit (title, body, date)", Bar: "[e]dit"},
-	{Key: "D", Scope: scopeAction, Desc: "drop commit bodies (confirm popup); honors a selection or the whole editable range", Bar: "[D]rop-bodies"},
-	{Key: "R", Scope: scopeAction, Desc: "regex-replace across ALL editable commit titles", Bar: "[R]etitle"},
 	{Key: ".", Scope: scopeAction, Desc: "show full detail for the selected commit (overlay when narrow)", Bar: "[.]detail"},
 	{Key: "p", Scope: scopeAction, Desc: "preview the pending changes (read-only)", Bar: "[p]review"},
 	{Key: "A", Scope: scopeAction, Desc: "apply: preview the before/after, then enter to apply (confirm if pushed)", Bar: "[A]pply"},
-	{Key: "u", Scope: scopeAction, Desc: "undo the last apply", Bar: "[u]ndo"},
-	{Key: "r", Scope: scopeAction, Desc: "reset all pending edits", Bar: "[r]eset"},
+	{Key: "U", Scope: scopeAction, Desc: "undo the last apply", Bar: "[U]ndo"},
+	{Key: "R", Scope: scopeAction, Desc: "reset all pending edits", Bar: "[R]eset"},
 
 	// Commit list (focused)
 	{Key: "d", Scope: scopeList, Desc: "toggle date grouping in the commit list", Bar: "[d]ates"},

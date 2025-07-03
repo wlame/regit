@@ -336,23 +336,16 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 			m.setBaseAtCursor()
 		}
 		return m, nil, true
-	case "D":
-		m.mode = modeDropBodies
-		return m, nil, true
-	case "R":
-		m.retitle = newRetitleState()
-		m.mode = modeRetitle
-		return m, nil, true
 	case "p":
 		model, cmd := m.stagePlanApply(false)
 		return model, cmd, true
 	case "A":
 		model, cmd := m.beginApply()
 		return model, cmd, true
-	case "u":
+	case "U":
 		model, cmd := m.doUndo()
 		return model, cmd, true
-	case "r":
+	case "R":
 		m.plan.Edits = make(map[string]model.Edit)
 		m.plan.Violations = nil
 		m.setStatus("Cleared all pending edits", statusOK)
@@ -366,10 +359,6 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		}
 		m.setStatus("Date grouping: "+state, statusOK)
 		return m, nil, true
-	case "S":
-		return m.beginSplit()
-	case "w":
-		return m.beginReword()
 	case "g":
 		model, cmd := m.applyQuotas()
 		return model, cmd, true

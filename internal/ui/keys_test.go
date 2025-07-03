@@ -69,6 +69,20 @@ func TestKeybarHint_includesSelect(t *testing.T) {
 	}
 }
 
+func TestKeybar_reflectsRetiredAndRenamedActions(t *testing.T) {
+	bar := keybarHint()
+	for _, want := range []string{"[U]ndo", "[R]eset", "[A]pply"} {
+		if !strings.Contains(bar, want) {
+			t.Errorf("keybar should contain %q, got: %s", want, bar)
+		}
+	}
+	for _, gone := range []string{"[S]plit", "[w]reword", "[D]rop-bodies", "[R]etitle", "[u]ndo", "[r]eset"} {
+		if strings.Contains(bar, gone) {
+			t.Errorf("keybar should no longer contain %q, got: %s", gone, bar)
+		}
+	}
+}
+
 func TestHelpText_documentsPreviewThenApply(t *testing.T) {
 	help := helpText()
 	if !strings.Contains(help, "preview") {

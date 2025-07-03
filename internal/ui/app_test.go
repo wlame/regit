@@ -972,7 +972,7 @@ func TestReset_clearsEdits(t *testing.T) {
 	if !m.plan.HasChanges() {
 		t.Fatal("setup: expected edits")
 	}
-	m = send(m, "r")
+	m = send(m, "R")
 	if m.plan.HasChanges() {
 		t.Error("reset should clear all edits")
 	}
@@ -992,10 +992,35 @@ func TestApplyAndUndo_roundTrip(t *testing.T) {
 		t.Fatal("apply should have moved HEAD")
 	}
 
-	m = send(m, "u") // undo
+	m = send(m, "U") // undo
 	restored, _ := m.repo.ResolveRef("HEAD")
 	if restored != origHead {
 		t.Errorf("undo should restore original HEAD: %s != %s", restored, origHead)
+	}
+}
+
+func TestRetiredHotkeys_doNothing(t *testing.T) {
+	m := newTestModelN(t, 3)
+	for _, k := range []string{"S", "w", "D"} {
+		if mm := send(m, k); mm.mode != modeMain {
+			t.Errorf("retired key %q should be a no-op, but changed mode to %v", k, mm.mode)
+		}
+	}
+}
+
+func TestLowercaseResetUndo_areNoOps(t *testing.T) {
+	m := newTestModelN(t, 3)
+	m = send(m, "s", "enter", "enter") // stage edits (strategy still on 's' in Wave 1)
+	if !m.plan.HasChanges() {
+		t.Fatal("setup: expected staged edits")
+	}
+	m = send(m, "r") // lowercase no longer resets
+	if !m.plan.HasChanges() {
+		t.Error("lowercase r must no longer reset edits")
+	}
+	m = send(m, "R") // capital resets
+	if m.plan.HasChanges() {
+		t.Error("R should reset edits")
 	}
 }
 
