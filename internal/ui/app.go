@@ -33,6 +33,7 @@ const (
 	modeConfirm
 	modeHelp
 	modeRetitle
+	modeDropBodies
 	modeReword
 	modeDetail
 	modePicker
@@ -247,6 +248,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateConfirm(msg)
 	case modeRetitle:
 		return m.updateRetitle(msg)
+	case modeDropBodies:
+		return m.updateDropBodies(msg)
 	case modeReword:
 		return m.updateReword(msg)
 	case modeDetail:
@@ -334,7 +337,7 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 	case "D":
-		m.dropAllBodies()
+		m.mode = modeDropBodies
 		return m, nil, true
 	case "R":
 		m.retitle = newRetitleState()
@@ -613,11 +616,12 @@ func (m *Model) moveCursor(msg tea.KeyMsg) {
 
 // --- Bulk message operations -------------------------------------------------
 
-// dropAllBodies marks every editable commit that still has a body with a
-// DropBody edit, leaving title-only messages. Frozen commits are untouched.
+// dropAllBodies marks every commit in the affected scope (the selection, else the
+// whole editable range) that still has a body with a DropBody edit, leaving
+// title-only messages.
 func (m *Model) dropAllBodies() {
 	dropped := 0
-	for _, c := range m.plan.Active() {
+	for _, c := range m.affectedCommits() {
 		e, _ := m.plan.EditFor(c.Hash)
 		if !c.HasBody() || e.DropBody {
 			continue
@@ -627,10 +631,39 @@ func (m *Model) dropAllBodies() {
 		dropped++
 	}
 	if dropped == 0 {
-		m.setStatus("No bodies to drop in the editable range", statusWarn)
+		m.setStatus("No bodies to drop in the affected range", statusWarn)
 		return
 	}
 	m.setStatus(fmt.Sprintf("Dropped the body of %d commit(s) — titles kept", dropped), statusOK)
+}
+
+// updateDropBodies drives the drop-bodies confirmation popup: enter applies the
+// drop across the affected scope, esc/q cancel. The popup has no fields, so only
+// those keys matter.
+func (m Model) updateDropBodies(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		m.mode = modeMain
+		return m, nil
+	case "enter":
+		m.dropAllBodies()
+		m.mode = modeMain
+		return m, nil
+	}
+	return m, nil
+}
+
+// dropBodiesCount reports how many commits in the affected scope still carry a
+// non-empty body that a drop would remove (already-dropped commits do not count).
+func (m Model) dropBodiesCount() int {
+	n := 0
+	for _, c := range m.affectedCommits() {
+		e, _ := m.plan.EditFor(c.Hash)
+		if c.HasBody() && !e.DropBody {
+			n++
+		}
+	}
+	return n
 }
 
 // updateRetitle drives the bulk-retitle modal.
@@ -662,7 +695,7 @@ func (m Model) applyRetitle() (tea.Model, tea.Cmd) {
 	}
 
 	changed := 0
-	for _, c := range m.plan.Active() {
+	for _, c := range m.affectedCommits() {
 		cur := m.plan.EffectiveSubject(c)
 		neu := transform(cur)
 		if neu == cur {
@@ -1522,7 +1555,9 @@ func (m Model) View() string {
 	case modeHelp:
 		overlay = m.st.modal.Render(helpText())
 	case modeRetitle:
-		overlay = m.retitle.view(m.plan, m.st)
+		overlay = m.retitle.view(m.affectedCommits(), m.plan, m.st)
+	case modeDropBodies:
+		overlay = m.viewDropBodies()
 	case modeReword:
 		// Show the buffered result if available; otherwise a generating indicator.
 		if result, ok := m.rewordSt.buffer[m.rewordSt.commit.Hash]; ok {

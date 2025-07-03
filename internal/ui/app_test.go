@@ -476,7 +476,7 @@ func TestBaseBoundary_freezesOlderCommits(t *testing.T) {
 func TestBulkDropBodies_marksActiveOnly(t *testing.T) {
 	m := newTestModelN(t, 4)
 	m = send(m, "down", "down", "b") // base at storage index 1: root frozen
-	m = send(m, "D")
+	m = send(m, "D", "enter")
 
 	root := m.plan.Commits[0]
 	if _, ok := m.plan.EditFor(root.Hash); ok {
@@ -867,9 +867,9 @@ func TestGlobalKeys_workFromAnyPane(t *testing.T) {
 	}
 	m = send(m, "esc")
 
-	m = send(m, "D")
+	m = send(m, "D", "enter") // open the popup then confirm
 	if len(m.plan.Edits) != 3 {
-		t.Errorf("D should drop bodies from the params pane, got %d edits", len(m.plan.Edits))
+		t.Errorf("D+enter should drop bodies from the params pane, got %d edits", len(m.plan.Edits))
 	}
 
 	// Digits are NOT global: they belong to the focused form field.
@@ -1430,9 +1430,13 @@ func TestMenu_restructureRunsDropBodies(t *testing.T) {
 	m := newTestModel(t) // commits c000..c002, each WITH a body
 	m = send(m, ">", "tab")
 	m = send(m, "down", "down", "down") // Drop bodies (index 3)
-	m = send(m, "enter")
+	m = send(m, "enter")                // opens the confirmation popup
+	if m.mode != modeDropBodies {
+		t.Fatalf("running Drop bodies from the menu should open the popup, got mode %v", m.mode)
+	}
+	m = send(m, "enter") // confirm
 	if !m.plan.HasChanges() {
-		t.Error("running Drop bodies should stage body-drop edits")
+		t.Error("confirming Drop bodies should stage body-drop edits")
 	}
 }
 
@@ -1850,5 +1854,62 @@ func TestPipeline_pushedSplitRoutesToConfirm(t *testing.T) {
 	}
 	if m.confirmGuard.ConfirmWord != "main" {
 		t.Errorf("the confirm word should be the branch name, got %q", m.confirmGuard.ConfirmWord)
+	}
+}
+
+func TestDropBodies_popupConfirms(t *testing.T) {
+	m := newTestModelN(t, 3)
+	m = send(m, "D")
+	if m.mode != modeDropBodies {
+		t.Fatalf("D should open the drop-bodies popup, got %v", m.mode)
+	}
+	if m.plan.HasChanges() {
+		t.Error("opening the popup must not drop bodies before confirm")
+	}
+	if !strings.Contains(m.View(), "Will drop the body of 3") {
+		t.Errorf("popup should report the affected count, got:\n%s", m.View())
+	}
+	m = send(m, "enter")
+	if m.mode != modeMain {
+		t.Errorf("enter should close the popup, got %v", m.mode)
+	}
+	dropped := 0
+	for _, c := range m.plan.Active() {
+		if e, ok := m.plan.EditFor(c.Hash); ok && e.DropBody {
+			dropped++
+		}
+	}
+	if dropped != 3 {
+		t.Errorf("enter should drop all 3 bodies, got %d", dropped)
+	}
+}
+
+func TestDropBodies_escCancels(t *testing.T) {
+	m := newTestModelN(t, 3)
+	m = send(m, "D", "esc")
+	if m.mode != modeMain {
+		t.Errorf("esc should close the popup, got %v", m.mode)
+	}
+	if m.plan.HasChanges() {
+		t.Error("esc must not drop any bodies")
+	}
+}
+
+func TestDropBodies_honorsSelection(t *testing.T) {
+	m := newTestModelN(t, 4)
+	m = send(m, " ") // select the cursor (newest) commit
+	m = send(m, "D")
+	if !strings.Contains(m.View(), "Will drop the body of 1") {
+		t.Errorf("with one commit selected the popup should target 1, got:\n%s", m.View())
+	}
+	m = send(m, "enter")
+	dropped := 0
+	for _, c := range m.plan.Commits {
+		if e, ok := m.plan.EditFor(c.Hash); ok && e.DropBody {
+			dropped++
+		}
+	}
+	if dropped != 1 {
+		t.Errorf("only the selected commit's body should drop, got %d", dropped)
 	}
 }

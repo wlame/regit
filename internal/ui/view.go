@@ -91,6 +91,26 @@ func (m Model) viewStatusBar() string {
 	}
 }
 
+// viewDropBodies renders the drop-bodies confirmation modal: how many commits'
+// bodies would be removed (titles kept) across the affected scope, plus the
+// apply/cancel footer. It mirrors the retitle modal's confirmation style.
+func (m Model) viewDropBodies() string {
+	var b strings.Builder
+	b.WriteString(m.st.modalTitle.Render("Drop commit bodies") + "\n\n")
+	scope := "the editable range"
+	if (m.sel.mode == SelSet && len(m.sel.set) > 0) || m.sel.mode == SelRange {
+		scope = "the selection"
+	}
+	if n := m.dropBodiesCount(); n == 0 {
+		b.WriteString(m.st.dim.Render("No bodies to drop in "+scope) + "\n")
+	} else {
+		b.WriteString(m.st.statusOK.Render(fmt.Sprintf("Will drop the body of %d commit(s) — titles kept", n)) + "\n")
+		b.WriteString(m.st.dim.Render("Across "+scope) + "\n")
+	}
+	b.WriteString("\n" + m.st.help.Render("enter apply · esc cancel"))
+	return m.st.modal.Render(b.String())
+}
+
 func (m Model) viewConfirm() string {
 	var b strings.Builder
 	b.WriteString(m.st.modalTitle.Render("Confirm rewrite") + "\n\n")

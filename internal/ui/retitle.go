@@ -148,14 +148,14 @@ func endsSentence(s string) bool {
 	return strings.ContainsRune(".!?…:", r[len(r)-1])
 }
 
-// retitlePreview reports how many editable titles the current settings would
-// change, plus one before→after example for the modal's live preview.
-func retitlePreview(plan *model.Plan, s retitleState) (changed int, example string, err error) {
+// retitlePreview reports how many titles in the given scope the current settings
+// would change, plus one before→after example for the modal's live preview.
+func retitlePreview(scope []model.Commit, plan *model.Plan, s retitleState) (changed int, example string, err error) {
 	transform, err := s.transform()
 	if err != nil {
 		return 0, "", err
 	}
-	for _, c := range plan.Active() {
+	for _, c := range scope {
 		cur := plan.EffectiveSubject(c)
 		neu := transform(cur)
 		if neu == cur {
@@ -170,10 +170,10 @@ func retitlePreview(plan *model.Plan, s retitleState) (changed int, example stri
 }
 
 // view renders the retitle modal with a live preview of the transformation.
-func (s retitleState) view(plan *model.Plan, st styles) string {
+func (s retitleState) view(scope []model.Commit, plan *model.Plan, st styles) string {
 	var b strings.Builder
 	b.WriteString(st.modalTitle.Render("Bulk retitle (regex)") + "\n")
-	b.WriteString(st.dim.Render(fmt.Sprintf("Rewrites the titles of all %d editable commits", len(plan.Active()))) + "\n\n")
+	b.WriteString(st.dim.Render(fmt.Sprintf("Rewrites the titles of all %d editable commits", len(scope))) + "\n\n")
 
 	var cursors [retitleFieldCount]string
 	for i := range cursors {
@@ -194,7 +194,7 @@ func (s retitleState) view(plan *model.Plan, st styles) string {
 
 	if !s.hasWork() {
 		b.WriteString(st.dim.Render("Go regexp; $1 references capture groups") + "\n")
-	} else if changed, example, err := retitlePreview(plan, s); err != nil {
+	} else if changed, example, err := retitlePreview(scope, plan, s); err != nil {
 		b.WriteString(st.statusWarn.Render("invalid pattern: "+truncate(err.Error(), 40)) + "\n")
 	} else if changed == 0 {
 		b.WriteString(st.dim.Render("no titles would change") + "\n")

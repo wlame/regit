@@ -87,7 +87,7 @@ var features = []Feature{
 		return m, nil
 	}},
 	{Name: "Drop bodies", Workspace: WSRestructure, Selection: SelActive, Run: func(m Model) (tea.Model, tea.Cmd) {
-		m.dropAllBodies()
+		m.mode = modeDropBodies
 		return m, nil
 	}},
 }
