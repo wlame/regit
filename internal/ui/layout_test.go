@@ -9,9 +9,9 @@ func TestComputeLayout_ListWidthBounds(t *testing.T) {
 		wantList     int
 		wantDetail   int
 	}{
-		{"zero width renders at the 120 target floor", 0, 40, 56, 0},      // 120 < 142 -> 2-col, 120-64
-		{"narrow clamps up to the list floor", 90, 40, listFloorWidth, 0}, // 90-64=26 -> 44, 2-col
-		{"target floor width", 120, 40, 56, 0},                            // 120-64, 2-col
+		{"zero width renders at the 120 target floor", 0, 40, 56, 0},             // 120 < 142 -> 2-col, 120-64
+		{"narrow clamps up to the list floor", 90, 40, listFloorWidth, 0},        // 90-64=26 -> 44, 2-col
+		{"target floor width", 120, 40, 56, 0},                                   // 120-64, 2-col
 		{"wide terminal caps the list at 80, detail stretches", 220, 40, 80, 74}, // avail=220-66=154; list capped 80; detail=154-80
 		{"ultrawide caps list at 80, detail stretches", 400, 40, 80, 94},         // avail=240-66=174; list capped 80; detail=174-80
 	}

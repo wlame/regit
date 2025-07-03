@@ -153,8 +153,8 @@ func New(repo *gitio.Repo, mgr *safety.Manager, cfg config.Config, state model.R
 		statErr:      make(map[string]string),
 		statInFlight: make(map[string]bool),
 		strategies:   strategy.Strategies(),
-		st:          newStyles(),
-		groupByDate: true,
+		st:           newStyles(),
+		groupByDate:  true,
 	}
 
 	// Auto-detect the base branch and freeze the shared-history cone, then start
