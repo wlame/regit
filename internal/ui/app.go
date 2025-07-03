@@ -692,6 +692,52 @@ func (m Model) storageIndexAtCursor() int {
 	return len(m.plan.Commits) - 1 - m.listCursor
 }
 
+// affectedCommits returns the commits a bulk action or the action-panel count
+// applies to, under the "selection wins, else all-active" rule: the explicit
+// Set/Range selection when present (filtered to the editable range), otherwise the
+// whole active range. Returned root-first (oldest → newest) to match plan.Active.
+func (m Model) affectedCommits() []model.Commit {
+	switch {
+	case m.sel.mode == SelSet && len(m.sel.set) > 0:
+		return m.commitsInSet()
+	case m.sel.mode == SelRange:
+		return m.commitsInRange()
+	default:
+		return m.plan.Active()
+	}
+}
+
+// commitsInSet returns the selected (Set-mode) commits that are still editable,
+// in root-first order.
+func (m Model) commitsInSet() []model.Commit {
+	var out []model.Commit
+	for _, c := range m.plan.Active() {
+		if m.sel.isSet(c.Hash) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// commitsInRange returns the visual-range commits that are editable, in root-first
+// order. The range is expressed in display indices (newest-first), so it walks the
+// span and reverses to root-first.
+func (m Model) commitsInRange() []model.Commit {
+	lo, hi := m.sel.rangeBounds(m.listCursor)
+	var out []model.Commit
+	for d := lo; d <= hi; d++ {
+		storage := len(m.plan.Commits) - 1 - d
+		if storage < 0 || storage >= len(m.plan.Commits) || m.plan.IsFrozen(storage) {
+			continue
+		}
+		out = append(out, m.plan.Commits[storage])
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out
+}
+
 // focusAfterList returns the zone the focus moves to when tab is pressed on the
 // commit list. It depends on the active workspace: the Dates calendar, the
 // Restructure feature menu, or (for a stub workspace with no focusable widget)

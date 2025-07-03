@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -21,7 +22,7 @@ func (m Model) viewRestructureMenu() string {
 	// features are shown — this method is only reached for WSRestructure today.
 	feats := featuresFor(m.workspace)
 	var b strings.Builder
-	b.WriteString(m.st.modalTitle.Render("RESTRUCTURE") + "\n\n")
+	b.WriteString(m.st.modalTitle.Render(fmt.Sprintf("RESTRUCTURE · %d commit(s)", len(m.affectedCommits()))) + "\n\n")
 	for i, f := range feats {
 		if m.focus == focusWorkspace && i == m.wsMenuCursor {
 			b.WriteString(m.st.selected.Render("▸ "+f.Name) + "\n")

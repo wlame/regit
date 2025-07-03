@@ -1806,6 +1806,28 @@ func TestDateGroupingToggle(t *testing.T) {
 // TestPipeline_pushedSplitRoutesToConfirm proves a split of pushed history is no
 // longer un-appliable: its guard requires the typed branch confirmation, so enter
 // in the preview routes to modeConfirm (instead of erroring at apply time).
+func TestAffectedCommits_selectionWinsElseActive(t *testing.T) {
+	m := newTestModelN(t, 4)
+	// No explicit selection: the whole active range.
+	if got, want := len(m.affectedCommits()), len(m.plan.Active()); got != want {
+		t.Errorf("no selection should target all active (%d), got %d", want, got)
+	}
+	// Select two commits with space.
+	m = send(m, " ")         // toggle the cursor commit
+	m = send(m, "down", " ") // move down and toggle a second
+	if got := len(m.affectedCommits()); got != 2 {
+		t.Errorf("a 2-commit selection should target 2, got %d", got)
+	}
+}
+
+func TestRestructureMenu_showsAffectedCount(t *testing.T) {
+	m := newTestModelN(t, 4)
+	m = send(m, ">") // switch to the Restructure workspace
+	if !strings.Contains(m.View(), "4 commit(s)") {
+		t.Errorf("Restructure title should show the active count, got:\n%s", m.View())
+	}
+}
+
 func TestPipeline_pushedSplitRoutesToConfirm(t *testing.T) {
 	m := newTestModelN(t, 3)
 	// Simulate a repo whose commits are on an upstream (HasPushedCommits()).
