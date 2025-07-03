@@ -88,6 +88,7 @@ func renderFileLines(filesStat []gitio.FileStat, budget int, sty styles) []strin
 		}
 		return out
 	}
+	// When budget==1, show==0: the single available row is spent on the overflow summary.
 	show := budget - 1
 	out := make([]string, 0, budget)
 	for _, f := range filesStat[:show] {

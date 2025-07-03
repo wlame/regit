@@ -1895,6 +1895,27 @@ func TestDropBodies_escCancels(t *testing.T) {
 	}
 }
 
+// A visual Range that spans into the frozen cone must yield only the editable
+// commits in that span, root-first (oldest→newest), matching plan.Active()'s order.
+func TestAffectedCommits_rangeExcludesFrozenRootFirst(t *testing.T) {
+	m := newTestModelN(t, 5) // storage 0..4 (root-first); display d ↔ storage 4-d
+	m.plan.SetBase(1)        // freeze storage index 0 (the oldest commit)
+	// Visual range over display indices [2,4] (newest-side 2 .. oldest-side 4).
+	m.sel.mode = SelRange
+	m.sel.anchor = 2
+	m.listCursor = 4
+	got := m.affectedCommits()
+	// display 2,3,4 -> storage 2,1,0; storage 0 is frozen -> excluded.
+	if len(got) != 2 {
+		t.Fatalf("range should yield 2 editable commits (frozen excluded), got %d", len(got))
+	}
+	// Root-first order: storage[1] then storage[2].
+	if got[0].Hash != m.plan.Commits[1].Hash || got[1].Hash != m.plan.Commits[2].Hash {
+		t.Errorf("range commits should be root-first storage[1],storage[2]; got %s,%s",
+			short(got[0].Hash), short(got[1].Hash))
+	}
+}
+
 func TestDropBodies_honorsSelection(t *testing.T) {
 	m := newTestModelN(t, 4)
 	m = send(m, " ") // select the cursor (newest) commit

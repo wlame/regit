@@ -173,7 +173,7 @@ func retitlePreview(scope []model.Commit, plan *model.Plan, s retitleState) (cha
 func (s retitleState) view(scope []model.Commit, plan *model.Plan, st styles) string {
 	var b strings.Builder
 	b.WriteString(st.modalTitle.Render("Bulk retitle (regex)") + "\n")
-	b.WriteString(st.dim.Render(fmt.Sprintf("Rewrites the titles of all %d editable commits", len(scope))) + "\n\n")
+	b.WriteString(st.dim.Render(fmt.Sprintf("Rewrites %d commit title(s) in scope", len(scope))) + "\n\n")
 
 	var cursors [retitleFieldCount]string
 	for i := range cursors {
