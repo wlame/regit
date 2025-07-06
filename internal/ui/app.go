@@ -144,24 +144,54 @@ type Model struct {
 // activeStrat returns the currently-selected strategy's state.
 func (m *Model) activeStrat() *strategyState { return &m.strats[m.stratIdx] }
 
-// stratIndexByName returns the index of the first strategy with the given name,
-// or 0 if not found. Used to direct calendar pins to the correct strategy slot.
-func (m *Model) stratIndexByName(name string) int {
-	for i, s := range m.strategies {
-		if s.Name() == name {
-			return i
+// unstageActive removes the active strategy's staged author dates from every
+// active commit, keeping any manual message edits (subject/body/drop), so the
+// calendar falls back to plain tiles when the strategy is not ready.
+func (m *Model) unstageActive() {
+	for _, c := range m.plan.Active() {
+		e, ok := m.plan.EditFor(c.Hash)
+		if !ok {
+			continue
 		}
+		e.NewAuthorDate = nil
+		e.NewCommitDate = nil
+		m.plan.SetEdit(c.Hash, e)
 	}
-	return 0
+	m.plan.Violations = nil
 }
 
-// quotaStrat returns the Manual Pin strategy's state, which owns the calendar quota pins.
-func (m *Model) quotaStrat() *strategyState { return &m.strats[m.stratIndexByName("Manual Pin")] }
-
-// pickedStrat returns the Picked Days strategy's state, which owns the calendar picked-day pins.
-func (m *Model) pickedStrat() *strategyState {
-	return &m.strats[m.stratIndexByName("Picked Days")]
+// stageActive previews the active strategy: when it is ready it stages its
+// distribution (author-date edits) via the engine; otherwise it unstages.
+// Called after every param edit, pin change, and carousel switch, so plan.Edits
+// always reflects exactly the active strategy.
+func (m *Model) stageActive() {
+	a := m.activeStrat()
+	pinBased := a.form.strat.Name() == "Manual Pin" || a.form.strat.Name() == "Picked Days"
+	ready := a.form.ready()
+	if pinBased {
+		ready = len(a.quotas) > 0 || len(a.picked) > 0
+	}
+	if !ready {
+		m.unstageActive()
+		return
+	}
+	params, err := a.form.buildParams(m.cfg, a.quotas, a.picked)
+	if err != nil {
+		a.form.errMsg = err.Error()
+		m.unstageActive()
+		return
+	}
+	if err := strategy.Apply(m.plan, a.form.strat, pickTimeModel(a.form), params, m.cfg.LinkDates); err != nil {
+		a.form.errMsg = err.Error()
+		m.unstageActive()
+		return
+	}
+	a.form.errMsg = ""
 }
+
+// strategyStaged reports whether the active strategy has staged edits.
+// Used by Task 5 to detect the previewActive signal.
+func (m *Model) strategyStaged() bool { return m.plan.HasChanges() }
 
 // New constructs the root model from already-loaded repo data.
 func New(repo *gitio.Repo, mgr *safety.Manager, cfg config.Config, state model.RepoState, commits []model.Commit) Model {
@@ -375,14 +405,18 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		model, cmd := m.doUndo()
 		return model, cmd, true
 	case "R":
+		// Rebuild every strategy slot: fresh forms (dates unset) and empty pins.
+		for i := range m.strats {
+			m.strats[i] = strategyState{
+				form:   newParamsForm(m.strategies[i], m.cfg, m.calCursor),
+				quotas: make(map[string]int),
+				picked: make(map[string]bool),
+			}
+		}
 		m.plan.Edits = make(map[string]model.Edit)
 		m.plan.Violations = nil
-		*m.activeStrat() = strategyState{
-			form:   newParamsForm(m.activeStrat().form.strat, m.cfg, m.calCursor),
-			quotas: make(map[string]int),
-			picked: make(map[string]bool),
-		}
-		m.setStatus("Cleared all pending edits", statusOK)
+		m.quotaTyping = false
+		m.setStatus("Reset — strategies and calendar cleared", statusOK)
 		return m, nil, true
 	case "d":
 		m.groupByDate = !m.groupByDate
@@ -393,9 +427,6 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		}
 		m.setStatus("Date grouping: "+state, statusOK)
 		return m, nil, true
-	case "g":
-		model, cmd := m.applyQuotas()
-		return model, cmd, true
 	case ".":
 		m.mode = modeDetail
 		return m, m.markAndFetch(), true
@@ -598,32 +629,36 @@ func (m *Model) moveCursor(msg tea.KeyMsg) {
 		m.calCursor = m.calCursor.AddDate(0, 0, 7)
 		moved = true
 	case " ":
-		// Toggle the day in the Picked Days set and reshuffle immediately.
-		// Picked-day pins always go to the Picked Days strategy's slot so that
-		// switching to Picked Days from the palette finds them there.
-		key := m.calCursor.Format(dateLayout)
-		if m.pickedStrat().picked[key] {
-			delete(m.pickedStrat().picked, key)
-		} else {
-			m.pickedStrat().picked[key] = true
+		// Toggle a picked day — only when the Picked Days strategy is active.
+		// Other strategies ignore space so the key can be used elsewhere later.
+		if m.activeStrat().form.strat.Name() == "Picked Days" {
+			key := m.calCursor.Format(dateLayout)
+			if m.activeStrat().picked[key] {
+				delete(m.activeStrat().picked, key)
+			} else {
+				m.activeStrat().picked[key] = true
+			}
+			m.quotaTyping = false
+			m.stageActive()
 		}
-		m.quotaTyping = false
-		m.applyPickedNow()
 	default:
 		if d := digit(msg.String()); d >= 0 {
-			// Quota digits always go to the Manual Pin strategy's slot so that
-			// switching to Manual Pin from the palette finds them there.
-			key := m.calCursor.Format(dateLayout)
-			// Consecutive digits on the same day build a two-digit quota:
-			// 2 → 24 → 45 (the last two digits typed win).
-			if m.quotaTyping {
-				d = (m.quotaStrat().quotas[key]%10)*10 + d
+			// Pin a quota — only when the Manual Pin strategy is active.
+			// Digits typed under any other strategy are silently ignored so they
+			// do not accidentally overwrite another strategy's quota map.
+			if m.activeStrat().form.strat.Name() == "Manual Pin" {
+				key := m.calCursor.Format(dateLayout)
+				// Consecutive digits on the same day build a two-digit quota:
+				// 2 → 24 → 45 (the last two digits typed win).
+				if m.quotaTyping {
+					d = (m.activeStrat().quotas[key]%10)*10 + d
+				}
+				m.activeStrat().quotas[key] = d
+				m.quotaTyping = true
+				// Stage the Manual Pin strategy live so the commit list
+				// reflects the pin as soon as the digit is pressed.
+				m.stageActive()
 			}
-			m.quotaStrat().quotas[key] = d
-			m.quotaTyping = true
-			// Quotas apply immediately so the commit list reflects the pin
-			// as soon as the digit is pressed ('g' re-applies manually).
-			m.applyQuotasNow()
 		}
 	}
 	m.calYear = m.calCursor.Year()
@@ -916,12 +951,13 @@ func (m *Model) selectFirstCommitOfDay() {
 	}
 }
 
-// cycleStrategy moves the carousel by delta (wrapping). The pin/preview wiring in
-// Task 4 re-stages on switch; here it only repaints the now-active strategy.
+// cycleStrategy moves the carousel by delta (wrapping), unstages the old
+// strategy's edits, then re-stages the new one if it is ready.
 func (m *Model) cycleStrategy(delta int) {
 	n := len(m.strategies)
 	m.stratIdx = (m.stratIdx + delta + n) % n
 	m.activeStrat().form.focusIdx = 0
+	m.stageActive()
 }
 
 // --- Params pane -------------------------------------------------------------
@@ -960,19 +996,34 @@ func (m Model) updateParamsPane(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	m.activeStrat().form.errMsg = "" // any edit invalidates the previous apply error
 	cmd := m.activeStrat().form.update(msg)
+	// Re-evaluate whether the strategy is ready after every keystroke, staging
+	// live when it becomes ready and unstaging when it becomes incomplete again.
+	m.stageActive()
 	return m, cmd
 }
 
 func (m Model) applyStrategy() (tea.Model, tea.Cmd) {
-	a := m.activeStrat()
-	params, err := a.form.buildParams(m.cfg, a.quotas, a.picked)
-	if err != nil {
-		a.form.errMsg = err.Error()
+	// Re-stage with the current form values (live staging may already have done
+	// this, but enter explicitly re-evaluates so the user gets immediate feedback
+	// if the form is incomplete), then hand focus back to the list.
+	m.stageActive()
+	if m.activeStrat().form.errMsg != "" {
+		// Stage failed: stay in the params pane so the user can see the error.
 		return m, nil
 	}
-	tm := pickTimeModel(a.form)
-	if err := strategy.Apply(m.plan, a.form.strat, tm, params, m.cfg.LinkDates); err != nil {
-		a.form.errMsg = err.Error()
+	a := m.activeStrat()
+	pinBased := a.form.strat.Name() == "Manual Pin" || a.form.strat.Name() == "Picked Days"
+	ready := a.form.ready()
+	if pinBased {
+		ready = len(a.quotas) > 0 || len(a.picked) > 0
+	}
+	if !ready {
+		// Nothing staged yet: report a helpful message and stay in the pane.
+		if pinBased {
+			a.form.errMsg = "Pin at least one day on the calendar first (0–9 for quotas, space for picked days)"
+		} else {
+			a.form.errMsg = "Fill the date fields before applying"
+		}
 		return m, nil
 	}
 	// Success: hand focus back to the list so global keys (A, p, u…) work
@@ -980,56 +1031,6 @@ func (m Model) applyStrategy() (tea.Model, tea.Cmd) {
 	m.focus = focusList
 	m.reportPlan(a.form.strat.Name())
 	return m, nil
-}
-
-func (m Model) applyQuotas() (tea.Model, tea.Cmd) {
-	m.applyQuotasNow()
-	return m, nil
-}
-
-// applyQuotasNow re-runs the Manual Pin strategy over the current quota map,
-// so quota edits are reflected in the commit list immediately.
-func (m *Model) applyQuotasNow() {
-	if len(m.quotaStrat().quotas) == 0 {
-		m.setStatus("No quotas set — focus the calendar and press 0-9 on days first", statusWarn)
-		return
-	}
-	if err := strategy.Apply(m.plan, strategy.ManualPin{}, m.defaultTimeModel(), m.calendarParams(), m.cfg.LinkDates); err != nil {
-		m.setStatus(err.Error(), statusErr)
-		return
-	}
-	m.reportPlan("Manual Pin")
-}
-
-// applyPickedNow re-runs the Picked Days strategy over the picked-day set so
-// toggling a day immediately reshuffles the commits across the selection.
-func (m *Model) applyPickedNow() {
-	if len(m.pickedStrat().picked) == 0 {
-		m.setStatus("No days picked — press space on calendar days first", statusWarn)
-		return
-	}
-	if err := strategy.Apply(m.plan, strategy.PickedDays{}, m.defaultTimeModel(), m.calendarParams(), m.cfg.LinkDates); err != nil {
-		m.setStatus(err.Error(), statusErr)
-		return
-	}
-	m.reportPlan("Picked Days")
-}
-
-// calendarParams builds the strategy params for the interactive calendar
-// workflows (quota pins and picked days), which need no date range: the
-// chosen days themselves define it.
-func (m *Model) calendarParams() strategy.Params {
-	return strategy.Params{
-		Location:    m.loc,
-		WeekdayMask: strategy.WeekdayMask(m.cfg.WeekdayMask()),
-		Quotas:      m.quotaStrat().quotas,
-		Picked:      m.pickedStrat().picked,
-		DayStartMin: m.cfg.WorkdayStartMin(),
-		DayEndMin:   m.cfg.WorkdayEndMin(),
-		LunchStart:  m.cfg.LunchStartMin(),
-		LunchEnd:    m.cfg.LunchEndMin(),
-		Seed:        m.cfg.Seed,
-	}
 }
 
 func (m *Model) defaultTimeModel() strategy.TimeModel {
@@ -1234,7 +1235,6 @@ func (m *Model) reload() error {
 	}
 	m.state = state
 	m.plan = model.NewPlan(commits)
-	m.quotaStrat().quotas = make(map[string]int)
 	m.statCache = make(map[string]gitio.Stat)
 	m.statErr = make(map[string]string)
 	m.statInFlight = make(map[string]bool)

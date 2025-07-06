@@ -93,9 +93,17 @@ func send(m Model, keys ...string) Model {
 	return m
 }
 
-// applyStrategyInPane focuses the strategy pane and applies the currently-selected
-// strategy (carousel + fields are already set up by the caller).
-func applyStrategyInPane(m Model) Model { return send(m, "tab", "tab", "enter") }
+// applyStrategyInPane focuses the strategy pane (tab tab), fills date fields for
+// the Even Spread strategy (start 2026-06-01, end 2026-06-30) so the strategy is
+// ready, then presses enter to apply and return focus to the list.
+func applyStrategyInPane(m Model) Model {
+	m = send(m, "tab", "tab") // list -> calendar -> params pane
+	m = send(m, "down")       // carousel row -> Start date
+	m = typeDate(m, "2026-06-01")
+	m = send(m, "down") // Start date -> End date
+	m = typeDate(m, "2026-06-30")
+	return send(m, "enter")
+}
 
 // selectStrategy focuses the pane and lands the carousel on the strategy at registry
 // offset n from the default (Even Spread). It resets to the default first so n is an
@@ -276,12 +284,17 @@ func TestView_cursorStaysVisibleWhenScrolling(t *testing.T) {
 
 func TestPaletteToParamsToApply_spreadsCommits(t *testing.T) {
 	m := newTestModel(t)
-	// Focus the strategy pane (Even Spread is default-selected) and apply.
+	// Focus the strategy pane (Even Spread is default-selected), fill the date
+	// fields (they start unset/greyed), and apply.
 	m = send(m, "tab", "tab") // list -> calendar -> params
 	if m.mode != modeMain || m.focus != focusParams {
 		t.Fatalf("tab tab should focus the params pane, got mode %v focus %v", m.mode, m.focus)
 	}
-	m = send(m, "enter") // apply
+	m = send(m, "down")           // carousel row -> Start date
+	m = typeDate(m, "2026-06-01") // fill Start date
+	m = send(m, "down")           // Start date -> End date
+	m = typeDate(m, "2026-06-30") // fill End date
+	m = send(m, "enter")          // apply
 	if m.focus != focusList {
 		t.Fatalf("successful apply should focus the list, got %v", m.focus)
 	}
@@ -741,7 +754,9 @@ func TestListFocus_noDayHighlight(t *testing.T) {
 }
 
 // A failed apply must surface its error inside the strategy pane, otherwise
-// a silent failure reads as "enter does nothing".
+// a silent failure reads as "enter does nothing". Date fields now start unset,
+// so pressing enter with an empty/partial date triggers the "fill date fields"
+// error rather than a parse failure.
 func TestParamsForm_showsErrorInsidePane(t *testing.T) {
 	m := newTestModel(t)
 	m = send(m, "tab", "tab") // list -> calendar -> params pane (Even Spread)
@@ -750,15 +765,15 @@ func TestParamsForm_showsErrorInsidePane(t *testing.T) {
 	}
 	m = send(m, "down") // move from the carousel row to the first input
 
-	m = send(m, "x", "enter") // corrupt the focused Start-date field, apply
+	m = send(m, "x", "enter") // type an invalid partial date, then apply
 	if m.focus != focusParams {
 		t.Fatal("failed apply should keep the params pane focused")
 	}
 	if m.activeStrat().form.errMsg == "" {
 		t.Fatal("apply error should be stored on the form")
 	}
-	if !strings.Contains(m.View(), "start date must be") {
-		t.Error("error should be rendered inside the strategy pane")
+	if !strings.Contains(m.View(), "date") {
+		t.Error("date-related error should be rendered inside the strategy pane")
 	}
 
 	m = send(m, "1") // editing again clears the stale error
@@ -769,7 +784,10 @@ func TestParamsForm_showsErrorInsidePane(t *testing.T) {
 
 func TestCalendarQuotas_applyImmediately(t *testing.T) {
 	m := newTestModel(t)
-	m = send(m, "tab") // focus calendar
+	// Select Manual Pin first: digits only gate to the active strategy.
+	m = selectStrategy(m, 1) // strategy pane, Manual Pin (index 1)
+	m = send(m, "tab")       // params pane -> list
+	m = send(m, "tab")       // list -> calendar
 	if m.focus != focusCalendar {
 		t.Fatal("tab should focus the calendar")
 	}
@@ -801,31 +819,34 @@ func TestCalendarQuotas_applyImmediately(t *testing.T) {
 // (2 → 24 → 45); moving the cursor starts a fresh entry.
 func TestCalendarQuotas_twoDigitEntry(t *testing.T) {
 	m := newTestModel(t)
-	m = send(m, "tab") // focus calendar (cursor on 2026-06-05)
+	// Select Manual Pin first: digits only gate to the active strategy.
+	m = selectStrategy(m, 1) // strategy pane, Manual Pin (index 1)
+	m = send(m, "tab")       // params pane -> list
+	m = send(m, "tab")       // list -> calendar (cursor on 2026-06-05)
 	day := m.calCursor.In(m.loc).Format("2006-01-02")
 
 	m = send(m, "2")
-	if got := m.quotaStrat().quotas[day]; got != 2 {
+	if got := m.activeStrat().quotas[day]; got != 2 {
 		t.Fatalf("first digit: want quota 2, got %d", got)
 	}
 	m = send(m, "4")
-	if got := m.quotaStrat().quotas[day]; got != 24 {
+	if got := m.activeStrat().quotas[day]; got != 24 {
 		t.Fatalf("second digit should append: want 24, got %d", got)
 	}
 	m = send(m, "5")
-	if got := m.quotaStrat().quotas[day]; got != 45 {
+	if got := m.activeStrat().quotas[day]; got != 45 {
 		t.Fatalf("third digit should keep the last two: want 45, got %d", got)
 	}
 
 	// Moving away and typing starts a new number on the new day…
 	m = send(m, "right", "7")
 	other := m.calCursor.In(m.loc).Format("2006-01-02")
-	if got := m.quotaStrat().quotas[other]; got != 7 {
+	if got := m.activeStrat().quotas[other]; got != 7 {
 		t.Errorf("digit after a move should start fresh: want 7, got %d", got)
 	}
 	// …and returning to the first day also starts fresh (3, not 53).
 	m = send(m, "left", "3")
-	if got := m.quotaStrat().quotas[day]; got != 3 {
+	if got := m.activeStrat().quotas[day]; got != 3 {
 		t.Errorf("digit after returning should start fresh: want 3, got %d", got)
 	}
 }
@@ -834,9 +855,13 @@ func TestCalendarQuotas_twoDigitEntry(t *testing.T) {
 // split applies immediately and reshuffles as the set changes.
 func TestPickedDays_spaceTogglesAndApplies(t *testing.T) {
 	m := newTestModelN(t, 6)
-	m = send(m, "tab", " ") // pick the cursor day (2026-06-05)
+	// Select Picked Days first: space only gates to the active strategy.
+	m = selectStrategy(m, 2) // strategy pane, Picked Days (index 2)
+	m = send(m, "tab")       // params pane -> list
+	m = send(m, "tab")       // list -> calendar
+	m = send(m, " ")         // pick the cursor day (2026-06-05)
 	day := m.calCursor.In(m.loc).Format("2006-01-02")
-	if !m.pickedStrat().picked[day] {
+	if !m.activeStrat().picked[day] {
 		t.Fatal("space should pick the day under the cursor")
 	}
 	if !m.plan.HasChanges() {
@@ -859,7 +884,7 @@ func TestPickedDays_spaceTogglesAndApplies(t *testing.T) {
 
 	// Unpicking the second day reshuffles everything back onto the first.
 	m = send(m, " ")
-	if m.pickedStrat().picked[day2] {
+	if m.activeStrat().picked[day2] {
 		t.Fatal("space again should unpick the day")
 	}
 	if got := m.dayCounts()[day]; got != 6 {
@@ -909,8 +934,10 @@ func TestGlobalKeys_workFromAnyPane(t *testing.T) {
 	}
 
 	// Digits are NOT global: they belong to the focused form field.
-	// Navigate from the carousel row (focusIdx=0) down to the first input.
-	m = send(m, "down")
+	// Navigate to the carousel row first (focusIdx=0), then down to the first input.
+	// The carousel row is always accessible via up from focusIdx=0 wrapping around.
+	m.activeStrat().form.focusIdx = 0 // ensure we start at the carousel row
+	m = send(m, "down")               // carousel (0) -> first input (1)
 	before := m.activeStrat().form.inputs[0].Value()
 	m = send(m, "1")
 	if got := m.activeStrat().form.inputs[0].Value(); got != before+"1" {
@@ -951,14 +978,23 @@ func TestEditor_fieldWidthFollowsTerminal(t *testing.T) {
 }
 
 // Manual Pin and Picked Days applied from the strategy pane must not demand a
-// date range: the pinned/picked days define it.
+// date range: the pinned/picked days define it. Gating rule: select the strategy
+// first, then pin/pick from the calendar — digits and space are only active
+// under the correct strategy.
 func TestParamsPane_manualPinAndPickedDaysApply(t *testing.T) {
 	m := newTestModelN(t, 4)
-	m = send(m, "tab", "2", " ") // pin quota 2 and pick the cursor day
 
 	// Carousel order: 0 Even Spread, 1 Manual Pin, 2 Picked Days.
-	m = selectStrategy(m, 1) // select Manual Pin via carousel (right once)
-	m = send(m, "enter")     // apply
+	// Select Manual Pin, then focus the calendar and pin a quota.
+	m = selectStrategy(m, 1) // strategy pane, Manual Pin active
+	m = send(m, "tab")       // params pane -> list
+	m = send(m, "tab")       // list -> calendar
+	m = send(m, "2")         // pin quota 2 on cursor day (stages live)
+	if !m.plan.HasChanges() {
+		t.Fatal("Manual Pin quota should stage live immediately")
+	}
+	m = send(m, "tab") // calendar -> params pane
+	m = send(m, "enter")
 	if m.activeStrat().form.errMsg != "" {
 		t.Fatalf("Manual Pin from the pane should apply, got %q", m.activeStrat().form.errMsg)
 	}
@@ -966,8 +1002,13 @@ func TestParamsPane_manualPinAndPickedDaysApply(t *testing.T) {
 		t.Fatal("successful Manual Pin apply should return focus to the list")
 	}
 
-	m = selectStrategy(m, 2) // select Picked Days via carousel (right twice)
-	m = send(m, "enter")     // apply
+	// Select Picked Days, then focus the calendar and pick a day.
+	m = selectStrategy(m, 2) // strategy pane, Picked Days active
+	m = send(m, "tab")       // params pane -> list
+	m = send(m, "tab")       // list -> calendar
+	m = send(m, " ")         // pick the cursor day (stages live)
+	m = send(m, "tab")       // calendar -> params pane
+	m = send(m, "enter")
 	if m.activeStrat().form.errMsg != "" {
 		t.Fatalf("Picked Days from the pane should apply, got %q", m.activeStrat().form.errMsg)
 	}
@@ -1357,17 +1398,11 @@ func TestListNav_dayGroupJumpsDoNotConsumeCalendarG(t *testing.T) {
 	if m.listCursor != len(m.plan.Commits)-1 {
 		t.Errorf("} with a single day should land on the oldest commit, got %d", m.listCursor)
 	}
-	// The calendar's global g (re-apply quotas) still fires when not on the list.
-	m2 := newTestModelN(t, 3)
-	m2 = send(m2, "tab") // focus calendar
-	m2 = send(m2, "1")   // pin a quota so applyQuotas has work
-	// Clear the status so the next action's effect is unambiguous: a positive
-	// signal proves g reached the quota path rather than doing nothing.
-	m2.statusMsg = ""
-	m2.statusKind = statusNone
-	m2 = send(m2, "g") // re-apply quotas: must not be hijacked as list nav
-	if m2.statusKind != statusOK || !strings.Contains(m2.statusMsg, "Manual Pin") {
-		t.Errorf("calendar g should re-apply quotas (Manual Pin), got kind=%v msg=%q", m2.statusKind, m2.statusMsg)
+	// On the list, g jumps to the newest commit (top of list).
+	m = send(m, "G") // oldest
+	m = send(m, "g") // back to newest
+	if m.listCursor != 0 {
+		t.Errorf("g on the list should jump to the newest commit (index 0), got %d", m.listCursor)
 	}
 }
 
@@ -2062,6 +2097,59 @@ func TestStrategyPalette_removed(t *testing.T) {
 	m := newTestModelN(t, 3)
 	if mm := send(m, "s"); mm.mode != modeMain {
 		t.Errorf("s should no longer open a palette, mode = %v", mm.mode)
+	}
+}
+
+// typeDate types a YYYY-MM-DD value into the focused form field, char by char.
+func typeDate(m Model, date string) Model {
+	for _, ch := range date {
+		m = send(m, string(ch))
+	}
+	return m
+}
+
+func TestStrategy_unsetDatesAreNotApplicable(t *testing.T) {
+	m := newTestModelN(t, 3)
+	m = send(m, "tab", "tab") // strategy pane, Even Spread, dates UNSET
+	if m.activeStrat().form.ready() {
+		t.Error("a date-range strategy with unset dates must not be ready")
+	}
+	if m.plan.HasChanges() {
+		t.Error("an unready strategy must stage nothing")
+	}
+}
+
+func TestStrategy_fillingDatesStagesLive(t *testing.T) {
+	m := newTestModelN(t, 3)
+	m = send(m, "tab", "tab")     // strategy pane (Even Spread)
+	m = send(m, "down")           // move from carousel row to Start date field
+	m = typeDate(m, "2026-06-01") // Start date field
+	m = send(m, "down")           // to End date
+	m = typeDate(m, "2026-06-30")
+	if !m.activeStrat().form.ready() {
+		t.Fatal("both dates set -> strategy should be ready")
+	}
+	if !m.plan.HasChanges() {
+		t.Error("a ready strategy should stage its distribution live")
+	}
+}
+
+func TestReset_clearsAllStrategyState(t *testing.T) {
+	m := newTestModelN(t, 3)
+	m = send(m, "tab", "tab")
+	m = send(m, "down")
+	m = typeDate(m, "2026-06-01")
+	m = send(m, "down")
+	m = typeDate(m, "2026-06-30")
+	if !m.plan.HasChanges() {
+		t.Fatal("setup: expected staged edits")
+	}
+	m = send(m, "R") // reset
+	if m.plan.HasChanges() {
+		t.Error("reset should clear staged edits")
+	}
+	if m.activeStrat().form.ready() {
+		t.Error("reset should return date fields to unset (greyed)")
 	}
 }
 

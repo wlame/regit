@@ -3,7 +3,30 @@ package ui
 import (
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/wlame/regit/internal/config"
+	"github.com/wlame/regit/internal/strategy"
 )
+
+// EvenSpreadFixture returns the Even Spread strategy (the first in the registry).
+func EvenSpreadFixture() strategy.Strategy {
+	return strategy.Strategies()[0]
+}
+
+func TestParamsForm_ready(t *testing.T) {
+	cfg := config.Default()
+	cfg.Timezone = "UTC"
+	f := newParamsForm(EvenSpreadFixture(), cfg, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
+	if f.ready() {
+		t.Error("a fresh date-range form (unset dates) should not be ready")
+	}
+	f.inputs[0].SetValue("2026-06-01")
+	f.inputs[1].SetValue("2026-06-30")
+	if !f.ready() {
+		t.Error("both dates set -> ready")
+	}
+}
 
 func TestHHMM(t *testing.T) {
 	cases := map[int]string{0: "00:00", 9 * 60: "09:00", 13*60 + 30: "13:30", 23*60 + 59: "23:59"}

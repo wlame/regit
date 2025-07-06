@@ -58,6 +58,7 @@ func timeModelHint(name string, w timeWindow) string {
 // and meanings are reassigned per strategy, plus a time-model selector.
 type paramsForm struct {
 	strat        strategy.Strategy
+	specs        []fieldSpec       // original field specs, used by ready()
 	labels       []string          // label per active input
 	inputs       []textinput.Model // parallel to labels
 	timeModels   []strategy.TimeModel
@@ -75,10 +76,13 @@ const dateLayout = "2006-01-02"
 
 // newParamsForm builds the form for a strategy, seeding fields from config and
 // the current calendar cursor (used as a sensible default anchor/day/range).
+// Date fields start UNSET (empty value, default shown as dim placeholder) so the
+// strategy cannot stage until the user explicitly fills them.
 func newParamsForm(strat strategy.Strategy, cfg config.Config, cursor time.Time) paramsForm {
 	specs, usesTimeMod := fieldSpecs(strat, cursor)
 	f := paramsForm{
 		strat:       strat,
+		specs:       specs, // stored so ready() can check which inputs are date fields
 		timeModels:  strategy.TimeModels(),
 		usesTimeMod: usesTimeMod,
 		// fixed: 0 because cfg.FixedTimeMin() does not exist; Fixed-time hint
@@ -100,7 +104,10 @@ func newParamsForm(strat strategy.Strategy, cfg config.Config, cursor time.Time)
 	}
 	for _, s := range specs {
 		ti := textinput.New()
+		// Date fields start empty (unset/greyed); a dim placeholder shows the
+		// suggested default so the field is still informative.
 		ti.SetValue(s.value)
+		ti.Placeholder = s.placeholder
 		ti.Prompt = ""
 		ti.CharLimit = 32
 		ti.Width = 18
@@ -113,35 +120,62 @@ func newParamsForm(strat strategy.Strategy, cfg config.Config, cursor time.Time)
 	return f
 }
 
+// ready reports whether the strategy has enough input to stage: every date
+// field parses to a valid date. Pin-based strategies (Manual Pin / Picked Days)
+// have no date fields and are judged ready by the caller from the active pin set.
+func (f paramsForm) ready() bool {
+	for i, sp := range f.specs {
+		if sp.isDate {
+			if _, err := time.Parse(dateLayout, strings.TrimSpace(f.inputs[i].Value())); err != nil {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// fieldSpec describes one form input: its label, its initial value (empty for
+// date fields so they start unset), an optional dim placeholder (the suggested
+// default shown when the field is empty), and whether it is a date field that
+// ready() must validate.
 type fieldSpec struct {
-	label string
-	value string
+	label       string
+	value       string // empty for date fields (unset by default)
+	placeholder string // dim hint shown when value is empty; non-empty for date fields
+	isDate      bool   // true => ready() validates this field as YYYY-MM-DD
 }
 
 // fieldSpecs returns the inputs a strategy needs and whether it consumes a time
-// model. Defaults are seeded from the calendar cursor so the form is usable with
-// a single Enter press.
+// model. Date fields start UNSET (empty value, placeholder holds the suggestion)
+// so the strategy is not ready until the user explicitly fills them. Numeric
+// fields keep their seeded values so the form is usable with a single Enter.
 func fieldSpecs(strat strategy.Strategy, cursor time.Time) ([]fieldSpec, bool) {
 	start := cursor.Format(dateLayout)
 	end := cursor.AddDate(0, 1, 0).Format(dateLayout)
 
+	// dateField builds an unset date spec (empty value, placeholder = suggestion).
+	dateField := func(label, suggestion string) fieldSpec {
+		return fieldSpec{label: label, value: "", placeholder: suggestion, isDate: true}
+	}
+
 	switch strat.Name() {
 	case "Offset Shift":
-		return []fieldSpec{{"Days", "30"}, {"Hours", "0"}}, false
+		return []fieldSpec{{"Days", "30", "", false}, {"Hours", "0", "", false}}, false
 	case "Preserve-Relative":
-		return []fieldSpec{{"Anchor date", start}, {"Scale (1.0=same)", "1.0"}}, false
+		// Anchor date is a date field; scale is numeric and seeded.
+		return []fieldSpec{dateField("Anchor date", start), {"Scale (1.0=same)", "1.0", "", false}}, false
 	case "Backwards-from-Deadline":
-		return []fieldSpec{{"Deadline date", cursor.Format(dateLayout)}}, true
+		return []fieldSpec{dateField("Deadline date", cursor.Format(dateLayout))}, true
 	case "Compress":
-		return []fieldSpec{{"Target day", cursor.Format(dateLayout)}}, true
+		return []fieldSpec{dateField("Target day", cursor.Format(dateLayout))}, true
 	case "Rate Fill":
-		return []fieldSpec{{"Start date", start}, {"End date", end}, {"Min/day", "1"}, {"Max/day", "3"}}, true
+		return []fieldSpec{dateField("Start date", start), dateField("End date", end), {"Min/day", "1", "", false}, {"Max/day", "3", "", false}}, true
 	case "Manual Pin", "Picked Days":
 		// The pinned/picked days themselves define the range; only the
-		// time-of-day model is configurable.
+		// time-of-day model is configurable. No date fields.
 		return nil, true
 	default: // Even Spread, Working Days, Weekends
-		return []fieldSpec{{"Start date", start}, {"End date", end}}, true
+		return []fieldSpec{dateField("Start date", start), dateField("End date", end)}, true
 	}
 }
 

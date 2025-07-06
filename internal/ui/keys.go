@@ -78,9 +78,8 @@ var keymap = []keyBinding{
 	// Calendar (focused)
 	{Key: "↑/↓", Scope: scopeCalendar, Desc: "move the cursor by one day"},
 	{Key: "←/→", Scope: scopeCalendar, Desc: "move the cursor by one week"},
-	{Key: "0-9", Scope: scopeCalendar, Desc: "pin a per-day quota, applied live (digits on one day combine: 2 then 4 = 24)"},
-	{Key: "space", Scope: scopeCalendar, Desc: "pick/unpick the day for a random split (reshuffles live)"},
-	{Key: "g", Scope: scopeCalendar, Desc: "re-apply all pinned quotas"},
+	{Key: "0-9", Scope: scopeCalendar, Desc: "pin a per-day quota (Manual Pin strategy active); live-stages the distribution"},
+	{Key: "space", Scope: scopeCalendar, Desc: "pick/unpick the day (Picked Days strategy active); reshuffles live"},
 
 	// Strategy pane (focused)
 	{Key: "↑/↓", Scope: scopeStrategy, Desc: "move between fields"},

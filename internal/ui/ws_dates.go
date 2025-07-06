@@ -27,22 +27,25 @@ func (m Model) viewDatesWorkspace() string {
 }
 
 // viewCalendarPane renders the half-year heatmap, legend, and selected-day
-// info at its natural (compact) height.
+// info at its natural (compact) height. Calendar overlays (quota pins, picked
+// days) reflect the ACTIVE strategy's pins so only the relevant strategy's
+// choices are visible; non-pin strategies have empty maps → no overlay.
 func (m Model) viewCalendarPane() string {
 	counts := m.dayCounts()
 	cursor := m.calCursor.In(m.loc)
-	heat := renderCalendar(cursor, counts, m.quotaStrat().quotas, m.pickedStrat().picked, m.loc, m.st)
+	a := m.activeStrat()
+	heat := renderCalendar(cursor, counts, a.quotas, a.picked, m.loc, m.st)
 	legend := renderLegend(m.st)
 
 	key := cursor.Format(dateLayout)
 	dayCount := counts[key]
-	quota, hasQuota := m.quotaStrat().quotas[key]
+	quota, hasQuota := a.quotas[key]
 	info := fmt.Sprintf("Selected: %s (%s) · %d commit(s)",
 		key, cursor.Weekday().String()[:3], dayCount)
 	if hasQuota {
 		info += fmt.Sprintf(" · quota %d", quota)
 	}
-	if m.pickedStrat().picked[key] {
+	if a.picked[key] {
 		info += " · picked"
 	}
 
