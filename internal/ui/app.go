@@ -193,7 +193,7 @@ func (m *Model) stageActive() {
 // author-date edit on the active range. This is the signal the calendar previews as
 // per-day numbers; a message-only edit (retitle/reword/drop-body) does NOT count, so
 // the calendar stays in its tile heatmap until a strategy actually distributes dates.
-func (m *Model) strategyStaged() bool {
+func (m Model) strategyStaged() bool {
 	for _, c := range m.plan.Active() {
 		if e, ok := m.plan.EditFor(c.Hash); ok && e.NewAuthorDate != nil {
 			return true
