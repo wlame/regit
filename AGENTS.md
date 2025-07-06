@@ -16,7 +16,7 @@ Three independent features share a common safety/gitio core:
    semantically meaningful commits using an external LLM to group its diff hunks.
 3. **Commit rewording** (`regit reword`) — regenerate the commit message of one
    or more commits using an LLM; proposes ranked title + body alternatives, with
-   an interactive picker in the TUI (`w` key) and a headless Y/n flow on the CLI.
+   an interactive picker in the TUI (via the Restructure menu) and a headless Y/n flow on the CLI.
 
 ## Core domain types (`internal/model`)
 
@@ -57,6 +57,17 @@ source of truth, and the tab bar, menus, and key help are derived from them
 rich calendar/strategy workspace; Restructure is a menu that re-invokes the
 existing split/reword/retitle/drop-bodies actions; History/Authorship/Search are
 disabled stub tabs awaiting later phases.
+
+The Dates workspace holds per-strategy state (`m.strats`, selected by `m.stratIdx`):
+a `◀ Name ▶` carousel on the strategy pane's first focus row picks the strategy
+(`←/→`); there is no separate palette. Date-range strategies start with their date
+fields **unset** (greyed placeholders) and are not applicable until filled; the
+moment a strategy is *ready* (dates valid, or — for Manual Pin / Picked Days — ≥1
+calendar pin) it **stages live** (`stageActive`/`unstageActive`, which only touch
+author dates, never message edits) and the calendar previews the distribution **as
+per-day numbers** instead of tiles. Calendar digits pin a quota only while Manual
+Pin is active; space picks a day only while Picked Days is active. `R` (reset)
+clears every strategy's fields and pins; `A` applies the staged distribution.
 
 The commit backbone is the list — capped at 80 columns (layout.go `listCeilWidth`) —
 beside a detail panel that stretches to fill the rest of a wide terminal. The
@@ -276,7 +287,7 @@ internal/ui/
   selection.go          Commit-list selection model: Single/Range/Set/Active/Global + visual-mode range, set toggling
   pipeline.go           Apply pipeline: pendingChange interface + planChange/splitChange + the preview overlay
   keys.go               Data-driven keymap table; generates the help overlay and keybar
-  (other .go files)     Calendar, editor, strategy palette, preview, styles
+  (other .go files)     Calendar, editor, strategy carousel/form, preview, styles
 justfile                All dev recipes — prefer these over raw go commands
 AGENTS.md               This file
 ```
