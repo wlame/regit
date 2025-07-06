@@ -97,9 +97,11 @@ func send(m Model, keys ...string) Model {
 // strategy (carousel + fields are already set up by the caller).
 func applyStrategyInPane(m Model) Model { return send(m, "tab", "tab", "enter") }
 
-// selectStrategy focuses the pane and cycles the carousel right `n` times to reach
-// the strategy at registry offset n from the default (Even Spread).
+// selectStrategy focuses the pane and lands the carousel on the strategy at registry
+// offset n from the default (Even Spread). It resets to the default first so n is an
+// absolute offset regardless of any strategy selected earlier in the test.
 func selectStrategy(m Model, n int) Model {
+	m.stratIdx = 0 // start from Even Spread so n is absolute, not relative
 	m = send(m, "tab", "tab")
 	for i := 0; i < n; i++ {
 		m = send(m, "right")
