@@ -31,18 +31,18 @@ func (m Model) viewDatesWorkspace() string {
 func (m Model) viewCalendarPane() string {
 	counts := m.dayCounts()
 	cursor := m.calCursor.In(m.loc)
-	heat := renderCalendar(cursor, counts, m.quotas, m.picked, m.loc, m.st)
+	heat := renderCalendar(cursor, counts, m.quotaStrat().quotas, m.pickedStrat().picked, m.loc, m.st)
 	legend := renderLegend(m.st)
 
 	key := cursor.Format(dateLayout)
 	dayCount := counts[key]
-	quota, hasQuota := m.quotas[key]
+	quota, hasQuota := m.quotaStrat().quotas[key]
 	info := fmt.Sprintf("Selected: %s (%s) · %d commit(s)",
 		key, cursor.Weekday().String()[:3], dayCount)
 	if hasQuota {
 		info += fmt.Sprintf(" · quota %d", quota)
 	}
-	if m.picked[key] {
+	if m.pickedStrat().picked[key] {
 		info += " · picked"
 	}
 
@@ -71,7 +71,7 @@ func (m Model) viewCalendarPane() string {
 // viewStrategyPane shows the currently selected strategy with its editable
 // parameters. Tab focuses it; enter re-applies with the current values.
 func (m Model) viewStrategyPane() string {
-	content := m.st.modalTitle.Render("STRATEGY") + "\n" + m.form.view(m.st)
+	content := m.st.modalTitle.Render("STRATEGY") + "\n" + m.activeStrat().form.view(m.st)
 
 	pane := m.st.pane
 	if m.focus == focusParams {

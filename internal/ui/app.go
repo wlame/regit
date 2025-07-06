@@ -57,6 +57,16 @@ const (
 	statusErr
 )
 
+// strategyState is one strategy's editable state: its param form plus its calendar
+// pins (Manual Pin reads quotas, Picked Days reads picked; other strategies leave
+// them empty). Holding state per strategy lets the carousel switch between them
+// without losing each strategy's inputs.
+type strategyState struct {
+	form   paramsForm
+	quotas map[string]int
+	picked map[string]bool
+}
+
 // Model is the root Bubble Tea model.
 type Model struct {
 	repo  *gitio.Repo
@@ -93,15 +103,13 @@ type Model struct {
 
 	calCursor time.Time
 	calYear   int
-	quotas    map[string]int  // day key -> pending Manual Pin quota
-	picked    map[string]bool // day keys toggled (space) for Picked Days
 	// quotaTyping is true while consecutive digits on the same day build a
 	// two-digit quota; any cursor move or focus change starts a fresh number.
 	quotaTyping bool
 
 	strategies    []strategy.Strategy
-	paletteCursor int
-	form          paramsForm
+	strats        []strategyState // parallel to strategies; per-strategy form + pins
+	stratIdx      int             // active strategy (carousel position)
 	editor        editorState
 	retitle       retitleState
 	previewOffset int
@@ -134,6 +142,28 @@ type Model struct {
 	quitting bool
 }
 
+// activeStrat returns the currently-selected strategy's state.
+func (m *Model) activeStrat() *strategyState { return &m.strats[m.stratIdx] }
+
+// stratIndexByName returns the index of the first strategy with the given name,
+// or 0 if not found. Used to direct calendar pins to the correct strategy slot.
+func (m *Model) stratIndexByName(name string) int {
+	for i, s := range m.strategies {
+		if s.Name() == name {
+			return i
+		}
+	}
+	return 0
+}
+
+// quotaStrat returns the Manual Pin strategy's state, which owns the calendar quota pins.
+func (m *Model) quotaStrat() *strategyState { return &m.strats[m.stratIndexByName("Manual Pin")] }
+
+// pickedStrat returns the Picked Days strategy's state, which owns the calendar picked-day pins.
+func (m *Model) pickedStrat() *strategyState {
+	return &m.strats[m.stratIndexByName("Picked Days")]
+}
+
 // New constructs the root model from already-loaded repo data.
 func New(repo *gitio.Repo, mgr *safety.Manager, cfg config.Config, state model.RepoState, commits []model.Commit) Model {
 	loc := cfg.Location()
@@ -148,8 +178,6 @@ func New(repo *gitio.Repo, mgr *safety.Manager, cfg config.Config, state model.R
 		plan:         plan,
 		mode:         modeMain,
 		focus:        focusList,
-		quotas:       make(map[string]int),
-		picked:       make(map[string]bool),
 		statCache:    make(map[string]gitio.Stat),
 		statErr:      make(map[string]string),
 		statInFlight: make(map[string]bool),
@@ -171,7 +199,15 @@ func New(repo *gitio.Repo, mgr *safety.Manager, cfg config.Config, state model.R
 	}
 	m.calCursor = seed
 	m.calYear = seed.Year()
-	m.form = newParamsForm(m.strategies[m.defaultStrategyIndex()], cfg, seed)
+	m.stratIdx = m.defaultStrategyIndex()
+	m.strats = make([]strategyState, len(m.strategies))
+	for i, s := range m.strategies {
+		m.strats[i] = strategyState{
+			form:   newParamsForm(s, cfg, seed),
+			quotas: make(map[string]int),
+			picked: make(map[string]bool),
+		}
+	}
 
 	if m.baseBranch != "" && m.plan.Base > 0 {
 		m.setStatus(fmt.Sprintf("Base %s — editing %d commit(s), %d frozen",
@@ -326,7 +362,7 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	case "s":
 		m.mode = modePalette
-		m.paletteCursor = m.defaultStrategyIndex()
+		m.stratIdx = m.defaultStrategyIndex()
 		return m, nil, true
 	case "e":
 		model, cmd := m.openEditorAtCursor()
@@ -348,6 +384,11 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	case "R":
 		m.plan.Edits = make(map[string]model.Edit)
 		m.plan.Violations = nil
+		*m.activeStrat() = strategyState{
+			form:   newParamsForm(m.activeStrat().form.strat, m.cfg, m.calCursor),
+			quotas: make(map[string]int),
+			picked: make(map[string]bool),
+		}
 		m.setStatus("Cleared all pending edits", statusOK)
 		return m, nil, true
 	case "d":
@@ -565,23 +606,27 @@ func (m *Model) moveCursor(msg tea.KeyMsg) {
 		moved = true
 	case " ":
 		// Toggle the day in the Picked Days set and reshuffle immediately.
+		// Picked-day pins always go to the Picked Days strategy's slot so that
+		// switching to Picked Days from the palette finds them there.
 		key := m.calCursor.Format(dateLayout)
-		if m.picked[key] {
-			delete(m.picked, key)
+		if m.pickedStrat().picked[key] {
+			delete(m.pickedStrat().picked, key)
 		} else {
-			m.picked[key] = true
+			m.pickedStrat().picked[key] = true
 		}
 		m.quotaTyping = false
 		m.applyPickedNow()
 	default:
 		if d := digit(msg.String()); d >= 0 {
+			// Quota digits always go to the Manual Pin strategy's slot so that
+			// switching to Manual Pin from the palette finds them there.
 			key := m.calCursor.Format(dateLayout)
 			// Consecutive digits on the same day build a two-digit quota:
 			// 2 → 24 → 45 (the last two digits typed win).
 			if m.quotaTyping {
-				d = (m.quotas[key]%10)*10 + d
+				d = (m.quotaStrat().quotas[key]%10)*10 + d
 			}
-			m.quotas[key] = d
+			m.quotaStrat().quotas[key] = d
 			m.quotaTyping = true
 			// Quotas apply immediately so the commit list reflects the pin
 			// as soon as the digit is pressed ('g' re-applies manually).
@@ -885,16 +930,15 @@ func (m Model) updatePalette(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "q":
 		m.mode = modeMain
 	case "up", "k":
-		if m.paletteCursor > 0 {
-			m.paletteCursor--
+		if m.stratIdx > 0 {
+			m.stratIdx--
 		}
 	case "down", "j":
-		if m.paletteCursor < len(m.strategies)-1 {
-			m.paletteCursor++
+		if m.stratIdx < len(m.strategies)-1 {
+			m.stratIdx++
 		}
 	case "enter":
-		// Chosen: load the strategy into the params pane and focus it there.
-		m.form = newParamsForm(m.strategies[m.paletteCursor], m.cfg, m.calCursor)
+		// stratIdx already points at the chosen strategy; just focus the pane.
 		m.mode = modeMain
 		m.focus = focusParams
 	}
@@ -915,35 +959,36 @@ func (m Model) updateParamsPane(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		return m.applyStrategy()
 	case "up", "shift+tab":
-		m.form.moveFocus(-1)
+		m.activeStrat().form.moveFocus(-1)
 		return m, nil
 	case "down":
-		m.form.moveFocus(1)
+		m.activeStrat().form.moveFocus(1)
 		return m, nil
 	}
 	if model, cmd, ok := m.globalAction(msg); ok {
 		return model, cmd
 	}
-	m.form.errMsg = "" // any edit invalidates the previous apply error
-	cmd := m.form.update(msg)
+	m.activeStrat().form.errMsg = "" // any edit invalidates the previous apply error
+	cmd := m.activeStrat().form.update(msg)
 	return m, cmd
 }
 
 func (m Model) applyStrategy() (tea.Model, tea.Cmd) {
-	params, err := m.form.buildParams(m.cfg, m.quotas, m.picked)
+	a := m.activeStrat()
+	params, err := a.form.buildParams(m.cfg, a.quotas, a.picked)
 	if err != nil {
-		m.form.errMsg = err.Error()
+		a.form.errMsg = err.Error()
 		return m, nil
 	}
-	tm := pickTimeModel(m.form)
-	if err := strategy.Apply(m.plan, m.form.strat, tm, params, m.cfg.LinkDates); err != nil {
-		m.form.errMsg = err.Error()
+	tm := pickTimeModel(a.form)
+	if err := strategy.Apply(m.plan, a.form.strat, tm, params, m.cfg.LinkDates); err != nil {
+		a.form.errMsg = err.Error()
 		return m, nil
 	}
 	// Success: hand focus back to the list so global keys (A, p, u…) work
 	// again immediately; tab twice returns here for further tweaking.
 	m.focus = focusList
-	m.reportPlan(m.form.strat.Name())
+	m.reportPlan(a.form.strat.Name())
 	return m, nil
 }
 
@@ -955,7 +1000,7 @@ func (m Model) applyQuotas() (tea.Model, tea.Cmd) {
 // applyQuotasNow re-runs the Manual Pin strategy over the current quota map,
 // so quota edits are reflected in the commit list immediately.
 func (m *Model) applyQuotasNow() {
-	if len(m.quotas) == 0 {
+	if len(m.quotaStrat().quotas) == 0 {
 		m.setStatus("No quotas set — focus the calendar and press 0-9 on days first", statusWarn)
 		return
 	}
@@ -969,7 +1014,7 @@ func (m *Model) applyQuotasNow() {
 // applyPickedNow re-runs the Picked Days strategy over the picked-day set so
 // toggling a day immediately reshuffles the commits across the selection.
 func (m *Model) applyPickedNow() {
-	if len(m.picked) == 0 {
+	if len(m.pickedStrat().picked) == 0 {
 		m.setStatus("No days picked — press space on calendar days first", statusWarn)
 		return
 	}
@@ -987,8 +1032,8 @@ func (m *Model) calendarParams() strategy.Params {
 	return strategy.Params{
 		Location:    m.loc,
 		WeekdayMask: strategy.WeekdayMask(m.cfg.WeekdayMask()),
-		Quotas:      m.quotas,
-		Picked:      m.picked,
+		Quotas:      m.quotaStrat().quotas,
+		Picked:      m.pickedStrat().picked,
 		DayStartMin: m.cfg.WorkdayStartMin(),
 		DayEndMin:   m.cfg.WorkdayEndMin(),
 		LunchStart:  m.cfg.LunchStartMin(),
@@ -1199,7 +1244,7 @@ func (m *Model) reload() error {
 	}
 	m.state = state
 	m.plan = model.NewPlan(commits)
-	m.quotas = make(map[string]int)
+	m.quotaStrat().quotas = make(map[string]int)
 	m.statCache = make(map[string]gitio.Stat)
 	m.statErr = make(map[string]string)
 	m.statInFlight = make(map[string]bool)
@@ -1532,7 +1577,7 @@ func (m Model) View() string {
 	var overlay string
 	switch m.mode {
 	case modePalette:
-		overlay = viewPalette(m.strategies, m.paletteCursor, m.st)
+		overlay = viewPalette(m.strategies, m.stratIdx, m.st)
 	case modeEditor:
 		overlay = m.editor.view(m.commitByHash(m.editor.hash), m.st)
 	case modePipeline:

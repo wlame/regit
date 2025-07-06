@@ -741,7 +741,7 @@ func TestParamsForm_showsErrorInsidePane(t *testing.T) {
 	if m.focus != focusParams {
 		t.Fatal("failed apply should keep the params pane focused")
 	}
-	if m.form.errMsg == "" {
+	if m.activeStrat().form.errMsg == "" {
 		t.Fatal("apply error should be stored on the form")
 	}
 	if !strings.Contains(m.View(), "start date must be") {
@@ -749,7 +749,7 @@ func TestParamsForm_showsErrorInsidePane(t *testing.T) {
 	}
 
 	m = send(m, "1") // editing again clears the stale error
-	if m.form.errMsg != "" {
+	if m.activeStrat().form.errMsg != "" {
 		t.Error("typing should clear the form error")
 	}
 }
@@ -792,27 +792,27 @@ func TestCalendarQuotas_twoDigitEntry(t *testing.T) {
 	day := m.calCursor.In(m.loc).Format("2006-01-02")
 
 	m = send(m, "2")
-	if got := m.quotas[day]; got != 2 {
+	if got := m.quotaStrat().quotas[day]; got != 2 {
 		t.Fatalf("first digit: want quota 2, got %d", got)
 	}
 	m = send(m, "4")
-	if got := m.quotas[day]; got != 24 {
+	if got := m.quotaStrat().quotas[day]; got != 24 {
 		t.Fatalf("second digit should append: want 24, got %d", got)
 	}
 	m = send(m, "5")
-	if got := m.quotas[day]; got != 45 {
+	if got := m.quotaStrat().quotas[day]; got != 45 {
 		t.Fatalf("third digit should keep the last two: want 45, got %d", got)
 	}
 
 	// Moving away and typing starts a new number on the new day…
 	m = send(m, "right", "7")
 	other := m.calCursor.In(m.loc).Format("2006-01-02")
-	if got := m.quotas[other]; got != 7 {
+	if got := m.quotaStrat().quotas[other]; got != 7 {
 		t.Errorf("digit after a move should start fresh: want 7, got %d", got)
 	}
 	// …and returning to the first day also starts fresh (3, not 53).
 	m = send(m, "left", "3")
-	if got := m.quotas[day]; got != 3 {
+	if got := m.quotaStrat().quotas[day]; got != 3 {
 		t.Errorf("digit after returning should start fresh: want 3, got %d", got)
 	}
 }
@@ -823,7 +823,7 @@ func TestPickedDays_spaceTogglesAndApplies(t *testing.T) {
 	m := newTestModelN(t, 6)
 	m = send(m, "tab", " ") // pick the cursor day (2026-06-05)
 	day := m.calCursor.In(m.loc).Format("2006-01-02")
-	if !m.picked[day] {
+	if !m.pickedStrat().picked[day] {
 		t.Fatal("space should pick the day under the cursor")
 	}
 	if !m.plan.HasChanges() {
@@ -846,7 +846,7 @@ func TestPickedDays_spaceTogglesAndApplies(t *testing.T) {
 
 	// Unpicking the second day reshuffles everything back onto the first.
 	m = send(m, " ")
-	if m.picked[day2] {
+	if m.pickedStrat().picked[day2] {
 		t.Fatal("space again should unpick the day")
 	}
 	if got := m.dayCounts()[day]; got != 6 {
@@ -892,9 +892,9 @@ func TestGlobalKeys_workFromAnyPane(t *testing.T) {
 	}
 
 	// Digits are NOT global: they belong to the focused form field.
-	before := m.form.inputs[0].Value()
+	before := m.activeStrat().form.inputs[0].Value()
 	m = send(m, "1")
-	if got := m.form.inputs[0].Value(); got != before+"1" {
+	if got := m.activeStrat().form.inputs[0].Value(); got != before+"1" {
 		t.Errorf("digit should type into the field: want %q, got %q", before+"1", got)
 	}
 
@@ -938,16 +938,16 @@ func TestParamsPane_manualPinAndPickedDaysApply(t *testing.T) {
 
 	// Palette order: 0 Even Spread, 1 Manual Pin, 2 Picked Days.
 	m = send(m, "s", "down", "enter", "enter") // Manual Pin -> apply
-	if m.form.errMsg != "" {
-		t.Fatalf("Manual Pin from the pane should apply, got %q", m.form.errMsg)
+	if m.activeStrat().form.errMsg != "" {
+		t.Fatalf("Manual Pin from the pane should apply, got %q", m.activeStrat().form.errMsg)
 	}
 	if m.focus != focusList {
 		t.Fatal("successful Manual Pin apply should return focus to the list")
 	}
 
 	m = send(m, "s", "down", "down", "enter", "enter") // Picked Days -> apply
-	if m.form.errMsg != "" {
-		t.Fatalf("Picked Days from the pane should apply, got %q", m.form.errMsg)
+	if m.activeStrat().form.errMsg != "" {
+		t.Fatalf("Picked Days from the pane should apply, got %q", m.activeStrat().form.errMsg)
 	}
 	if !m.plan.HasChanges() || !m.plan.IsValid() {
 		t.Error("Picked Days apply should produce a valid plan")
