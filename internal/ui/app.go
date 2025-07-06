@@ -189,9 +189,18 @@ func (m *Model) stageActive() {
 	a.form.errMsg = ""
 }
 
-// strategyStaged reports whether the active strategy has staged edits.
-// Used by Task 5 to detect the previewActive signal.
-func (m *Model) strategyStaged() bool { return m.plan.HasChanges() }
+// strategyStaged reports whether a strategy has staged a date distribution — an
+// author-date edit on the active range. This is the signal the calendar previews as
+// per-day numbers; a message-only edit (retitle/reword/drop-body) does NOT count, so
+// the calendar stays in its tile heatmap until a strategy actually distributes dates.
+func (m *Model) strategyStaged() bool {
+	for _, c := range m.plan.Active() {
+		if e, ok := m.plan.EditFor(c.Hash); ok && e.NewAuthorDate != nil {
+			return true
+		}
+	}
+	return false
+}
 
 // New constructs the root model from already-loaded repo data.
 func New(repo *gitio.Repo, mgr *safety.Manager, cfg config.Config, state model.RepoState, commits []model.Commit) Model {

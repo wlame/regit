@@ -1424,6 +1424,23 @@ func TestUnstage_preservesMessageEdits(t *testing.T) {
 	}
 }
 
+// The calendar previews as numbers only when a strategy staged a date distribution;
+// a message-only edit (retitle/reword) must keep it in tile mode.
+func TestStrategyStaged_ignoresMessageOnlyEdits(t *testing.T) {
+	m := newTestModelN(t, 3)
+	c := m.commitAtCursor()
+	neu := "Retitled only"
+	m.plan.SetEdit(c.Hash, model.Edit{NewSubject: &neu})
+	if m.strategyStaged() {
+		t.Error("a message-only edit must not count as a staged strategy")
+	}
+	d := c.OrigAuthorDate.AddDate(0, 0, 5)
+	m.plan.SetEdit(c.Hash, model.Edit{NewSubject: &neu, NewAuthorDate: &d})
+	if !m.strategyStaged() {
+		t.Error("an author-date edit should count as a staged strategy")
+	}
+}
+
 func TestAutoBase_mergeBaseOffFirstParentLineClaimsNoBase(t *testing.T) {
 	dir := t.TempDir()
 	run := func(args ...string) {
