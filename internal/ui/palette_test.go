@@ -31,4 +31,12 @@ func TestTimeModelHint(t *testing.T) {
 	if got := timeModelHint("Working hours", w); !strings.Contains(got, "lunch 13:00–14:00") {
 		t.Errorf("Working hours hint should mention the lunch gap, got %q", got)
 	}
+	// With fixed==0, Jitter centers on the working-window midpoint (13:30) ± jitter.
+	if got := timeModelHint("Jitter", w); !strings.Contains(got, "13:30") || !strings.Contains(got, "30 min") {
+		t.Errorf("Jitter hint should center on the midpoint ± jitter, got %q", got)
+	}
+	// With fixed==0, Fixed time falls back to 00:00.
+	if got := timeModelHint("Fixed time", w); got != "at 00:00" {
+		t.Errorf("Fixed time hint = %q, want \"at 00:00\"", got)
+	}
 }
