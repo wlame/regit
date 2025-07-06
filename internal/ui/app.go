@@ -531,8 +531,8 @@ func (m Model) editorFieldWidth() int {
 
 // listNavKey handles fast list-navigation keys when the commit list is focused.
 // It returns true when it consumed the key. Routing this BEFORE globalAction
-// lets g/G mean top/bottom of the list (spec binding) while the calendar's own
-// g (re-apply quotas) still works when the calendar/params pane is focused.
+// lets g/G mean top/bottom of the list (spec binding); the calendar and params
+// panes see g as a no-op (staging is automatic, so there is no re-apply key).
 func (m *Model) listNavKey(key string) bool {
 	last := len(m.plan.Commits) - 1
 	if last < 0 {

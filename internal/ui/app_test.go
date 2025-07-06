@@ -1390,7 +1390,7 @@ func TestPicker_setBaseFreezesMergeBaseCone(t *testing.T) {
 	}
 }
 
-func TestListNav_dayGroupJumpsDoNotConsumeCalendarG(t *testing.T) {
+func TestListNav_dayGroupAndTopBottomJumps(t *testing.T) {
 	m := newTestModelN(t, 3) // all on one day -> day jump clamps to ends
 	// On the list, } jumps to the next (older) day group; with one day it lands
 	// on the oldest commit.
@@ -1403,6 +1403,24 @@ func TestListNav_dayGroupJumpsDoNotConsumeCalendarG(t *testing.T) {
 	m = send(m, "g") // back to newest
 	if m.listCursor != 0 {
 		t.Errorf("g on the list should jump to the newest commit (index 0), got %d", m.listCursor)
+	}
+}
+
+// A manual message edit must survive when the active strategy unstages (e.g. its
+// dates are incomplete): unstageActive clears only the staged author dates, never
+// the user's title/body edits.
+func TestUnstage_preservesMessageEdits(t *testing.T) {
+	m := newTestModelN(t, 3)
+	c := m.commitAtCursor()
+	neu := "Manually retitled"
+	m.plan.SetEdit(c.Hash, model.Edit{NewSubject: &neu})
+
+	// The active strategy (Even Spread) has unset dates, so staging unstages it.
+	m.stageActive()
+
+	e, ok := m.plan.EditFor(c.Hash)
+	if !ok || e.NewSubject == nil || *e.NewSubject != neu {
+		t.Errorf("unstaging the strategy must preserve the manual title edit, got %+v (ok=%v)", e, ok)
 	}
 }
 
