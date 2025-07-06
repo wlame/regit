@@ -27,7 +27,6 @@ type mode int
 
 const (
 	modeMain mode = iota
-	modePalette
 	modeEditor
 	modePipeline // the stage → preview → confirm → apply overlay (was modePreview)
 	modeConfirm
@@ -274,8 +273,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.mode {
 	case modeMain:
 		return m.updateMain(msg)
-	case modePalette:
-		return m.updatePalette(msg)
 	case modeEditor:
 		return m.updateEditor(msg)
 	case modePipeline:
@@ -359,10 +356,6 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		return m, tea.Quit, true
 	case "?":
 		m.mode = modeHelp
-		return m, nil, true
-	case "s":
-		m.mode = modePalette
-		m.stratIdx = m.defaultStrategyIndex()
 		return m, nil, true
 	case "e":
 		model, cmd := m.openEditorAtCursor()
@@ -923,32 +916,19 @@ func (m *Model) selectFirstCommitOfDay() {
 	}
 }
 
-// --- Palette ---------------------------------------------------------------
-
-func (m Model) updatePalette(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc", "q":
-		m.mode = modeMain
-	case "up", "k":
-		if m.stratIdx > 0 {
-			m.stratIdx--
-		}
-	case "down", "j":
-		if m.stratIdx < len(m.strategies)-1 {
-			m.stratIdx++
-		}
-	case "enter":
-		// stratIdx already points at the chosen strategy; just focus the pane.
-		m.mode = modeMain
-		m.focus = focusParams
-	}
-	return m, nil
+// cycleStrategy moves the carousel by delta (wrapping). The pin/preview wiring in
+// Task 4 re-stages on switch; here it only repaints the now-active strategy.
+func (m *Model) cycleStrategy(delta int) {
+	n := len(m.strategies)
+	m.stratIdx = (m.stratIdx + delta + n) % n
+	m.activeStrat().form.focusIdx = 0
 }
 
 // --- Params pane -------------------------------------------------------------
 
 // updateParamsPane routes keys while the strategy pane is focused: up/down
-// move between fields, enter applies, tab/esc return focus to the list.
+// move between fields, left/right cycle the strategy carousel (only on the
+// carousel row), enter applies, tab/esc return focus to the list.
 // Global action keys still work — the form fields are dates and numbers, so
 // letters are never needed for typing.
 func (m Model) updateParamsPane(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -964,6 +944,16 @@ func (m Model) updateParamsPane(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "down":
 		m.activeStrat().form.moveFocus(1)
 		return m, nil
+	case "left":
+		if m.activeStrat().form.onStrategy() {
+			m.cycleStrategy(-1)
+			return m, nil
+		}
+	case "right":
+		if m.activeStrat().form.onStrategy() {
+			m.cycleStrategy(1)
+			return m, nil
+		}
 	}
 	if model, cmd, ok := m.globalAction(msg); ok {
 		return model, cmd
@@ -1576,8 +1566,6 @@ func (m Model) View() string {
 
 	var overlay string
 	switch m.mode {
-	case modePalette:
-		overlay = viewPalette(m.strategies, m.stratIdx, m.st)
 	case modeEditor:
 		overlay = m.editor.view(m.commitByHash(m.editor.hash), m.st)
 	case modePipeline:

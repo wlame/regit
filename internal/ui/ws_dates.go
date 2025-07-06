@@ -69,8 +69,11 @@ func (m Model) viewCalendarPane() string {
 }
 
 // viewStrategyPane shows the currently selected strategy with its editable
-// parameters. Tab focuses it; enter re-applies with the current values.
+// parameters. The form's view now renders the carousel as the top row, so the
+// pane simply frames the form output. Tab focuses it; enter re-applies.
 func (m Model) viewStrategyPane() string {
+	// The carousel row in form.view() replaces the old separate title; we keep
+	// a compact "STRATEGY" label for the pane title so the panel is still labelled.
 	content := m.st.modalTitle.Render("STRATEGY") + "\n" + m.activeStrat().form.view(m.st)
 
 	pane := m.st.pane

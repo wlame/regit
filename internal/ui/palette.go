@@ -107,9 +107,9 @@ func newParamsForm(strat strategy.Strategy, cfg config.Config, cursor time.Time)
 		f.labels = append(f.labels, s.label)
 		f.inputs = append(f.inputs, ti)
 	}
-	if len(f.inputs) > 0 {
-		f.inputs[0].Focus()
-	}
+	// The carousel row (row 0) is the initial focus: the user can press right/left
+	// to pick a strategy, or down/tab to move to the first input.
+	// (Inputs start unfocused; moveFocus will focus them when navigating down.)
 	return f
 }
 
@@ -145,19 +145,24 @@ func fieldSpecs(strat strategy.Strategy, cursor time.Time) ([]fieldSpec, bool) {
 	}
 }
 
-// fieldCount is the number of focusable items (inputs plus, if used, the time
-// model selector).
+// fieldCount is the number of focusable rows: the strategy carousel (row 0),
+// the text inputs (rows 1..len(inputs)), and, if used, the time-model selector
+// (last row). Row 0 is always present.
 func (f paramsForm) fieldCount() int {
-	n := len(f.inputs)
+	n := 1 + len(f.inputs) // 1 for the strategy carousel row
 	if f.usesTimeMod {
 		n++
 	}
 	return n
 }
 
-// onTimeModel reports whether focus is on the time-model selector.
+// onStrategy reports whether focus is on the strategy carousel row (row 0).
+func (f paramsForm) onStrategy() bool { return f.focusIdx == 0 }
+
+// onTimeModel reports whether focus is on the time-model selector (last row,
+// only when this strategy uses one).
 func (f paramsForm) onTimeModel() bool {
-	return f.usesTimeMod && f.focusIdx == len(f.inputs)
+	return f.usesTimeMod && f.focusIdx == len(f.inputs)+1
 }
 
 // update handles key input for the form (navigation, editing, time-model cycle).
@@ -184,22 +189,25 @@ func (f *paramsForm) update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 	}
-	if !f.onTimeModel() && f.focusIdx < len(f.inputs) {
+	// Forward key to the focused text input when on an input row (rows 1..len(inputs)).
+	if inputIdx := f.focusIdx - 1; !f.onStrategy() && !f.onTimeModel() && inputIdx >= 0 && inputIdx < len(f.inputs) {
 		var cmd tea.Cmd
-		f.inputs[f.focusIdx], cmd = f.inputs[f.focusIdx].Update(msg)
+		f.inputs[inputIdx], cmd = f.inputs[inputIdx].Update(msg)
 		return cmd
 	}
 	return nil
 }
 
 func (f *paramsForm) moveFocus(delta int) {
-	if f.focusIdx < len(f.inputs) {
-		f.inputs[f.focusIdx].Blur()
+	// Blur the current input if one is focused. Inputs sit at focusIdx 1..len(inputs).
+	if inputIdx := f.focusIdx - 1; inputIdx >= 0 && inputIdx < len(f.inputs) {
+		f.inputs[inputIdx].Blur()
 	}
 	n := f.fieldCount()
 	f.focusIdx = (f.focusIdx + delta + n) % n
-	if f.focusIdx < len(f.inputs) {
-		f.inputs[f.focusIdx].Focus()
+	// Focus the new input if the new position maps to one.
+	if inputIdx := f.focusIdx - 1; inputIdx >= 0 && inputIdx < len(f.inputs) {
+		f.inputs[inputIdx].Focus()
 	}
 }
 
@@ -304,32 +312,24 @@ func setRange(p *strategy.Params, parseDate func(string) (time.Time, error)) err
 	return nil
 }
 
-// viewPalette renders the strategy chooser list.
-func viewPalette(strategies []strategy.Strategy, cursor int, st styles) string {
-	var b strings.Builder
-	b.WriteString(st.modalTitle.Render("Choose a strategy") + "\n\n")
-	for i, s := range strategies {
-		line := fmt.Sprintf("%-26s %s", s.Name(), s.Description())
-		if i == cursor {
-			b.WriteString(st.selected.Render("▸ "+line) + "\n")
-		} else {
-			b.WriteString("  " + st.dim.Render(line) + "\n")
-		}
-	}
-	b.WriteString("\n" + st.help.Render("↑/↓ select · enter configure · esc cancel"))
-	return st.modal.Render(b.String())
-}
-
 // view renders the parameter form for the chosen strategy. It returns bare
-// content: the caller wraps it in the strategy pane.
+// content: the caller wraps it in the strategy pane. The first focus row (row 0)
+// is the strategy carousel (◀ Name ▶); input rows follow at indices 1..len(inputs).
 func (f paramsForm) view(st styles) string {
 	var b strings.Builder
-	b.WriteString(st.selected.Render(" "+f.strat.Name()+" ") + "\n")
+
+	// Row 0: strategy carousel.
+	if f.onStrategy() {
+		b.WriteString(st.listCursor.Render("▸ ") + st.selected.Render(" ◀ "+f.strat.Name()+" ▶ ") + "\n")
+	} else {
+		b.WriteString("  " + st.dim.Render("◀ "+f.strat.Name()+" ▶") + "\n")
+	}
 	b.WriteString(st.dim.Render(truncate(f.strat.Description(), 56)) + "\n\n")
 
+	// Input rows (shifted: input i is at focusIdx i+1).
 	for i, label := range f.labels {
 		cursor := "  "
-		if i == f.focusIdx {
+		if f.focusIdx == i+1 {
 			cursor = st.listCursor.Render("▸ ")
 		}
 		b.WriteString(fmt.Sprintf("%s%-18s %s\n", cursor, label+":", f.inputs[i].View()))
@@ -348,6 +348,6 @@ func (f paramsForm) view(st styles) string {
 		b.WriteString(st.statusErr.Render("✗ "+truncate(f.errMsg, 56)) + "\n")
 	}
 
-	b.WriteString(st.help.Render("↑/↓ field · ←/→ model · enter apply · tab back"))
+	b.WriteString(st.help.Render("←/→ change strategy (top row) / time model · ↑/↓ field · enter apply · tab back"))
 	return b.String()
 }

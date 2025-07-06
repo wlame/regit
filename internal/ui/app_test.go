@@ -93,6 +93,20 @@ func send(m Model, keys ...string) Model {
 	return m
 }
 
+// applyStrategyInPane focuses the strategy pane and applies the currently-selected
+// strategy (carousel + fields are already set up by the caller).
+func applyStrategyInPane(m Model) Model { return send(m, "tab", "tab", "enter") }
+
+// selectStrategy focuses the pane and cycles the carousel right `n` times to reach
+// the strategy at registry offset n from the default (Even Spread).
+func selectStrategy(m Model, n int) Model {
+	m = send(m, "tab", "tab")
+	for i := 0; i < n; i++ {
+		m = send(m, "right")
+	}
+	return m
+}
+
 // runRestructureFeature invokes a Restructure feature by name through the same
 // Run the menu's Enter calls — independent of menu focus/cursor state and of any
 // global hotkey. The menu navigation path itself is covered by TestMenu_restructureRuns*.
@@ -260,14 +274,10 @@ func TestView_cursorStaysVisibleWhenScrolling(t *testing.T) {
 
 func TestPaletteToParamsToApply_spreadsCommits(t *testing.T) {
 	m := newTestModel(t)
-	// Open palette (Even Spread is default-selected), enter to configure, enter to apply.
-	m = send(m, "s")
-	if m.mode != modePalette {
-		t.Fatalf("expected palette mode, got %v", m.mode)
-	}
-	m = send(m, "enter") // -> strategy pane focused with the chosen form
+	// Focus the strategy pane (Even Spread is default-selected) and apply.
+	m = send(m, "tab", "tab") // list -> calendar -> params
 	if m.mode != modeMain || m.focus != focusParams {
-		t.Fatalf("choosing a strategy should focus the params pane, got mode %v focus %v", m.mode, m.focus)
+		t.Fatalf("tab tab should focus the params pane, got mode %v focus %v", m.mode, m.focus)
 	}
 	m = send(m, "enter") // apply
 	if m.focus != focusList {
@@ -464,7 +474,7 @@ func TestBaseBoundary_freezesOlderCommits(t *testing.T) {
 		t.Error("title should report the active/total commit counts")
 	}
 
-	m = send(m, "s", "enter", "enter") // apply Even Spread
+	m = applyStrategyInPane(m) // apply Even Spread (tab tab enter)
 	root := m.plan.Commits[0]
 	if _, ok := m.plan.EditFor(root.Hash); ok {
 		t.Error("frozen root commit must not receive edits from a strategy")
@@ -683,7 +693,7 @@ func TestRetitle_respectsBase(t *testing.T) {
 // Moving the base forward drops pending edits on newly frozen commits.
 func TestBaseBoundary_dropsEditsOnFrozen(t *testing.T) {
 	m := newTestModelN(t, 3)
-	m = send(m, "s", "enter", "enter") // edits on all 3
+	m = applyStrategyInPane(m) // edits on all 3 (tab tab enter)
 	if len(m.plan.Edits) != 3 {
 		t.Fatalf("setup: expected 3 edits, got %d", len(m.plan.Edits))
 	}
@@ -732,10 +742,11 @@ func TestListFocus_noDayHighlight(t *testing.T) {
 // a silent failure reads as "enter does nothing".
 func TestParamsForm_showsErrorInsidePane(t *testing.T) {
 	m := newTestModel(t)
-	m = send(m, "s", "enter") // palette -> params pane (Even Spread)
+	m = send(m, "tab", "tab") // list -> calendar -> params pane (Even Spread)
 	if m.focus != focusParams {
 		t.Fatalf("expected params focus, got %v", m.focus)
 	}
+	m = send(m, "down") // move from the carousel row to the first input
 
 	m = send(m, "x", "enter") // corrupt the focused Start-date field, apply
 	if m.focus != focusParams {
@@ -873,9 +884,13 @@ func TestGlobalKeys_workFromAnyPane(t *testing.T) {
 	}
 	m = send(m, "b") // clear it again
 
-	// Params pane: p opens the pipeline preview, D drops bodies, s opens the palette.
-	m = send(m, "s", "enter", "enter") // apply Even Spread to stage edits
-	m = send(m, "tab", "tab")          // list -> calendar -> params
+	// Params pane: p opens the pipeline preview, D drops bodies.
+	// Reset focus to the list first (was on calendar after the e/b actions above),
+	// then apply via the carousel pane and re-focus the params pane.
+	m = send(m, "tab")         // calendar -> params
+	m = send(m, "tab")         // params -> list (via updateParamsPane's tab handler)
+	m = applyStrategyInPane(m) // apply Even Spread to stage edits (tab tab enter)
+	m = send(m, "tab", "tab")  // list -> calendar -> params
 	if m.focus != focusParams {
 		t.Fatal("setup: params pane should be focused")
 	}
@@ -892,15 +907,18 @@ func TestGlobalKeys_workFromAnyPane(t *testing.T) {
 	}
 
 	// Digits are NOT global: they belong to the focused form field.
+	// Navigate from the carousel row (focusIdx=0) down to the first input.
+	m = send(m, "down")
 	before := m.activeStrat().form.inputs[0].Value()
 	m = send(m, "1")
 	if got := m.activeStrat().form.inputs[0].Value(); got != before+"1" {
 		t.Errorf("digit should type into the field: want %q, got %q", before+"1", got)
 	}
 
+	// s no longer opens the palette from the params pane (carousel replaces it).
 	m = send(m, "s")
-	if m.mode != modePalette {
-		t.Fatal("s should open the palette from the params pane")
+	if m.mode != modeMain {
+		t.Fatal("s should no longer open any overlay from the params pane")
 	}
 }
 
@@ -936,8 +954,9 @@ func TestParamsPane_manualPinAndPickedDaysApply(t *testing.T) {
 	m := newTestModelN(t, 4)
 	m = send(m, "tab", "2", " ") // pin quota 2 and pick the cursor day
 
-	// Palette order: 0 Even Spread, 1 Manual Pin, 2 Picked Days.
-	m = send(m, "s", "down", "enter", "enter") // Manual Pin -> apply
+	// Carousel order: 0 Even Spread, 1 Manual Pin, 2 Picked Days.
+	m = selectStrategy(m, 1) // select Manual Pin via carousel (right once)
+	m = send(m, "enter")     // apply
 	if m.activeStrat().form.errMsg != "" {
 		t.Fatalf("Manual Pin from the pane should apply, got %q", m.activeStrat().form.errMsg)
 	}
@@ -945,7 +964,8 @@ func TestParamsPane_manualPinAndPickedDaysApply(t *testing.T) {
 		t.Fatal("successful Manual Pin apply should return focus to the list")
 	}
 
-	m = send(m, "s", "down", "down", "enter", "enter") // Picked Days -> apply
+	m = selectStrategy(m, 2) // select Picked Days via carousel (right twice)
+	m = send(m, "enter")     // apply
 	if m.activeStrat().form.errMsg != "" {
 		t.Fatalf("Picked Days from the pane should apply, got %q", m.activeStrat().form.errMsg)
 	}
@@ -968,7 +988,7 @@ func TestCalendarHalfYear_labelFollowsCursor(t *testing.T) {
 
 func TestReset_clearsEdits(t *testing.T) {
 	m := newTestModel(t)
-	m = send(m, "s", "enter", "enter") // apply even spread
+	m = applyStrategyInPane(m) // apply even spread (tab tab enter)
 	if !m.plan.HasChanges() {
 		t.Fatal("setup: expected edits")
 	}
@@ -982,8 +1002,8 @@ func TestApplyAndUndo_roundTrip(t *testing.T) {
 	m := newTestModel(t)
 	origHead, _ := m.repo.ResolveRef("HEAD")
 
-	m = send(m, "s", "enter", "enter") // spread
-	m = send(m, "A", "enter")          // preview, then apply (clean local repo, no confirm)
+	m = applyStrategyInPane(m) // spread (tab tab enter)
+	m = send(m, "A", "enter")  // preview, then apply (clean local repo, no confirm)
 	if m.statusKind == statusErr {
 		t.Fatalf("apply errored: %s", m.statusMsg)
 	}
@@ -1010,7 +1030,7 @@ func TestRetiredHotkeys_doNothing(t *testing.T) {
 
 func TestLowercaseResetUndo_areNoOps(t *testing.T) {
 	m := newTestModelN(t, 3)
-	m = send(m, "s", "enter", "enter") // stage edits (strategy still on 's' in Wave 1)
+	m = applyStrategyInPane(m) // stage edits via carousel (tab tab enter)
 	if !m.plan.HasChanges() {
 		t.Fatal("setup: expected staged edits")
 	}
@@ -1041,7 +1061,8 @@ func TestHelpToggle(t *testing.T) {
 
 func TestPreviewOpens(t *testing.T) {
 	m := newTestModel(t)
-	m = send(m, "s", "enter", "enter", "p")
+	m = applyStrategyInPane(m) // apply even spread (tab tab enter)
+	m = send(m, "p")
 	if m.mode != modePipeline {
 		t.Fatal("p should open preview")
 	}
@@ -1169,8 +1190,8 @@ func TestDetail_reloadResetsStatCaches(t *testing.T) {
 // "stat loading…" until the user manually moves the cursor.
 func TestDetail_refetchesAfterApply(t *testing.T) {
 	m := newTestModelN(t, 3)
-	// Stage edits by applying a strategy (palette -> params pane -> apply).
-	m = send(m, "s", "enter", "enter")
+	// Stage edits by applying a strategy via the carousel pane.
+	m = applyStrategyInPane(m) // tab tab enter
 	if !m.plan.HasChanges() {
 		t.Fatal("applying a strategy should stage edits")
 	}
@@ -1279,7 +1300,7 @@ func TestPicker_opensAndSwitchesBranch(t *testing.T) {
 
 func TestPicker_switchRefusedWithPendingEdits(t *testing.T) {
 	m := branchModel(t)
-	m = send(m, "s", "enter", "enter") // stage a strategy edit
+	m = applyStrategyInPane(m) // stage a strategy edit via carousel (tab tab enter)
 	if !m.plan.HasChanges() {
 		t.Fatal("strategy apply should stage edits")
 	}
@@ -2012,6 +2033,33 @@ func mkBranch(t *testing.T, m Model, name string) {
 	cmd.Dir = m.repo.Root()
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git branch %s: %v\n%s", name, err, out)
+	}
+}
+
+func TestStrategyCarousel_cyclesAndRepaints(t *testing.T) {
+	m := newTestModelN(t, 3)
+	m = send(m, "tab", "tab") // focus the strategy pane (list -> calendar -> params)
+	if m.focus != focusParams {
+		t.Fatalf("tab tab should focus the params pane, got %v", m.focus)
+	}
+	start := m.activeStrat().form.strat.Name()
+	m = send(m, "right") // carousel: next strategy
+	if m.activeStrat().form.strat.Name() == start {
+		t.Errorf("→ should advance the strategy carousel, still on %q", start)
+	}
+	if !strings.Contains(m.View(), m.activeStrat().form.strat.Name()) {
+		t.Error("the pane should show the newly selected strategy name")
+	}
+	m = send(m, "left")
+	if m.activeStrat().form.strat.Name() != start {
+		t.Errorf("← should return to %q, got %q", start, m.activeStrat().form.strat.Name())
+	}
+}
+
+func TestStrategyPalette_removed(t *testing.T) {
+	m := newTestModelN(t, 3)
+	if mm := send(m, "s"); mm.mode != modeMain {
+		t.Errorf("s should no longer open a palette, mode = %v", mm.mode)
 	}
 }
 

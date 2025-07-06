@@ -49,7 +49,6 @@ var keymap = []keyBinding{
 	{Key: "↑/↓ · enter", Scope: scopeWorkspace, Desc: "in a feature menu: move the cursor / run the selected feature"},
 
 	// Actions (work from any pane)
-	{Key: "s", Scope: scopeAction, Desc: "open the strategy palette (Dates)", Bar: "[s]trategy"},
 	{Key: "e / enter", Scope: scopeAction, Desc: "edit the selected commit (title, body, date)", Bar: "[e]dit"},
 	{Key: ".", Scope: scopeAction, Desc: "show full detail for the selected commit (overlay when narrow)", Bar: "[.]detail"},
 	{Key: "p", Scope: scopeAction, Desc: "preview the pending changes (read-only)", Bar: "[p]review"},
@@ -85,7 +84,7 @@ var keymap = []keyBinding{
 
 	// Strategy pane (focused)
 	{Key: "↑/↓", Scope: scopeStrategy, Desc: "move between fields"},
-	{Key: "←/→", Scope: scopeStrategy, Desc: "change the time-of-day model"},
+	{Key: "←/→", Scope: scopeStrategy, Desc: "change strategy (on the top row) / time model"},
 	{Key: "enter", Scope: scopeStrategy, Desc: "apply the strategy with the current parameters"},
 	{Key: "tab / esc", Scope: scopeStrategy, Desc: "back to the commit list"},
 }

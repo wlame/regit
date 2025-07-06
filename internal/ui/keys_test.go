@@ -8,7 +8,8 @@ import (
 
 func TestKeybarHint_containsCoreActions(t *testing.T) {
 	bar := keybarHint()
-	for _, tok := range []string{"[s]trategy", "[A]pply", "[?]help", "[q]uit", "tabs"} {
+	// [s]trategy has been removed — carousel replaces it; the other tokens remain.
+	for _, tok := range []string{"[A]pply", "[?]help", "[q]uit", "tabs"} {
 		if !strings.Contains(bar, tok) {
 			t.Errorf("keybar should contain %q, got: %s", tok, bar)
 		}
@@ -76,10 +77,17 @@ func TestKeybar_reflectsRetiredAndRenamedActions(t *testing.T) {
 			t.Errorf("keybar should contain %q, got: %s", want, bar)
 		}
 	}
-	for _, gone := range []string{"[S]plit", "[w]reword", "[D]rop-bodies", "[R]etitle", "[u]ndo", "[r]eset"} {
+	for _, gone := range []string{"[S]plit", "[w]reword", "[D]rop-bodies", "[R]etitle", "[u]ndo", "[r]eset", "[s]trategy"} {
 		if strings.Contains(bar, gone) {
 			t.Errorf("keybar should no longer contain %q, got: %s", gone, bar)
 		}
+	}
+}
+
+func TestKeybarHint_strategyGone(t *testing.T) {
+	bar := keybarHint()
+	if strings.Contains(bar, "[s]trategy") {
+		t.Errorf("keybar should no longer advertise [s]trategy after carousel, got: %s", bar)
 	}
 }
 
