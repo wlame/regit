@@ -13,6 +13,46 @@ import (
 	"github.com/wlame/regit/internal/strategy"
 )
 
+// timeWindow is the config-derived clock window the time-of-day hint describes.
+type timeWindow struct {
+	start, end, lunchStart, lunchEnd, fixed, jitter int // minutes from midnight
+}
+
+// hhmm formats minutes-from-midnight as HH:MM.
+func hhmm(min int) string {
+	return fmt.Sprintf("%02d:%02d", min/60, min%60)
+}
+
+// timeModelHint returns a concrete one-line description of when a time model places
+// commits, keyed by the model's Name(), so the strategy pane can explain each option.
+func timeModelHint(name string, w timeWindow) string {
+	switch name {
+	case "Preserve original":
+		return "keeps each commit's original time"
+	case "Working hours":
+		s := hhmm(w.start) + "–" + hhmm(w.end)
+		if w.lunchStart != 0 || w.lunchEnd != 0 {
+			s += " (lunch " + hhmm(w.lunchStart) + "–" + hhmm(w.lunchEnd) + ")"
+		}
+		return s
+	case "Evening hours":
+		return "18:00–23:59"
+	case "Non-working hours":
+		return "evenings on workdays; all day on days off"
+	case "Uniform random":
+		return "00:00–23:59"
+	case "Fixed time":
+		return "at " + hhmm(w.fixed)
+	case "Jitter":
+		center := w.fixed
+		if center == 0 {
+			center = (w.start + w.end) / 2
+		}
+		return "around " + hhmm(center) + " ± " + fmt.Sprintf("%d", w.jitter) + " min"
+	}
+	return ""
+}
+
 // paramsForm is the per-strategy parameter editor shown after a strategy is
 // chosen from the palette. It uses a small fixed pool of text inputs whose labels
 // and meanings are reassigned per strategy, plus a time-model selector.
@@ -24,6 +64,7 @@ type paramsForm struct {
 	timeModelIdx int
 	focusIdx     int // 0..len(inputs); the final index selects the time model
 	usesTimeMod  bool
+	win          timeWindow // config-derived clock window, used for time-model hints
 
 	// errMsg is the last apply error, rendered inside the modal. The main
 	// status bar is hidden while a modal is open, so errors must show here.
@@ -40,6 +81,16 @@ func newParamsForm(strat strategy.Strategy, cfg config.Config, cursor time.Time)
 		strat:       strat,
 		timeModels:  strategy.TimeModels(),
 		usesTimeMod: usesTimeMod,
+		// fixed: 0 because cfg.FixedTimeMin() does not exist; Fixed-time hint
+		// shows "at 00:00" and Jitter centers on the workday midpoint instead.
+		win: timeWindow{
+			start:      cfg.WorkdayStartMin(),
+			end:        cfg.WorkdayEndMin(),
+			lunchStart: cfg.LunchStartMin(),
+			lunchEnd:   cfg.LunchEndMin(),
+			fixed:      0,
+			jitter:     cfg.JitterMinutes,
+		},
 	}
 	// Pre-select the configured default time model.
 	for i, tm := range f.timeModels {
@@ -290,6 +341,7 @@ func (f paramsForm) view(st styles) string {
 		}
 		tm := f.timeModel()
 		b.WriteString(fmt.Sprintf("%s%-18s ◀ %s ▶\n", cursor, "Time of day:", tm.Name()))
+		b.WriteString(st.dim.Render(fmt.Sprintf("%-20s %s", "", timeModelHint(tm.Name(), f.win))) + "\n")
 	}
 
 	if f.errMsg != "" {
