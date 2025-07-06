@@ -144,9 +144,11 @@ type Model struct {
 // activeStrat returns the currently-selected strategy's state.
 func (m *Model) activeStrat() *strategyState { return &m.strats[m.stratIdx] }
 
-// unstageActive removes the active strategy's staged author dates from every
-// active commit, keeping any manual message edits (subject/body/drop), so the
-// calendar falls back to plain tiles when the strategy is not ready.
+// unstageActive removes staged author dates from every active commit, keeping any
+// manual message edits (subject/body/drop), so the calendar falls back to plain tiles
+// when the strategy is not ready. By design it clears the author-date dimension across
+// the whole active range: in the Dates workspace the strategy owns dates, so an author
+// date typed in the per-commit editor is subsumed here too — only message edits survive.
 func (m *Model) unstageActive() {
 	for _, c := range m.plan.Active() {
 		e, ok := m.plan.EditFor(c.Hash)
@@ -164,14 +166,21 @@ func (m *Model) unstageActive() {
 // distribution (author-date edits) via the engine; otherwise it unstages.
 // Called after every param edit, pin change, and carousel switch, so plan.Edits
 // always reflects exactly the active strategy.
+// activeReady reports whether the active strategy has enough input to stage: a valid
+// date range, or — for the pin-based strategies Manual Pin / Picked Days — at least
+// one calendar pin. Shared by stageActive and applyStrategy so the two can never
+// disagree about readiness.
+func (m *Model) activeReady() bool {
+	a := m.activeStrat()
+	if a.form.strat.Name() == "Manual Pin" || a.form.strat.Name() == "Picked Days" {
+		return len(a.quotas) > 0 || len(a.picked) > 0
+	}
+	return a.form.ready()
+}
+
 func (m *Model) stageActive() {
 	a := m.activeStrat()
-	pinBased := a.form.strat.Name() == "Manual Pin" || a.form.strat.Name() == "Picked Days"
-	ready := a.form.ready()
-	if pinBased {
-		ready = len(a.quotas) > 0 || len(a.picked) > 0
-	}
-	if !ready {
+	if !m.activeReady() {
 		m.unstageActive()
 		return
 	}
@@ -960,8 +969,10 @@ func (m *Model) selectFirstCommitOfDay() {
 	}
 }
 
-// cycleStrategy moves the carousel by delta (wrapping), unstages the old
-// strategy's edits, then re-stages the new one if it is ready.
+// cycleStrategy moves the carousel by delta (wrapping) and re-stages: stageActive on
+// the now-active strategy overwrites the staged author dates with its distribution,
+// or clears them if it is not ready — so the plan only ever holds the active
+// strategy's dates.
 func (m *Model) cycleStrategy(delta int) {
 	n := len(m.strategies)
 	m.stratIdx = (m.stratIdx + delta + n) % n
@@ -1021,14 +1032,9 @@ func (m Model) applyStrategy() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	a := m.activeStrat()
-	pinBased := a.form.strat.Name() == "Manual Pin" || a.form.strat.Name() == "Picked Days"
-	ready := a.form.ready()
-	if pinBased {
-		ready = len(a.quotas) > 0 || len(a.picked) > 0
-	}
-	if !ready {
+	if !m.activeReady() {
 		// Nothing staged yet: report a helpful message and stay in the pane.
-		if pinBased {
+		if a.form.strat.Name() == "Manual Pin" || a.form.strat.Name() == "Picked Days" {
 			a.form.errMsg = "Pin at least one day on the calendar first (0–9 for quotas, space for picked days)"
 		} else {
 			a.form.errMsg = "Fill the date fields before applying"

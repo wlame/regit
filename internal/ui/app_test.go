@@ -1424,6 +1424,28 @@ func TestUnstage_preservesMessageEdits(t *testing.T) {
 	}
 }
 
+// The Dates strategy owns the author-date dimension: a date typed in the per-commit
+// editor is subsumed (cleared) when an unready strategy unstages, while that commit's
+// message edit survives. This documents the intended ownership (spec: manual-date vs
+// strategy-date coexistence is the strategy's to own in this workspace).
+func TestUnstage_strategyOwnsAuthorDates(t *testing.T) {
+	m := newTestModelN(t, 3)
+	c := m.commitAtCursor()
+	neu := "Kept title"
+	d := c.OrigAuthorDate.AddDate(0, 0, 7)
+	m.plan.SetEdit(c.Hash, model.Edit{NewSubject: &neu, NewAuthorDate: &d})
+
+	m.stageActive() // Even Spread with unset dates -> unstageActive
+
+	e, ok := m.plan.EditFor(c.Hash)
+	if !ok || e.NewSubject == nil || *e.NewSubject != neu {
+		t.Errorf("the message edit must survive unstage, got %+v (ok=%v)", e, ok)
+	}
+	if e.NewAuthorDate != nil {
+		t.Error("the strategy owns author dates: a manual date edit is cleared on unstage")
+	}
+}
+
 // The calendar previews as numbers only when a strategy staged a date distribution;
 // a message-only edit (retitle/reword) must keep it in tile mode.
 func TestStrategyStaged_ignoresMessageOnlyEdits(t *testing.T) {
