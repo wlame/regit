@@ -2171,6 +2171,18 @@ func TestReset_clearsAllStrategyState(t *testing.T) {
 	}
 }
 
+func TestApply_blockedUntilStrategyReady(t *testing.T) {
+	m := newTestModelN(t, 3)
+	m = send(m, "tab", "tab") // strategy pane, dates unset -> nothing staged
+	m = send(m, "A")          // apply
+	if m.plan.HasChanges() {
+		t.Error("apply must not stage anything when the strategy is unready")
+	}
+	if m.statusKind != statusWarn {
+		t.Errorf("apply with nothing staged should warn, got kind %v", m.statusKind)
+	}
+}
+
 func TestBranchPicker_dirtyErrorStaysInOverlay(t *testing.T) {
 	m := newTestModelN(t, 3)
 	mkBranch(t, m, "other")

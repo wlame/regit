@@ -34,7 +34,7 @@ func (m Model) viewCalendarPane() string {
 	counts := m.dayCounts()
 	cursor := m.calCursor.In(m.loc)
 	a := m.activeStrat()
-	heat := renderCalendar(cursor, counts, a.quotas, a.picked, m.loc, m.st)
+	heat := renderCalendar(cursor, counts, a.quotas, a.picked, m.loc, m.st, m.strategyStaged())
 	legend := renderLegend(m.st)
 
 	key := cursor.Format(dateLayout)

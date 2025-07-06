@@ -60,7 +60,11 @@ func sundayOnOrBefore(t time.Time) time.Time {
 // quotas keyed by "2006-01-02". Picked days show their assigned commit count,
 // quota days show the pinned number — both instead of a heat glyph — and the
 // cursor day is highlighted.
-func renderCalendar(cursor time.Time, counts, quotas map[string]int, picked map[string]bool, loc *time.Location, st styles) string {
+//
+// When preview is true (a strategy has been staged), days with commits render
+// their count as a plain number instead of a heat tile, giving the user an
+// at-a-glance distribution view. When false, the standard tile heatmap is used.
+func renderCalendar(cursor time.Time, counts, quotas map[string]int, picked map[string]bool, loc *time.Location, st styles, preview bool) string {
 	rangeStart, rangeEnd, _ := halfRange(cursor.In(loc), loc)
 	start := sundayOnOrBefore(rangeStart)
 	cursorKey := cursor.In(loc).Format(dateLayout)
@@ -84,12 +88,19 @@ func renderCalendar(cursor time.Time, counts, quotas map[string]int, picked map[
 			cell := strings.Repeat(cellEmpty, cellWidth)
 			level := heatLevel(counts[key])
 			style := st.heatLevels[level]
-			if level > 0 {
+			if preview {
+				// Preview mode: show the per-day commit count as a number so
+				// the staged distribution is immediately readable.
+				if n := counts[key]; n > 0 {
+					cell = fmt.Sprintf("%*d", cellWidth, clampCellCount(n))
+					style = st.marker
+				}
+			} else if level > 0 {
 				cell = strings.Repeat(cellFilled, cellWidth)
 			}
 			if q, ok := quotas[key]; ok {
-				// A pinned quota replaces the glyph so the number is visible
-				// right on the day it applies to.
+				// An explicit quota pin overrides both preview numbers and heat
+				// tiles so the pinned target stays visible on its day.
 				cell = fmt.Sprintf("%*d", cellWidth, clampCellCount(q))
 				style = st.marker
 			}
