@@ -1,6 +1,7 @@
 package safety
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -25,9 +26,13 @@ func TestCheckGuards_dirtyTreeBlocks(t *testing.T) {
 func TestCheckGuards_sequenceViolationBlocks(t *testing.T) {
 	p := planWithEdit(false)
 	p.Violations = []model.SequenceViolation{{ChildHash: "b", ParentHash: "a"}}
+	p.Shifted = []string{"b"}
 	g := CheckGuards(model.RepoState{}, p)
 	if !g.Blocked {
 		t.Fatal("sequence violation should block")
+	}
+	if !strings.Contains(g.BlockReason, "conflicting") {
+		t.Errorf("block reason should mention conflicting commits, got %q", g.BlockReason)
 	}
 }
 

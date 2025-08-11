@@ -43,8 +43,8 @@ func CheckGuards(state model.RepoState, plan *model.Plan) Guard {
 	if !plan.IsValid() {
 		return Guard{
 			Blocked: true,
-			BlockReason: fmt.Sprintf("plan has %d out-of-order commit(s); resolve them before applying",
-				len(plan.Violations)),
+			BlockReason: fmt.Sprintf("plan has %d commit(s) conflicting with your edits; resolve them before applying",
+				len(plan.Shifted)),
 		}
 	}
 	if anyPushed(plan) {

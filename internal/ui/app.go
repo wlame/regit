@@ -1295,7 +1295,7 @@ func (m *Model) reportPlan(action string) {
 	if m.plan.IsValid() {
 		m.setStatus(fmt.Sprintf("%s · %d commits edited · ✓ sequential", action, len(m.plan.Edits)), statusOK)
 	} else {
-		m.setStatus(fmt.Sprintf("%s · %d edited · ⚠ %d out-of-order", action, len(m.plan.Edits), len(m.plan.Violations)), statusWarn)
+		m.setStatus(fmt.Sprintf("%s · %d edited · ⚠ %d conflicting", action, len(m.plan.Edits), len(m.plan.Shifted)), statusWarn)
 	}
 }
 

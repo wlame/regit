@@ -2265,3 +2265,34 @@ func TestRecomputeViolations_populatesShiftedBlastRadius(t *testing.T) {
 		t.Fatalf("expected 2 shifted commits (blast radius), got %d: %v", len(m.plan.Shifted), m.plan.Shifted)
 	}
 }
+
+func TestReportPlan_warnsWithConflictCount(t *testing.T) {
+	m := newTestModelN(t, 4)
+	edited := m.plan.Commits[1]
+	future := edited.OrigAuthorDate.AddDate(0, 0, 30)
+	m.plan.SetEdit(edited.Hash, model.Edit{NewAuthorDate: &future})
+	m.recomputeViolations()
+
+	m.reportPlan("Edit")
+
+	if m.statusKind != statusWarn {
+		t.Errorf("expected statusWarn, got %v", m.statusKind)
+	}
+	if !strings.Contains(m.statusMsg, "2 conflicting") {
+		t.Errorf("status should report 2 conflicting, got %q", m.statusMsg)
+	}
+}
+
+func TestReportPlan_cleanPlanIsSequential(t *testing.T) {
+	m := newTestModelN(t, 3)
+	c := m.commitAtCursor() // newest commit; editing the tip cannot reorder
+	nd := c.OrigAuthorDate.AddDate(0, 0, 1)
+	m.plan.SetEdit(c.Hash, model.Edit{NewAuthorDate: &nd})
+	m.recomputeViolations()
+
+	m.reportPlan("Edit")
+
+	if !strings.Contains(m.statusMsg, "✓ sequential") {
+		t.Errorf("clean plan should report sequential, got %q", m.statusMsg)
+	}
+}
