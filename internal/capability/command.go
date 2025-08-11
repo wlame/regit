@@ -36,29 +36,6 @@ const (
 	ParamClock                       // HH:MM (kept as a string; verbs parse to minutes)
 )
 
-// WorkspaceID identifies one of the fixed category tabs.
-type WorkspaceID int
-
-const (
-	WSNone WorkspaceID = iota - 1 // headless-only
-	WSDates
-	WSRestructure
-	WSHistory
-	WSAuthorship
-	WSSearch
-)
-
-// SelectionMode is what a feature needs the user to select before it runs.
-type SelectionMode int
-
-const (
-	SelSingle SelectionMode = iota // one commit (the cursor)
-	SelRange                       // a contiguous run of commits
-	SelSet                         // an arbitrary set of commits
-	SelActive                      // the whole non-frozen range (no per-row pick)
-	SelGlobal                      // no commit selection; repo-wide operation
-)
-
 // Param describes one flag: the atom every agent surface is built from.
 type Param struct {
 	Name      string    // long flag; rendered as --Name
