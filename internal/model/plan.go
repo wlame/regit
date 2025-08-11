@@ -16,6 +16,13 @@ type Plan struct {
 	Edits      map[string]Edit     // commit hash -> pending edit
 	Violations []SequenceViolation // populated by the strategy engine's check
 
+	// Shifted holds the hashes of commits the enforcement cascade would move:
+	// the full "out of order" blast radius of the pending edits, which the UI
+	// flags with a ⚠. It is a superset of the Violations children and is
+	// non-empty exactly when Violations is, so it drives display only — the
+	// apply-block decision still keys on Violations via IsValid.
+	Shifted []string
+
 	// Base is the index into Commits of the first editable commit. Everything
 	// before it is frozen: strategies skip those commits and the rewrite
 	// engine never replays them, so their hashes are guaranteed unchanged.

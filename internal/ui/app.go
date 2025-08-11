@@ -160,6 +160,7 @@ func (m *Model) unstageActive() {
 		m.plan.SetEdit(c.Hash, e)
 	}
 	m.plan.Violations = nil
+	m.plan.Shifted = nil
 }
 
 // stageActive previews the active strategy: when it is ready it stages its
@@ -433,6 +434,7 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		}
 		m.plan.Edits = make(map[string]model.Edit)
 		m.plan.Violations = nil
+		m.plan.Shifted = nil
 		m.quotaTyping = false
 		m.setStatus("Reset — strategies and calendar cleared", statusOK)
 		return m, nil, true
@@ -1305,6 +1307,7 @@ func (m *Model) recomputeViolations() {
 		times[i] = m.plan.EffectiveAuthorDate(c)
 	}
 	m.plan.Violations = strategy.FindViolations(m.plan.Commits, times)
+	m.plan.Shifted = strategy.ShiftedByEnforcement(m.plan.Commits, times)
 }
 
 func (m Model) defaultStrategyIndex() int {

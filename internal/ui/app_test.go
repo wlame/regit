@@ -2246,3 +2246,22 @@ func TestBranchPicker_dirtyErrorStaysInOverlay(t *testing.T) {
 		t.Error("typing should clear the picker error")
 	}
 }
+
+func TestRecomputeViolations_populatesShiftedBlastRadius(t *testing.T) {
+	// Four commits share one author date. Editing the second-oldest far into the
+	// future leaves the two newer commits before it: one is a pairwise violation,
+	// both are in the cascade blast radius. So Shifted (2) exceeds Violations (1).
+	m := newTestModelN(t, 4)
+	edited := m.plan.Commits[1] // root-first index 1
+	future := edited.OrigAuthorDate.AddDate(0, 0, 30)
+	m.plan.SetEdit(edited.Hash, model.Edit{NewAuthorDate: &future})
+
+	m.recomputeViolations()
+
+	if len(m.plan.Violations) != 1 {
+		t.Fatalf("expected 1 pairwise violation, got %d", len(m.plan.Violations))
+	}
+	if len(m.plan.Shifted) != 2 {
+		t.Fatalf("expected 2 shifted commits (blast radius), got %d: %v", len(m.plan.Shifted), m.plan.Shifted)
+	}
+}

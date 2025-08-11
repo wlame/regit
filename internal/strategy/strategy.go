@@ -200,6 +200,10 @@ func Apply(plan *model.Plan, s Strategy, tm TimeModel, p Params, linkCommitter b
 
 	times = EnforceSequential(commits, times)
 	plan.Violations = FindViolations(commits, times)
+	// times is already enforced here, so the blast radius is empty — a strategy
+	// run never leaves a conflict. Set it explicitly so a prior manual edit's
+	// Shifted does not linger.
+	plan.Shifted = ShiftedByEnforcement(commits, times)
 
 	for i, c := range commits {
 		t := times[i]
