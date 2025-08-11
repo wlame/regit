@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/wlame/regit/internal/model"
 )
 
@@ -126,5 +128,23 @@ func TestScrollOffset_keepsCursorOffTheEdges(t *testing.T) {
 	// Near the bottom the offset clamps so the last row is the final one.
 	if got := scrollOffset(0, total-1, total, visible); got != total-visible {
 		t.Errorf("at the bottom the offset should clamp to %d, got %d", total-visible, got)
+	}
+}
+
+func TestListHeight_fillsTerminalRegardlessOfCommitCount(t *testing.T) {
+	// 3 commits in a 40-row terminal: the pane must fill the height, not shrink
+	// to the commit count (the old clamp returned 8 here).
+	m := newTestModelN(t, 3)
+	if got, want := m.listHeight(), m.height-9; got != want {
+		t.Errorf("listHeight() = %d, want %d (full height, no clamp)", got, want)
+	}
+}
+
+func TestListHeight_shortTerminalUsesFloor(t *testing.T) {
+	m := newTestModelN(t, 3)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 12})
+	m = updated.(Model)
+	if got := m.listHeight(); got != 8 {
+		t.Errorf("listHeight() = %d, want 8 for a short terminal", got)
 	}
 }

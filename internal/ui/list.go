@@ -105,16 +105,13 @@ func (m *Model) syncListViewport() {
 
 // listHeight is the commit list's inner height in rows. It reserves a fixed
 // chrome budget for the title bar, tab bar, status line, keybar, and the pane
-// borders, and never exceeds what the loaded commits actually need.
+// borders, and otherwise fills the terminal height so the panes span the screen
+// even on a repo with only a few commits.
 func (m Model) listHeight() int {
 	if m.height < 16 {
 		return 8
 	}
-	rows := m.height - 9 // title + tabs + status + keybar + spacing/borders
-	if fit := len(m.buildListRows()) + 1; rows > fit {
-		rows = max(8, fit)
-	}
-	return rows
+	return m.height - 9 // title + tabs + status + keybar + spacing/borders
 }
 
 // viewCommitList renders the scrollable, newest-first commit list from the row
