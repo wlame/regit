@@ -87,3 +87,21 @@ func EnforceSequential(commits []model.Commit, times []time.Time) []time.Time {
 
 	return out
 }
+
+// ShiftedByEnforcement returns the root-first hashes of every commit whose
+// timestamp EnforceSequential would change — the true blast radius of an
+// out-of-order edit. It is a superset of FindViolations' children: it also
+// catches the commits that sit after their direct parent but before an edited
+// ancestor, which the cascade still drags forward. times[i] is the proposed
+// (effective) timestamp for commits[i]. The input is not mutated (EnforceSequential
+// works on a copy).
+func ShiftedByEnforcement(commits []model.Commit, times []time.Time) []string {
+	out := EnforceSequential(commits, times)
+	var shifted []string
+	for i := range commits {
+		if !out[i].Equal(times[i]) {
+			shifted = append(shifted, commits[i].Hash)
+		}
+	}
+	return shifted
+}

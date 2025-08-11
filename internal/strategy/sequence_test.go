@@ -125,3 +125,65 @@ func TestEnforceSequential_doesNotMutateInput(t *testing.T) {
 		t.Errorf("input slice was mutated: %s != %s", times[1], original)
 	}
 }
+
+func TestShiftedByEnforcement_includesCascadeCollateral(t *testing.T) {
+	// Root-first; commit b ("11bdf029") was edited far forward. c is before its
+	// direct parent b (a real violation); d and e are after their direct parent
+	// but still before b, so the cascade drags them forward too. f is clear.
+	commits := makeCommits(6) // a,b,c,d,e,f
+	times := []time.Time{
+		ts("2026-05-06T04:05:00Z"), // a (anchor)
+		ts("2026-05-06T23:03:00Z"), // b (edited, the high point)
+		ts("2026-05-06T09:27:00Z"), // c — before b => violation
+		ts("2026-05-06T22:50:00Z"), // d — after c, before b => collateral
+		ts("2026-05-06T22:59:00Z"), // e — after d, before b => collateral
+		ts("2026-05-06T23:09:00Z"), // f — after b => clear
+	}
+
+	shifted := ShiftedByEnforcement(commits, times)
+	want := []string{"c", "d", "e"}
+	if len(shifted) != len(want) {
+		t.Fatalf("shifted = %v, want %v", shifted, want)
+	}
+	for i := range want {
+		if shifted[i] != want[i] {
+			t.Errorf("shifted[%d] = %q, want %q", i, shifted[i], want[i])
+		}
+	}
+
+	// The blast radius must be a superset of every pairwise violation child.
+	set := map[string]bool{}
+	for _, h := range shifted {
+		set[h] = true
+	}
+	for _, v := range FindViolations(commits, times) {
+		if !set[v.ChildHash] {
+			t.Errorf("violation child %q missing from shifted set %v", v.ChildHash, shifted)
+		}
+	}
+}
+
+func TestShiftedByEnforcement_cleanChainIsEmpty(t *testing.T) {
+	commits := makeCommits(3)
+	times := []time.Time{
+		ts("2026-03-01T10:00:00Z"),
+		ts("2026-03-01T10:00:00Z"), // equal is allowed (non-decreasing)
+		ts("2026-03-02T10:00:00Z"),
+	}
+	if s := ShiftedByEnforcement(commits, times); len(s) != 0 {
+		t.Fatalf("clean chain should shift nothing, got %v", s)
+	}
+}
+
+func TestShiftedByEnforcement_doesNotMutateInput(t *testing.T) {
+	commits := makeCommits(2)
+	times := []time.Time{
+		ts("2026-03-01T10:00:00Z"),
+		ts("2026-03-01T09:00:00Z"),
+	}
+	before := times[1]
+	_ = ShiftedByEnforcement(commits, times)
+	if !times[1].Equal(before) {
+		t.Errorf("input mutated: times[1] = %s, want %s", times[1], before)
+	}
+}
