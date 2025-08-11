@@ -58,10 +58,10 @@ func (c planChange) guard(state model.RepoState) safety.Guard {
 }
 
 // preview renders a before/after row per commit (newest-first): the original and
-// effective author dates with a → arrow on edited commits, and a ✗ flag on rows
-// that are part of a sequence violation.
+// effective author dates with a → arrow on edited commits, and a ⚠ flag on rows
+// in the out-of-order blast radius.
 func (c planChange) preview(st styles) previewModel {
-	violation := violationSet(c.plan)
+	shifted := shiftedSet(c.plan)
 	lines := make([]string, 0, len(c.plan.Commits))
 	for i := len(c.plan.Commits) - 1; i >= 0; i-- {
 		commit := c.plan.Commits[i]
@@ -74,15 +74,15 @@ func (c planChange) preview(st styles) previewModel {
 		}
 		text := fmt.Sprintf("%s  %-32s %s%s%s", short(commit.Hash), truncate(commit.Subject, 32), orig, arrow, neu)
 		switch {
-		case violation[commit.Hash]:
-			lines = append(lines, st.statusErr.Render("✗ "+text))
+		case shifted[commit.Hash]:
+			lines = append(lines, st.statusWarn.Render("⚠ "+text))
 		case changed:
 			lines = append(lines, st.newDate.Render("  "+text))
 		default:
 			lines = append(lines, st.dim.Render("  "+text))
 		}
 	}
-	title := fmt.Sprintf("Apply — %d edited · %d violation(s)", len(c.plan.Edits), len(c.plan.Violations))
+	title := fmt.Sprintf("Apply — %d edited · %d conflicting", len(c.plan.Edits), len(c.plan.Shifted))
 	return previewModel{title: title, lines: lines}
 }
 

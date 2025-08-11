@@ -4,12 +4,13 @@ import (
 	"github.com/wlame/regit/internal/model"
 )
 
-// violationSet returns the set of commit hashes involved in any violation.
-func violationSet(plan *model.Plan) map[string]bool {
+// shiftedSet returns the set of commit hashes in the plan's out-of-order blast
+// radius (the commits the enforcement cascade would move), for the preview to
+// flag with a ⚠.
+func shiftedSet(plan *model.Plan) map[string]bool {
 	set := make(map[string]bool)
-	for _, v := range plan.Violations {
-		set[v.ChildHash] = true
-		set[v.ParentHash] = true
+	for _, h := range plan.Shifted {
+		set[h] = true
 	}
 	return set
 }

@@ -78,3 +78,21 @@ func TestSplitChange_guardBlocksDirtyAndMerge(t *testing.T) {
 		t.Error("a merge commit should block a split")
 	}
 }
+
+func TestPlanChange_previewMarksConflictsWithWarning(t *testing.T) {
+	m := newTestModelN(t, 4)
+	edited := m.plan.Commits[1]
+	future := edited.OrigAuthorDate.AddDate(0, 0, 30)
+	m.plan.SetEdit(edited.Hash, model.Edit{NewAuthorDate: &future})
+	m.recomputeViolations() // populates plan.Shifted (2 commits)
+
+	pv := newPlanChange(m.plan, m.loc).preview(m.st)
+	body := strings.Join(pv.lines, "\n")
+
+	if got := strings.Count(body, "⚠"); got != 2 {
+		t.Errorf("expected 2 ⚠-marked rows, got %d in:\n%s", got, body)
+	}
+	if !strings.Contains(pv.title, "2 conflicting") {
+		t.Errorf("title should report 2 conflicting, got %q", pv.title)
+	}
+}
