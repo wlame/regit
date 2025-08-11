@@ -51,7 +51,7 @@ func (m Model) viewCalendarPane() string {
 
 	seq := m.st.statusOK.Render("✓ sequential")
 	if !m.plan.IsValid() {
-		seq = m.st.statusErr.Render(fmt.Sprintf("✗ %d out-of-order", len(m.plan.Violations)))
+		seq = m.st.statusWarn.Render(fmt.Sprintf("⚠ %d conflicting", len(m.plan.Shifted)))
 	}
 
 	_, _, half := halfRange(cursor, m.loc)

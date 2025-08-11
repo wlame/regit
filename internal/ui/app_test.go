@@ -2296,3 +2296,19 @@ func TestReportPlan_cleanPlanIsSequential(t *testing.T) {
 		t.Errorf("clean plan should report sequential, got %q", m.statusMsg)
 	}
 }
+
+func TestCalendarPane_showsConflictCountNotOldViolation(t *testing.T) {
+	m := newTestModelN(t, 4)
+	edited := m.plan.Commits[1] // root-first index 1
+	future := edited.OrigAuthorDate.AddDate(0, 0, 30)
+	m.plan.SetEdit(edited.Hash, model.Edit{NewAuthorDate: &future})
+	m.recomputeViolations() // Violations = 1, Shifted = 2
+
+	out := m.viewCalendarPane()
+	if !strings.Contains(out, "⚠ 2 conflicting") {
+		t.Errorf("calendar pane should show the shifted conflict count, got:\n%s", out)
+	}
+	if strings.Contains(out, "out-of-order") || strings.Contains(out, "✗") {
+		t.Errorf("calendar pane should not use the old out-of-order/✗ marker, got:\n%s", out)
+	}
+}
