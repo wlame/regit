@@ -25,8 +25,7 @@ go.work.sum
 
 # ---- AI assistant working files ----
 # Claude / Serena and any plans, notes, analysis, or context written for models.
-# The working dirs are anchored to the repo root so they don't match tracked
-# docs (e.g. docs/superpowers/plans/, which holds committed workflow artifacts).
+# Workflow specs and plans live under .claude/superpowers/ so they stay out of git.
 .claude/
 .serena/
 .remember/
