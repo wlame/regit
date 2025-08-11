@@ -16,6 +16,10 @@ import (
 	"github.com/wlame/regit/internal/ui"
 )
 
+// version is the build version, stamped at link time via
+// -ldflags "-X main.version=...". Plain `go build` leaves it as "dev".
+var version = "dev"
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "regit:", err)
@@ -23,7 +27,27 @@ func main() {
 	}
 }
 
+// wantsVersion reports whether the arguments request the version banner. It is
+// checked before flag parsing so `--version` never trips flag.Parse's
+// "flag provided but not defined" error, mirroring the os.Args-based
+// subcommand dispatch in run.
+func wantsVersion(args []string) bool {
+	for _, a := range args {
+		if a == "--version" || a == "-version" {
+			return true
+		}
+	}
+	return false
+}
+
 func run() error {
+	// Handle `regit --version` up front: print the stamped version and exit
+	// before touching flags, the repository, or config.
+	if wantsVersion(os.Args[1:]) {
+		fmt.Println("regit", version)
+		return nil
+	}
+
 	repoPath := flag.String("repo", ".", "path to the git repository to operate on")
 	flag.Parse()
 

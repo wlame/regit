@@ -6,13 +6,39 @@ binary := "regit"
 bin_dir := "dist"
 coverage_file := "coverage.out"
 
+# Version stamped into builds: latest tag + dirty/commit marker, or "dev"
+# outside any tag (e.g. a fresh clone with no tags).
+version := `git describe --tags --dirty --always 2>/dev/null || echo dev`
+
+# The OS/arch matrix build-all cross-compiles for.
+platforms := "linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64"
+
 # Show the list of available recipes when `just` is run with no arguments.
 default:
     @just --list
 
-# Compile the binary into ./{{bin_dir}}/{{binary}}.
+# Compile the binary into ./{{bin_dir}}/{{binary}}, stamping the version.
 build:
-    go build -o {{bin_dir}}/{{binary}} ./cmd/regit
+    go build -ldflags "-X main.version={{version}}" -o {{bin_dir}}/{{binary}} ./cmd/regit
+
+# Cross-compile release binaries for every platform into ./{{bin_dir}}.
+# Output: {{bin_dir}}/{{binary}}-<os>-<arch> ({{binary}}-windows-*.exe on Windows).
+# Pure-Go build (no cgo), so every target cross-compiles without a C toolchain.
+build-all:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for p in {{platforms}}; do
+        os="${p%/*}"; arch="${p#*/}"
+        ext=""; [ "$os" = "windows" ] && ext=".exe"
+        out="{{bin_dir}}/{{binary}}-${os}-${arch}${ext}"
+        echo "building ${out}"
+        GOOS="$os" GOARCH="$arch" go build -ldflags "-X main.version={{version}}" -o "$out" ./cmd/regit
+    done
+    echo "done — binaries in {{bin_dir}}/"
+
+# Print the version a build would stamp.
+print-version:
+    @echo {{version}}
 
 # Install the binary into $GOBIN (or $GOPATH/bin) so `regit` is on your PATH.
 install:
