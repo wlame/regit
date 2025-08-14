@@ -143,6 +143,26 @@ var registry = []Command{
 		Limitations: []string{"RE2 syntax (no backreferences). Subjects that would become empty are skipped."},
 		ExitCodes:   map[int]string{0: "ok / dry-run", 1: "usage error", 2: "guard blocked", 3: "apply error"},
 	},
+	{
+		Name:      "drop-bodies",
+		Summary:   "Strip the body of each commit in a range, keeping titles.",
+		Mutating:  true,
+		Workspace: WSRestructure,
+		Selection: SelActive,
+		Run:       runDropBodies,
+		Params: []Param{
+			{Name: "commits", Type: ParamString, Help: "rev-range A..B or a single ref (default: all)"},
+			{Name: "repo", Type: ParamString, Default: ".", Help: "path to the git repository"},
+			{Name: "execute", Type: ParamBool, Default: "false", Help: "apply (default: dry-run preview)"},
+			{Name: "force", Type: ParamBool, Default: "false", Help: "allow rewriting already-pushed commits"},
+		},
+		Examples: []Example{
+			{Cmd: "regit drop-bodies", Why: "preview dropping every commit body on the branch"},
+			{Cmd: "regit drop-bodies --commits=HEAD~10..HEAD --execute", Why: "drop bodies on the last 10 commits"},
+		},
+		Limitations: []string{"Commits without a body are skipped. Titles are never changed."},
+		ExitCodes:   map[int]string{0: "ok / dry-run", 1: "usage error", 2: "guard blocked", 3: "apply error"},
+	},
 }
 
 // Registry returns the ordered command table.
