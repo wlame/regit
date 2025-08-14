@@ -14,10 +14,14 @@ import (
 // and reword) through the capability registry. It loads config + repo, builds a
 // RunContext, parses the flags via capability.Parse, and calls c.Run.
 //
+// repoDir is the default repository path supplied by the top-level --repo flag
+// (or "." when absent). The verb's own --repo flag, when explicitly provided,
+// takes precedence.
+//
 // In Phase 1 no command has a non-nil Run yet, so this path is unreachable for
 // any currently-registered verb. The nil guard returns a clear error rather than
 // a nil-dereference panic.
-func dispatch(verb string, args []string) error {
+func dispatch(verb string, repoDir string, args []string) error {
 	c, _ := capability.Lookup(verb)
 
 	a, err := capability.Parse(c, args)
@@ -25,9 +29,9 @@ func dispatch(verb string, args []string) error {
 		return err
 	}
 
-	repoDir := a.String("repo")
-	if repoDir == "" {
-		repoDir = "."
+	// The verb's own --repo flag wins over the top-level default when explicitly set.
+	if a.Has("repo") {
+		repoDir = a.String("repo")
 	}
 
 	cfg, err := config.Load()

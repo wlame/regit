@@ -46,22 +46,94 @@ func TestWantsHelp(t *testing.T) {
 	}
 }
 
-func TestWantsTopHelp(t *testing.T) {
-	// wantsTopHelp delegates to wantsHelp; verify the delegation is correct.
+func TestExtractRepoFlag(t *testing.T) {
 	cases := []struct {
-		name string
-		args []string
-		want bool
+		name     string
+		args     []string
+		wantRepo string
+		wantRest []string
 	}{
-		{"bare --help", []string{"--help"}, true},
-		{"bare -h", []string{"-h"}, true},
-		{"no args", nil, false},
-		{"repo flag only", []string{"--repo=."}, false},
+		{
+			name:     "equals form before verb",
+			args:     []string{"--repo=/x", "split", "HEAD"},
+			wantRepo: "/x",
+			wantRest: []string{"split", "HEAD"},
+		},
+		{
+			name:     "space form before verb",
+			args:     []string{"--repo", "/x", "split", "HEAD"},
+			wantRepo: "/x",
+			wantRest: []string{"split", "HEAD"},
+		},
+		{
+			name:     "repo only, no verb",
+			args:     []string{"--repo=/some/path"},
+			wantRepo: "/some/path",
+			wantRest: []string{},
+		},
+		{
+			name:     "absent, returns dot",
+			args:     []string{"split", "HEAD"},
+			wantRepo: ".",
+			wantRest: []string{"split", "HEAD"},
+		},
+		{
+			name:     "no args",
+			args:     nil,
+			wantRepo: ".",
+			wantRest: nil,
+		},
+		{
+			name:     "post-verb repo not extracted",
+			args:     []string{"split", "--repo=/x", "HEAD"},
+			wantRepo: ".",
+			wantRest: []string{"split", "--repo=/x", "HEAD"},
+		},
+		{
+			name:     "other leading flag before repo",
+			args:     []string{"--dry-run", "--repo=/x", "split"},
+			wantRepo: "/x",
+			wantRest: []string{"--dry-run", "split"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := wantsTopHelp(tc.args); got != tc.want {
-				t.Errorf("wantsTopHelp(%v) = %v, want %v", tc.args, got, tc.want)
+			gotRepo, gotRest := extractRepoFlag(tc.args)
+			if gotRepo != tc.wantRepo {
+				t.Errorf("extractRepoFlag(%v) repo = %q, want %q", tc.args, gotRepo, tc.wantRepo)
+			}
+			// Compare slices element-by-element so nil and empty are both treated
+			// as "nothing returned".
+			if len(gotRest) != len(tc.wantRest) {
+				t.Errorf("extractRepoFlag(%v) rest = %v, want %v", tc.args, gotRest, tc.wantRest)
+				return
+			}
+			for i := range gotRest {
+				if gotRest[i] != tc.wantRest[i] {
+					t.Errorf("extractRepoFlag(%v) rest[%d] = %q, want %q", tc.args, i, gotRest[i], tc.wantRest[i])
+				}
+			}
+		})
+	}
+}
+
+func TestRejectUnknownFlag(t *testing.T) {
+	cases := []struct {
+		name    string
+		args    []string
+		wantErr bool
+	}{
+		{"unknown double-dash flag", []string{"--unknown"}, true},
+		{"unknown single-dash flag", []string{"-x"}, true},
+		{"empty args", nil, false},
+		{"verb first", []string{"split", "--repo=."}, false},
+		{"no args at all", []string{}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := rejectUnknownFlag(tc.args)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("rejectUnknownFlag(%v) error = %v, wantErr %v", tc.args, err, tc.wantErr)
 			}
 		})
 	}

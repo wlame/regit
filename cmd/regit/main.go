@@ -49,9 +49,45 @@ func wantsHelp(args []string) bool {
 	return false
 }
 
-// wantsTopHelp reports whether the full arg list requests top-level help (bare
-// --help or -h with no preceding verb token).
-func wantsTopHelp(args []string) bool { return wantsHelp(args) }
+// extractRepoFlag scans the leading flag tokens of args for --repo=VALUE or
+// --repo VALUE, strips that token (and its value argument) out, and returns
+// (value, remainingArgs). Scanning stops at the first non-flag token (the verb
+// or a positional argument) so that per-subcommand --repo flags are left
+// untouched for the verb's own parser. When no top-level --repo is found it
+// returns (".", args) unchanged.
+func extractRepoFlag(args []string) (string, []string) {
+	for i, a := range args {
+		// Stop at the first non-flag arg (verb or positional).
+		if !strings.HasPrefix(a, "-") {
+			break
+		}
+		if strings.HasPrefix(a, "--repo=") {
+			val := strings.TrimPrefix(a, "--repo=")
+			rest := make([]string, 0, len(args)-1)
+			rest = append(rest, args[:i]...)
+			rest = append(rest, args[i+1:]...)
+			return val, rest
+		}
+		if a == "--repo" && i+1 < len(args) {
+			val := args[i+1]
+			rest := make([]string, 0, len(args)-2)
+			rest = append(rest, args[:i]...)
+			rest = append(rest, args[i+2:]...)
+			return val, rest
+		}
+	}
+	return ".", args
+}
+
+// rejectUnknownFlag returns an error if args starts with an unrecognised
+// top-level flag (anything beginning with "-" that survived --repo, --help,
+// and --version extraction). The error directs the user to --help.
+func rejectUnknownFlag(args []string) error {
+	if len(args) > 0 && strings.HasPrefix(args[0], "-") {
+		return fmt.Errorf("unknown flag %q (try regit --help)", args[0])
+	}
+	return nil
+}
 
 func run() error {
 	// Handle `regit --version` before anything else.
@@ -60,7 +96,10 @@ func run() error {
 		return nil
 	}
 
-	args := os.Args[1:]
+	// Extract a top-level --repo flag so that both `regit --repo=/path` (TUI)
+	// and `regit --repo=/path <verb> …` (subcommand) route to the right repo.
+	// Per-subcommand --repo flags are left in rest and handled by their own parser.
+	repoDir, args := extractRepoFlag(os.Args[1:])
 
 	// Subcommand dispatch: the first non-flag token is the verb.
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -80,26 +119,33 @@ func run() error {
 		// Phase 2 will flip them to the new --execute convention.
 		switch verb {
 		case "split":
-			return runSplit(".", rest)
+			return runSplit(repoDir, rest)
 		case "reword":
-			return runReword(".", rest)
+			return runReword(repoDir, rest)
 		default:
 			// Any other registry verb is routed through dispatch (no Run set yet
 			// in Phase 1, so dispatch will return a "not yet implemented" error).
 			if _, ok := capability.Lookup(verb); ok {
-				return dispatch(verb, rest)
+				return dispatch(verb, repoDir, rest)
 			}
 		}
 	}
 
 	// `regit --help` (or `-h` with no verb) prints the terse command listing.
-	if wantsTopHelp(args) {
+	if wantsHelp(args) {
 		fmt.Print(capability.HelpTerse())
 		return nil
 	}
 
-	// Everything else: launch the interactive TUI.
-	return launchTUI(".")
+	// Unknown top-level flag: reject clearly rather than silently launching
+	// the TUI. Known flags (--repo, --help, --version) have already been
+	// handled or extracted above.
+	if err := rejectUnknownFlag(args); err != nil {
+		return err
+	}
+
+	// Everything else: launch the interactive TUI on the requested repo.
+	return launchTUI(repoDir)
 }
 
 // launchTUI opens the repo at repoDir, loads config, and starts the full-screen
