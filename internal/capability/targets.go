@@ -1,6 +1,7 @@
 package capability
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/wlame/regit/internal/gitio"
@@ -25,6 +26,9 @@ func resolveTargets(repo *gitio.Repo, commits []model.Commit, spec string) ([]mo
 			if err != nil {
 				return nil, err
 			}
+		}
+		if loIdx > hiIdx {
+			return nil, fmt.Errorf("range %q: A must be an ancestor of B", spec)
 		}
 		return commits[loIdx+1 : hiIdx+1], nil
 	}
