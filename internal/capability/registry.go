@@ -39,6 +39,7 @@ var registry = []Command{
 			"Skips commits that are too small, single-hunk, pure-rename, or binary-only.",
 		},
 		ExitCodes: map[int]string{0: "ok / dry-run", 1: "usage error", 2: "guard blocked", 3: "apply/LLM error"},
+		Run:       runSplit,
 	},
 	{
 		Name:      "reword",
@@ -71,6 +72,7 @@ var registry = []Command{
 			"--agent-scan requires --agent.",
 		},
 		ExitCodes: map[int]string{0: "ok / dry-run", 1: "usage error", 2: "guard blocked", 3: "apply/LLM error"},
+		Run:       runReword,
 	},
 }
 

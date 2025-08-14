@@ -24,6 +24,9 @@ import (
 func dispatch(verb string, repoDir string, args []string) error {
 	c, _ := capability.Lookup(verb)
 
+	// Rewrite legacy flags (--yes → --execute, drop --dry-run) for split and reword.
+	args = capability.DeprecatedRewrite(verb, args, os.Stderr)
+
 	a, err := capability.Parse(c, args)
 	if err != nil {
 		return err

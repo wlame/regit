@@ -114,20 +114,11 @@ func run() error {
 			}
 		}
 
-		// Phase 1: split and reword use their existing legacy paths so that
-		// apply-by-default, --dry-run, and --yes all continue to work unchanged.
-		// Phase 2 will flip them to the new --execute convention.
-		switch verb {
-		case "split":
-			return runSplit(repoDir, rest)
-		case "reword":
-			return runReword(repoDir, rest)
-		default:
-			// Any other registry verb is routed through dispatch (no Run set yet
-			// in Phase 1, so dispatch will return a "not yet implemented" error).
-			if _, ok := capability.Lookup(verb); ok {
-				return dispatch(verb, repoDir, rest)
-			}
+		// Route all registry verbs through dispatch (split and reword now have
+		// Run wired and use the --execute convention; legacy --yes/--dry-run
+		// flags are rewritten by DeprecatedRewrite inside dispatch).
+		if _, ok := capability.Lookup(verb); ok {
+			return dispatch(verb, repoDir, rest)
 		}
 	}
 
