@@ -163,6 +163,26 @@ var registry = []Command{
 		Limitations: []string{"Commits without a body are skipped. Titles are never changed."},
 		ExitCodes:   map[int]string{0: "ok / dry-run", 1: "usage error", 2: "guard blocked", 3: "apply error"},
 	},
+	{
+		Name:      "undo",
+		Summary:   "Restore the branch to the most recent regit backup ref.",
+		Mutating:  true,
+		Workspace: WSNone,
+		Selection: SelGlobal,
+		Run:       runUndo,
+		Params: []Param{
+			{Name: "list", Type: ParamBool, Default: "false", Help: "list available backups (read-only)"},
+			{Name: "to", Type: ParamString, Help: "restore a specific backup (ref name or short hash)"},
+			{Name: "repo", Type: ParamString, Default: ".", Help: "path to the git repository"},
+		},
+		Examples: []Example{
+			{Cmd: "regit undo", Why: "restore the branch to the latest backup (acts immediately)"},
+			{Cmd: "regit undo --list", Why: "see available backups before restoring"},
+			{Cmd: "regit undo --execute", Why: "undo takes no --execute; it is exempt from dry-run", Bad: true},
+		},
+		Limitations: []string{"Exempt from dry-run: restores immediately. The replaced HEAD remains in the reflog."},
+		ExitCodes:   map[int]string{0: "ok", 1: "usage error", 3: "restore error"},
+	},
 }
 
 // Registry returns the ordered command table.
