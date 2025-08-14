@@ -121,6 +121,28 @@ var registry = []Command{
 		},
 		ExitCodes: map[int]string{0: "ok / dry-run", 1: "usage error", 2: "guard blocked", 3: "apply error"},
 	},
+	{
+		Name:      "retitle",
+		Summary:   "Rewrite commit subjects with a regex across a range.",
+		Mutating:  true,
+		Workspace: WSRestructure,
+		Selection: SelActive,
+		Run:       runRetitle,
+		Params: []Param{
+			{Name: "match", Type: ParamString, Required: true, Help: "RE2 regex matched against each subject"},
+			{Name: "replace", Type: ParamString, Help: "replacement (supports $1 capture refs)"},
+			{Name: "commits", Type: ParamString, Help: "rev-range A..B or a single ref (default: all)"},
+			{Name: "repo", Type: ParamString, Default: ".", Help: "path to the git repository"},
+			{Name: "execute", Type: ParamBool, Default: "false", Help: "apply (default: dry-run preview)"},
+			{Name: "force", Type: ParamBool, Default: "false", Help: "allow rewriting already-pushed commits"},
+		},
+		Examples: []Example{
+			{Cmd: `regit retitle --match='^feat: ' --replace=''`, Why: "strip a conventional-commit prefix (preview)"},
+			{Cmd: `regit retitle --match='(?i)wip' --replace='WIP' --commits=HEAD~5..HEAD --execute`, Why: "normalize WIP markers on the last 5 commits"},
+		},
+		Limitations: []string{"RE2 syntax (no backreferences). Subjects that would become empty are skipped."},
+		ExitCodes:   map[int]string{0: "ok / dry-run", 1: "usage error", 2: "guard blocked", 3: "apply error"},
+	},
 }
 
 // Registry returns the ordered command table.
