@@ -78,7 +78,7 @@ func runSplit(ctx *RunContext, a ParsedArgs) error {
 	if err != nil {
 		return runtimeErr("propose split: %v", err)
 	}
-	if !prop.ShouldSplit {
+	if !prop.ShouldSplit || len(prop.Groups) < 2 {
 		fmt.Fprintf(ctx.Stdout, "Not splitting %s: %s\n", Short(target.Hash), prop.Reason)
 		return nil
 	}
