@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wlame/regit/internal/capability"
 	"github.com/wlame/regit/internal/config"
 	"github.com/wlame/regit/internal/gitio"
-	"github.com/wlame/regit/internal/llm"
 	"github.com/wlame/regit/internal/model"
 	"github.com/wlame/regit/internal/safety"
 	"github.com/wlame/regit/internal/split"
@@ -131,13 +131,13 @@ func runSplit(repoDir string, args []string) error {
 		return fmt.Errorf("read commits: %w", err)
 	}
 
-	idx, err := findCommit(repo, commits, f.Commit)
+	idx, err := capability.FindCommit(repo, commits, f.Commit)
 	if err != nil {
 		return err
 	}
 	target := commits[idx]
 
-	parentTree, err := parentTreeOf(repo, target)
+	parentTree, err := capability.ParentTreeOf(repo, target)
 	if err != nil {
 		return fmt.Errorf("resolve parent tree: %w", err)
 	}
@@ -154,11 +154,16 @@ func runSplit(repoDir string, args []string) error {
 		return fmt.Errorf("read commit diff: %w", err)
 	}
 	if skip, reason := split.ShouldSkipSplit(hunks, opts.MinSplitLines); skip {
-		fmt.Printf("Not splitting %s: %s\n", short(target.Hash), reason)
+		fmt.Printf("Not splitting %s: %s\n", capability.Short(target.Hash), reason)
 		return nil
 	}
 
-	backend, err := buildBackend(cfg, f)
+	backend, err := capability.BuildBackend(cfg, capability.BackendOptions{
+		LLM:       f.LLM,
+		Agent:     f.Agent,
+		AgentArgs: f.AgentArgs,
+		BaseURL:   f.BaseURL,
+	})
 	if err != nil {
 		return err
 	}
@@ -189,7 +194,7 @@ func runSplit(repoDir string, args []string) error {
 		return err
 	}
 	if !prop.ShouldSplit || len(prop.Groups) < 2 {
-		fmt.Printf("Not splitting %s: %s\n", short(target.Hash), prop.Reason)
+		fmt.Printf("Not splitting %s: %s\n", capability.Short(target.Hash), prop.Reason)
 		return nil
 	}
 
@@ -220,101 +225,8 @@ func runSplit(repoDir string, args []string) error {
 	}
 
 	fmt.Printf("\nSplit %s into %d commits. New HEAD %s (backup %s)\n",
-		short(target.Hash), len(subs), short(res.NewHead), res.BackupRef)
+		capability.Short(target.Hash), len(subs), capability.Short(res.NewHead), res.BackupRef)
 	return nil
-}
-
-// buildBackend constructs an LLM backend from flags/config. Flags take
-// precedence over config values. Returns an error if no LLM is configured.
-func buildBackend(cfg config.Config, f splitFlags) (llm.Backend, error) {
-	// --agent wins over --llm and config.
-	if f.Agent != "" {
-		// When --agent-args is provided it entirely replaces the default
-		// invocation args; strings.Fields splits on whitespace so the {schema}
-		// token (a single field) is passed through as-is and substituted with
-		// the inline schema JSON at runtime inside Propose.
-		if f.AgentArgs != "" {
-			return llm.NewAgentBackend(f.Agent, strings.Fields(f.AgentArgs)), nil
-		}
-		// No custom args: use the default that includes --json-schema and --bare.
-		return llm.NewAgentBackend(f.Agent, nil), nil
-	}
-
-	// Start from config values; let --llm override them.
-	provider, modelName := cfg.LLM.Provider, cfg.LLM.Model
-	if f.LLM != "" {
-		provider, modelName = splitProviderModel(f.LLM)
-	}
-	if provider == "" {
-		return nil, fmt.Errorf("no LLM configured: pass --llm=provider/model or --agent=<cmd>")
-	}
-
-	// Determine base URL: explicit flag > config > provider default.
-	baseURL := f.BaseURL
-	if baseURL == "" {
-		baseURL = defaultBaseURL(provider, cfg.LLM.BaseURL)
-	}
-
-	apiKey := resolveAPIKey(provider)
-	timeoutSec := cfg.LLM.TimeoutSec
-	if timeoutSec <= 0 {
-		timeoutSec = 60 // sane default; a zero-second timeout would reject all requests
-	}
-	timeout := time.Duration(timeoutSec) * time.Second
-	return llm.NewHTTPBackend(baseURL, modelName, apiKey, timeout), nil
-}
-
-// splitProviderModel splits "provider/model" on the first slash. For
-// three-segment strings like "openrouter/anthropic/claude-x", the provider is
-// "openrouter" and the model is "anthropic/claude-x".
-func splitProviderModel(s string) (provider, modelName string) {
-	idx := strings.IndexByte(s, '/')
-	if idx < 0 {
-		// No slash — treat the whole string as a provider with no model.
-		return s, ""
-	}
-	return s[:idx], s[idx+1:]
-}
-
-// providerBaseURLs maps well-known provider names to their default OpenAI-
-// compatible base URLs. Keeping these in a table avoids a chain of if/else and
-// makes adding a new provider a one-line change.
-var providerBaseURLs = map[string]string{
-	"ollama":     "http://localhost:11434/v1",
-	"lmstudio":   "http://localhost:1234/v1",
-	"openai":     "https://api.openai.com/v1",
-	"openrouter": "https://openrouter.ai/api/v1",
-}
-
-// defaultBaseURL returns the base URL to use for the given provider. The
-// override (from --llm-base-url or config.LLM.BaseURL) wins when non-empty.
-func defaultBaseURL(provider, override string) string {
-	if override != "" {
-		return override
-	}
-	return providerBaseURLs[provider]
-}
-
-// providerEnvKeys maps provider names to their conventional API-key env var.
-// This data table replaces a chain of if/else for each provider.
-var providerEnvKeys = map[string]string{
-	"openai":     "OPENAI_API_KEY",
-	"openrouter": "OPENROUTER_API_KEY",
-}
-
-// resolveAPIKey looks up the API key for the given provider from environment
-// variables only — never from flags or config files. Resolution order:
-//  1. REGIT_LLM_API_KEY (tool-wide override)
-//  2. Provider-standard var (OPENAI_API_KEY, OPENROUTER_API_KEY, …)
-//  3. "" for local providers (ollama, lmstudio) that need no key
-func resolveAPIKey(provider string) string {
-	if key := os.Getenv("REGIT_LLM_API_KEY"); key != "" {
-		return key
-	}
-	if envVar, ok := providerEnvKeys[provider]; ok {
-		return os.Getenv(envVar)
-	}
-	return ""
 }
 
 // buildOptions converts config defaults and per-run flags into split.Options.
@@ -339,41 +251,6 @@ func buildOptions(cfg config.Config, f splitFlags) split.Options {
 	return opts
 }
 
-// short returns up to the first 8 characters of a hash string, guarding
-// against hashes shorter than 8 characters (e.g. during tests or on empty input).
-func short(h string) string {
-	if len(h) > 8 {
-		return h[:8]
-	}
-	return h
-}
-
-// findCommit resolves ref to a full commit hash and finds its index in the
-// root-first commits slice. Returns an error if the ref cannot be resolved or
-// is not on the linear first-parent history.
-func findCommit(repo *gitio.Repo, commits []model.Commit, ref string) (int, error) {
-	hash, err := repo.ResolveRef(ref)
-	if err != nil {
-		return -1, fmt.Errorf("resolve %q: %w", ref, err)
-	}
-	for i, c := range commits {
-		if c.Hash == hash {
-			return i, nil
-		}
-	}
-	return -1, fmt.Errorf("commit %s (%s) is not on the current first-parent history", ref, short(hash))
-}
-
-// parentTreeOf returns the tree hash of commit c's parent, or the empty-tree
-// hash when c is the root commit (no parents).
-func parentTreeOf(repo *gitio.Repo, c model.Commit) (string, error) {
-	if len(c.ParentHashes) == 0 {
-		return repo.EmptyTree()
-	}
-	// "<parent>^{tree}" dereferences the parent commit object to its tree object.
-	return repo.ResolveRef(c.ParentHashes[0] + "^{tree}")
-}
-
 // readmeIfRequested reads README.md from the repo root when "readme" appears in
 // cfg.Split.Context. Returns an empty string when not requested or unreadable
 // (a missing README is not an error — it just provides no context).
@@ -392,7 +269,7 @@ func readmeIfRequested(repo *gitio.Repo, cfg config.Config) string {
 
 // printProposal prints a human-readable summary of the split proposal.
 func printProposal(target model.Commit, prop model.SplitProposal) {
-	fmt.Printf("Split proposal for %s %q\n", short(target.Hash), target.Subject)
+	fmt.Printf("Split proposal for %s %q\n", capability.Short(target.Hash), target.Subject)
 	fmt.Printf("  %d commits planned\n\n", len(prop.Groups))
 	for i, g := range prop.Groups {
 		wip := ""
@@ -411,12 +288,12 @@ func printProposal(target model.Commit, prop model.SplitProposal) {
 // traceable to the concrete git commands behind it.
 func printEquivalentCommands(target model.Commit, prop model.SplitProposal) {
 	fmt.Printf("\nEquivalent git commands (for reference):\n")
-	fmt.Printf("  # splitting commit %s %q\n", short(target.Hash), target.Subject)
+	fmt.Printf("  # splitting commit %s %q\n", capability.Short(target.Hash), target.Subject)
 	fmt.Printf("  git backup HEAD  # implicit safety backup\n")
 	for i, g := range prop.Groups {
 		subject := g.Subject
 		if i == 0 {
-			fmt.Printf("  git commit-tree <tree%d> -p %s -m %q\n", i+1, short(prop.ParentHash), subject)
+			fmt.Printf("  git commit-tree <tree%d> -p %s -m %q\n", i+1, capability.Short(prop.ParentHash), subject)
 		} else {
 			fmt.Printf("  git commit-tree <tree%d> -p <prev> -m %q\n", i+1, subject)
 		}

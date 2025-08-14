@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/wlame/regit/internal/capability"
 	"github.com/wlame/regit/internal/config"
 	"github.com/wlame/regit/internal/reword"
 )
@@ -97,12 +98,16 @@ func TestValidateRewordFlags_agentScanRequiresAgent(t *testing.T) {
 	}
 }
 
-// TestBuildRewordBackend_agentScanBuildsInDirBackend verifies that
-// buildRewordBackend with --agent-scan + --agent returns a non-nil backend
-// without error (the backend type isn't exported, so we just check no error).
+// TestBuildRewordBackend_agentScanBuildsBackend verifies that capability.BuildBackend
+// with agent-scan options returns a non-nil backend without error.
+// Updated from the former buildRewordBackend test when that function was
+// consolidated into capability.BuildBackend.
 func TestBuildRewordBackend_agentScanBuildsBackend(t *testing.T) {
-	f := rewordFlags{Agent: "claude", AgentScan: true}
-	b, err := buildRewordBackend(config.Config{}, f, "/tmp")
+	b, err := capability.BuildBackend(config.Config{}, capability.BackendOptions{
+		Agent:     "claude",
+		AgentScan: true,
+		RepoRoot:  "/tmp",
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

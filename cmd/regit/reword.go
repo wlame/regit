@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wlame/regit/internal/capability"
 	"github.com/wlame/regit/internal/config"
 	"github.com/wlame/regit/internal/gitio"
-	"github.com/wlame/regit/internal/llm"
 	"github.com/wlame/regit/internal/model"
 	"github.com/wlame/regit/internal/reword"
 	"github.com/wlame/regit/internal/safety"
@@ -162,59 +162,6 @@ func generateAhead[T any](
 	return out
 }
 
-// buildRewordBackend constructs an LLM backend from reword flags and config.
-// It mirrors buildBackend (for the split subcommand) but takes rewordFlags
-// so the two subcommands stay independent. API keys come from env only.
-//
-// When --agent-scan is set, the agent is run with read-only scan defaults
-// (unless --agent-args is provided) and with cwd = repo root so that
-// `git show` inside the agent targets the correct repository.
-func buildRewordBackend(cfg config.Config, f rewordFlags, repoRoot string) (llm.Backend, error) {
-	// --agent wins over --llm and config.
-	if f.Agent != "" {
-		if f.AgentScan {
-			// Agent-scan mode: use caller-supplied args or the read-only scan
-			// defaults; always run the subprocess in the repo root directory.
-			var args []string
-			if f.AgentArgs != "" {
-				args = strings.Fields(f.AgentArgs)
-			} else {
-				// Use the canonical read-only scan defaults for Claude Code:
-				// --permission-mode plan restricts to read-only tools; the
-				// --allowedTools list further limits to git inspection commands.
-				args = llm.ScanDefaultArgs
-			}
-			return llm.NewAgentBackendInDir(f.Agent, args, repoRoot), nil
-		}
-		if f.AgentArgs != "" {
-			return llm.NewAgentBackend(f.Agent, strings.Fields(f.AgentArgs)), nil
-		}
-		return llm.NewAgentBackend(f.Agent, nil), nil
-	}
-
-	// Start from config values; let --llm override them.
-	provider, modelName := cfg.LLM.Provider, cfg.LLM.Model
-	if f.LLM != "" {
-		provider, modelName = splitProviderModel(f.LLM)
-	}
-	if provider == "" {
-		return nil, fmt.Errorf("no LLM configured: pass --llm=provider/model or --agent=<cmd>")
-	}
-
-	baseURL := f.BaseURL
-	if baseURL == "" {
-		baseURL = defaultBaseURL(provider, cfg.LLM.BaseURL)
-	}
-
-	apiKey := resolveAPIKey(provider)
-	timeoutSec := cfg.LLM.TimeoutSec
-	if timeoutSec <= 0 {
-		timeoutSec = 60
-	}
-	timeout := time.Duration(timeoutSec) * time.Second
-	return llm.NewHTTPBackend(baseURL, modelName, apiKey, timeout), nil
-}
-
 // runReword is the end-to-end headless entry point for `regit reword`.
 // repoDir is the caller-supplied repo path (from the top-level --repo flag);
 // if the reword-local --repo flag is set, it takes precedence.
@@ -264,7 +211,7 @@ func runReword(repoDir string, args []string) error {
 	seen := make(map[int]bool)
 	var targets []rewordItem
 	for _, ref := range f.Commits {
-		idx, err := findCommit(repo, commits, ref)
+		idx, err := capability.FindCommit(repo, commits, ref)
 		if err != nil {
 			return err
 		}
@@ -272,7 +219,7 @@ func runReword(repoDir string, args []string) error {
 			continue
 		}
 		seen[idx] = true
-		parentTree, err := parentTreeOf(repo, commits[idx])
+		parentTree, err := capability.ParentTreeOf(repo, commits[idx])
 		if err != nil {
 			return fmt.Errorf("resolve parent tree for %s: %w", ref, err)
 		}
@@ -291,7 +238,14 @@ func runReword(repoDir string, args []string) error {
 	// Build backend — this is required (unlike the dry-run path in split, the
 	// reword engine always needs an LLM to produce proposals even in dry-run).
 	// Pass the repo root so agent-scan mode can set the subprocess cwd correctly.
-	backend, err := buildRewordBackend(cfg, f, repo.Root())
+	backend, err := capability.BuildBackend(cfg, capability.BackendOptions{
+		LLM:       f.LLM,
+		Agent:     f.Agent,
+		AgentArgs: f.AgentArgs,
+		BaseURL:   f.BaseURL,
+		AgentScan: f.AgentScan,
+		RepoRoot:  repo.Root(),
+	})
 	if err != nil {
 		return err
 	}
@@ -340,7 +294,7 @@ func runReword(repoDir string, args []string) error {
 				break
 			}
 			fmt.Fprintf(os.Stderr, "reword: generate %s: %v (skipping)\n",
-				short(targets[gr.index].commit.Hash), gr.err)
+				capability.Short(targets[gr.index].commit.Hash), gr.err)
 			continue
 		}
 
@@ -348,7 +302,7 @@ func runReword(repoDir string, args []string) error {
 		result := gr.result
 
 		// Print the proposal: new title and optional body.
-		fmt.Printf("\n%s %q\n", short(item.commit.Hash), item.commit.Subject)
+		fmt.Printf("\n%s %q\n", capability.Short(item.commit.Hash), item.commit.Subject)
 		if len(result.Variants) == 0 {
 			fmt.Println("  (no variants returned)")
 			continue
@@ -425,7 +379,7 @@ func runReword(repoDir string, args []string) error {
 	}
 
 	fmt.Printf("\nRewrote %d commit(s). New HEAD %s (backup %s)\n",
-		len(edits), short(res.NewHead), res.BackupRef)
+		len(edits), capability.Short(res.NewHead), res.BackupRef)
 	return nil
 }
 
