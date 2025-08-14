@@ -24,7 +24,7 @@ var version = "dev"
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "regit:", err)
-		os.Exit(1)
+		os.Exit(capability.ExitCode(err))
 	}
 }
 
