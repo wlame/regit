@@ -1,6 +1,10 @@
 package ui
 
-import tea "github.com/charmbracelet/bubbletea"
+import (
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/wlame/regit/internal/capability"
+)
 
 // feature.go is the data-driven action registry. The tab bar and each
 // workspace's menu are DERIVED from the tables here rather than hard-coded in the
@@ -8,31 +12,30 @@ import tea "github.com/charmbracelet/bubbletea"
 // control flow" principle: adding or disabling a tab, or adding a feature, is a
 // change to a table, not to branching code.
 
-// WorkspaceID identifies one of the fixed category tabs. This set is BOUNDED — it
-// never grows with the feature count — so the tab bar can never overflow (spec
-// §4.1, req #7). Features live as rows inside a workspace, not as new tabs.
-type WorkspaceID int
+// WorkspaceID and SelectionMode are type aliases for the canonical definitions in
+// internal/capability, which owns these enums as the single source of truth.
+// Aliasing (not re-defining) means ui.WorkspaceID and capability.WorkspaceID are
+// the same type, so values flow freely between the packages without conversion.
+type WorkspaceID = capability.WorkspaceID
+type SelectionMode = capability.SelectionMode
 
+// Workspace tab identifiers — mirrors capability's constants so call-sites in
+// this package can use the short name (WSDates) without a capability. prefix.
 const (
-	WSDates WorkspaceID = iota
-	WSRestructure
-	WSHistory
-	WSAuthorship
-	WSSearch
+	WSDates       = capability.WSDates
+	WSRestructure = capability.WSRestructure
+	WSHistory     = capability.WSHistory
+	WSAuthorship  = capability.WSAuthorship
+	WSSearch      = capability.WSSearch
 )
 
-// SelectionMode is what a feature needs the user to select before it runs. It is
-// declared here as data so the registry stays the single source of truth; the
-// commit list's per-mode visual language is wired in Phase 4 (selection models)
-// and reads this value. v1 features use only Single and Active.
-type SelectionMode int
-
+// Selection mode constants — same aliasing rationale as the workspace IDs above.
 const (
-	SelSingle SelectionMode = iota // one commit (the cursor)
-	SelRange                       // a contiguous run of commits
-	SelSet                         // an arbitrary set of commits
-	SelActive                      // the whole non-frozen range (no per-row pick)
-	SelGlobal                      // no commit selection; repo-wide operation
+	SelSingle = capability.SelSingle // one commit (the cursor)
+	SelRange  = capability.SelRange  // a contiguous run of commits
+	SelSet    = capability.SelSet    // an arbitrary set of commits
+	SelActive = capability.SelActive // the whole non-frozen range (no per-row pick)
+	SelGlobal = capability.SelGlobal // no commit selection; repo-wide operation
 )
 
 // workspaceMeta is one tab definition. The tab bar is rendered by iterating this

@@ -67,6 +67,49 @@ func TestLinkDatesFalse_roundTrip(t *testing.T) {
 	}
 }
 
+// TestRetitleArgMap_spacedMatch_roundTrip guards Render's footer fidelity for
+// a match value that contains whitespace. Previously the unquoted emission
+// `--match=^feat: ` split on the space, so tokenize → Parse lost the trailing
+// space. After the fix, shellQuote wraps the value and tokenize reconstructs it.
+func TestRetitleArgMap_spacedMatch_roundTrip(t *testing.T) {
+	argMap := RetitleArgMap("^feat: ", "", "")
+	line := Render("retitle", argMap)
+	toks := tokenize(line)
+	// First two tokens are "regit retitle"; the rest are flags.
+	if len(toks) < 2 || toks[0] != "regit" || toks[1] != "retitle" {
+		t.Fatalf("unexpected tokens: %v", toks)
+	}
+	parsed, err := Parse(mustLookup(t, "retitle"), toks[2:])
+	if err != nil {
+		t.Fatalf("re-parse err: %v from %q", err, line)
+	}
+	if got := parsed.String("match"); got != "^feat: " {
+		t.Errorf("match round-trip: got %q, want %q (rendered: %q)", got, "^feat: ", line)
+	}
+}
+
+// TestShellQuote verifies that space-free values are returned unchanged and that
+// values with spaces or metacharacters are single-quoted.
+func TestShellQuote(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"", "''"},
+		{"simple", "simple"},
+		{"ollama/qwen2.5-coder", "ollama/qwen2.5-coder"},
+		{"^feat: ", "'^feat: '"},
+		{"don't", `'don'\''t'`},
+		{"a b", "'a b'"},
+		{"$HOME", "'$HOME'"},
+	}
+	for _, c := range cases {
+		if got := shellQuote(c.in); got != c.want {
+			t.Errorf("shellQuote(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 func mustLookup(t *testing.T, name string) Command {
 	t.Helper()
 	c, ok := Lookup(name)

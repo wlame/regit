@@ -50,7 +50,7 @@ func Render(name string, argMap map[string]string) string {
 			}
 			return
 		}
-		parts = append(parts, fmt.Sprintf("--%s=%s", pName, val))
+		parts = append(parts, fmt.Sprintf("--%s=%s", pName, shellQuote(val)))
 	}
 	for _, p := range c.Params {
 		if v, ok := argMap[p.Name]; ok {
@@ -72,12 +72,87 @@ func Render(name string, argMap map[string]string) string {
 	return wrapInvocation(parts)
 }
 
+// shellQuote wraps s in single quotes when it contains whitespace or shell
+// metacharacters, so the rendered invocation is copy-pasteable. Embedded single
+// quotes are escaped with the POSIX '\” trick. Values with no special characters
+// are returned unchanged, so space-free tokens look exactly as before.
+func shellQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
+	needsQuoting := false
+	for _, ch := range s {
+		switch ch {
+		case ' ', '\t', '\n', '\'', '"', '$', '\\', '`', ';', '&', '|',
+			'<', '>', '(', ')', '*', '?', '[', ']', '!':
+			needsQuoting = true
+		}
+		if needsQuoting {
+			break
+		}
+	}
+	if !needsQuoting {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 // tokenize splits a rendered invocation back into argv tokens, dropping the
-// trailing "\" continuation markers Render inserts. It is the inverse used by the
-// round-trip test and by nothing at runtime (the footer only renders).
+// trailing "\" continuation markers Render inserts. Unlike strings.Fields it is
+// single-quote-aware: characters inside '...' are kept together as one token,
+// and the '\” escape sequence (from shellQuote) is handled correctly so a
+// value like "^feat: " round-trips through Render → tokenize intact.
 func tokenize(line string) []string {
+	// Remove the trailing-backslash + newline continuation markers that
+	// wrapInvocation inserts between long flag tokens.
 	line = strings.ReplaceAll(line, "\\\n", " ")
-	return strings.Fields(line)
+
+	var tokens []string
+	var cur strings.Builder
+	inSingleQuote := false
+
+	for i := 0; i < len(line); {
+		ch := line[i]
+		if inSingleQuote {
+			if ch == '\'' {
+				// End of single-quoted segment.
+				inSingleQuote = false
+				i++
+			} else {
+				cur.WriteByte(ch)
+				i++
+			}
+		} else {
+			switch ch {
+			case ' ', '\t':
+				if cur.Len() > 0 {
+					tokens = append(tokens, cur.String())
+					cur.Reset()
+				}
+				i++
+			case '\'':
+				// Begin a single-quoted segment; the quote character itself is dropped.
+				inSingleQuote = true
+				i++
+			case '\\':
+				// Outside single quotes a backslash escapes the next character
+				// literally (this handles the '\'' sequence shellQuote emits).
+				if i+1 < len(line) {
+					cur.WriteByte(line[i+1])
+					i += 2
+				} else {
+					i++
+				}
+			default:
+				cur.WriteByte(ch)
+				i++
+			}
+		}
+	}
+	if cur.Len() > 0 {
+		tokens = append(tokens, cur.String())
+	}
+	return tokens
 }
 
 // wrapInvocation joins parts with spaces, inserting "\<newline>  " when a line
