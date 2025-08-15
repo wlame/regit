@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -15,6 +16,45 @@ import (
 	"github.com/wlame/regit/internal/model"
 	"github.com/wlame/regit/internal/safety"
 )
+
+// fixtureMu serializes git fixture construction. The package's tests shell out to
+// git to build throwaway repos; running the module's test binaries concurrently
+// (go test -race ./...) let those git invocations race on shared state and
+// intermittently fail with "bad tree object HEAD". Serializing the build phase and
+// giving each repo a hermetic git environment makes -race runs deterministic.
+var fixtureMu sync.Mutex
+
+// hermeticGitEnv returns the environment for git invocations against a throwaway
+// repo rooted at home: a private HOME, global/system config pinned to os.DevNull,
+// and every inherited GIT_* var dropped, so a fixture never reads or writes the
+// developer's real git config and can never be pointed at the wrong repository.
+// Identity is pinned via env so a missing global config never breaks commits.
+// extra carries per-call vars such as GIT_AUTHOR_DATE / GIT_COMMITTER_DATE.
+func hermeticGitEnv(home string, extra ...string) []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "GIT_") {
+			continue // drop inherited GIT_* so a fixture can't be aimed at another repo
+		}
+		env = append(env, kv)
+	}
+	env = append(env,
+		"HOME="+home,
+		"GIT_CONFIG_GLOBAL="+os.DevNull,
+		"GIT_CONFIG_SYSTEM="+os.DevNull,
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_AUTHOR_NAME=wlame", "GIT_AUTHOR_EMAIL=vvlame@gmail.com",
+		"GIT_COMMITTER_NAME=wlame", "GIT_COMMITTER_EMAIL=vvlame@gmail.com",
+		// Disable background maintenance: git's default maintenance.auto=true causes it to
+		// spawn a detached process after commits that races with subsequent git invocations
+		// in the same fixture, producing "invalid object" errors when building many commits.
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=maintenance.auto",
+		"GIT_CONFIG_VALUE_0=false",
+	)
+	return append(env, extra...)
+}
 
 // newTestModel builds a Model backed by a real throwaway repo with three
 // clustered commits, sized to a usable terminal.
@@ -27,11 +67,13 @@ func newTestModel(t *testing.T) Model {
 // tests that need more history than fits on one screen.
 func newTestModelN(t *testing.T, commitCount int) Model {
 	t.Helper()
+	fixtureMu.Lock()
+	defer fixtureMu.Unlock()
 	dir := t.TempDir()
 	run := func(env []string, args ...string) {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
-		cmd.Env = append(os.Environ(), env...)
+		cmd.Env = hermeticGitEnv(dir, env...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
 		}
@@ -381,12 +423,14 @@ func TestCalendarArrows_followVisualAxes(t *testing.T) {
 // On startup the list cursor sits on the oldest unpushed commit, so the user
 // can press b to freeze all pushed history immediately.
 func TestStartup_cursorOnFirstUnpushedCommit(t *testing.T) {
+	fixtureMu.Lock()
+	defer fixtureMu.Unlock()
 	dir := t.TempDir()
 	origin := t.TempDir()
 	git := func(args ...string) {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
-		cmd.Env = append(os.Environ(),
+		cmd.Env = hermeticGitEnv(dir,
 			"GIT_AUTHOR_DATE=2026-06-05T14:00:00+00:00",
 			"GIT_COMMITTER_DATE=2026-06-05T14:00:00+00:00")
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -399,7 +443,9 @@ func TestStartup_cursorOnFirstUnpushedCommit(t *testing.T) {
 		git("commit", "-q", "-m", "commit "+name)
 	}
 
-	exec.Command("git", "init", "-q", "--bare", origin).Run()
+	bareInit := exec.Command("git", "init", "-q", "--bare", origin)
+	bareInit.Env = hermeticGitEnv(dir)
+	bareInit.Run()
 	git("init", "-q")
 	git("symbolic-ref", "HEAD", "refs/heads/main")
 	git("config", "user.name", "wlame")
@@ -1280,11 +1326,13 @@ func TestListNav_fastJumps(t *testing.T) {
 // local `feature` branch forked at the first commit, sized to a usable terminal.
 func branchModel(t *testing.T) Model {
 	t.Helper()
+	fixtureMu.Lock()
+	defer fixtureMu.Unlock()
 	dir := t.TempDir()
 	run := func(args ...string) {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
-		cmd.Env = append(os.Environ(),
+		cmd.Env = hermeticGitEnv(dir,
 			"GIT_AUTHOR_DATE=2026-06-05T14:00:00+00:00",
 			"GIT_COMMITTER_DATE=2026-06-05T14:00:00+00:00")
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -1464,11 +1512,13 @@ func TestStrategyStaged_ignoresMessageOnlyEdits(t *testing.T) {
 }
 
 func TestAutoBase_mergeBaseOffFirstParentLineClaimsNoBase(t *testing.T) {
+	fixtureMu.Lock()
+	defer fixtureMu.Unlock()
 	dir := t.TempDir()
 	run := func(args ...string) {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
-		cmd.Env = append(os.Environ(),
+		cmd.Env = hermeticGitEnv(dir,
 			"GIT_AUTHOR_DATE=2026-06-05T14:00:00+00:00",
 			"GIT_COMMITTER_DATE=2026-06-05T14:00:00+00:00")
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -1846,12 +1896,14 @@ func TestPipeline_peekWithNoEditsReportsNothing(t *testing.T) {
 // and leave the plan unchanged.
 func TestPipeline_pushedRewriteRequiresTypedConfirm(t *testing.T) {
 	// --- build a repo with two pushed commits then three local-only ones ---
+	fixtureMu.Lock()
+	defer fixtureMu.Unlock()
 	dir := t.TempDir()
 	origin := t.TempDir()
 	git := func(args ...string) {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
-		cmd.Env = append(os.Environ(),
+		cmd.Env = hermeticGitEnv(dir,
 			"GIT_AUTHOR_DATE=2026-06-05T14:00:00+00:00",
 			"GIT_COMMITTER_DATE=2026-06-05T14:00:00+00:00")
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -1864,7 +1916,9 @@ func TestPipeline_pushedRewriteRequiresTypedConfirm(t *testing.T) {
 		git("commit", "-q", "-m", "commit "+name)
 	}
 
-	exec.Command("git", "init", "-q", "--bare", origin).Run()
+	bareInit := exec.Command("git", "init", "-q", "--bare", origin)
+	bareInit.Env = hermeticGitEnv(dir)
+	bareInit.Run()
 	git("init", "-q")
 	git("symbolic-ref", "HEAD", "refs/heads/main")
 	git("config", "user.name", "wlame")
@@ -2123,8 +2177,11 @@ func TestDropBodies_honorsSelection(t *testing.T) {
 // a branch other than the current one.
 func mkBranch(t *testing.T, m Model, name string) {
 	t.Helper()
+	fixtureMu.Lock()
+	defer fixtureMu.Unlock()
 	cmd := exec.Command("git", "branch", name)
 	cmd.Dir = m.repo.Root()
+	cmd.Env = hermeticGitEnv(m.repo.Root())
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git branch %s: %v\n%s", name, err, out)
 	}
