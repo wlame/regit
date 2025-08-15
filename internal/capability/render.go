@@ -74,8 +74,8 @@ func Render(name string, argMap map[string]string) string {
 
 // shellQuote wraps s in single quotes when it contains whitespace or shell
 // metacharacters, so the rendered invocation is copy-pasteable. Embedded single
-// quotes are escaped with the POSIX '\” trick. Values with no special characters
-// are returned unchanged, so space-free tokens look exactly as before.
+// quotes are escaped by the standard POSIX single-quote idiom. Values with no
+// special characters are returned unchanged, so space-free tokens look as before.
 func shellQuote(s string) string {
 	if s == "" {
 		return "''"
@@ -100,7 +100,7 @@ func shellQuote(s string) string {
 // tokenize splits a rendered invocation back into argv tokens, dropping the
 // trailing "\" continuation markers Render inserts. Unlike strings.Fields it is
 // single-quote-aware: characters inside '...' are kept together as one token,
-// and the '\” escape sequence (from shellQuote) is handled correctly so a
+// and shellQuote's backslash-escaped quote is handled correctly so a
 // value like "^feat: " round-trips through Render → tokenize intact.
 func tokenize(line string) []string {
 	// Remove the trailing-backslash + newline continuation markers that
