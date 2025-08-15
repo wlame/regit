@@ -57,17 +57,17 @@ type Example struct {
 
 // Command is one registry row. Metadata is pure data; Run is the impure execution.
 type Command struct {
-	Name        string         // verb: "redate", "split", "retitle", "undo"
-	Summary     string         // one-line purpose → terse --help
-	Mutating    bool           // false = read-only; true = writes the repo
-	Params      []Param        // typed flags
-	Examples    []Example      // correct AND incorrect, annotated
-	Limitations []string       // constraints / side-effects / ordering
-	SampleOut   string         // representative output snippet
-	ExitCodes   map[int]string // documented exit codes
-	Workspace   WorkspaceID    // TUI tab for the menu projection; WSNone if headless-only
-	Selection   SelectionMode  // what the TUI needs selected before running
-	Run         func(*RunContext, ParsedArgs) error
+	Name        string                              // verb: "redate", "split", "retitle", "undo"
+	Summary     string                              // one-line purpose → terse --help
+	Mutating    bool                                // false = read-only; true = writes the repo
+	Params      []Param                             // typed flags
+	Examples    []Example                           // correct AND incorrect, annotated
+	Limitations []string                            // constraints / side-effects / ordering
+	SampleOut   string                              // representative output snippet
+	ExitCodes   map[int]string                      // documented exit codes
+	Workspace   WorkspaceID                         // TUI tab for the menu projection; WSNone if headless-only
+	Selection   SelectionMode                       // what the TUI needs selected before running
+	Run         func(*RunContext, ParsedArgs) error `json:"-"`
 }
 
 // RunContext is the injectable environment a Run executes against, so Run stays

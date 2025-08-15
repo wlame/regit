@@ -5,6 +5,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -47,6 +48,21 @@ func wantsHelp(args []string) bool {
 		}
 	}
 	return false
+}
+
+// wantsLLMHelp reports whether args contain --llm-help or --llm-help=format,
+// returning the format (default "text") and whether the flag is present.
+func wantsLLMHelp(args []string) (string, bool) {
+	for _, a := range args {
+		if a == "--llm-help" {
+			return "text", true
+		}
+		if strings.HasPrefix(a, "--llm-help=") {
+			format := strings.TrimPrefix(a, "--llm-help=")
+			return format, true
+		}
+	}
+	return "", false
 }
 
 // extractRepoFlag scans the leading flag tokens of args for --repo=VALUE or
@@ -93,6 +109,17 @@ func run() error {
 	// Handle `regit --version` before anything else.
 	if wantsVersion(os.Args[1:]) {
 		fmt.Println("regit", version)
+		return nil
+	}
+
+	// Handle `regit --llm-help[=format]` before anything else.
+	if format, ok := wantsLLMHelp(os.Args[1:]); ok {
+		doc, err := capability.LLMHelp(format)
+		if err != nil {
+			return err
+		}
+		w := os.Stdout
+		_, _ = io.WriteString(w, doc)
 		return nil
 	}
 

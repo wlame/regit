@@ -1,6 +1,7 @@
 package capability
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -63,4 +64,90 @@ func typeHint(p Param) string {
 	default:
 		return "VALUE"
 	}
+}
+
+// LLMHelp renders the self-contained, agent-facing document from the registry.
+// format: "" or "text" → plain text; "md" → Markdown; "json" → the registry as
+// JSON for tooling. It carries everything an agent needs to compose correct
+// commands: overview, every command's params/examples/limits/exit-codes, and the
+// environment variables regit reads.
+func LLMHelp(format string) (string, error) {
+	if format == "json" {
+		b, err := json.MarshalIndent(Registry(), "", "  ")
+		if err != nil {
+			return "", err
+		}
+		return string(b), nil
+	}
+	md := format == "md"
+	h1 := func(s string) string {
+		if md {
+			return "# " + s + "\n\n"
+		}
+		return s + "\n" + strings.Repeat("=", len(s)) + "\n\n"
+	}
+	h2 := func(s string) string {
+		if md {
+			return "## " + s + "\n\n"
+		}
+		return "\n" + s + "\n" + strings.Repeat("-", len(s)) + "\n"
+	}
+
+	var b strings.Builder
+	b.WriteString(h1("regit — headless command reference"))
+	b.WriteString("regit safely rewrites git history: spread commit/author dates across a\n")
+	b.WriteString("calendar (redate), split or reword commits with an LLM, and bulk-edit\n")
+	b.WriteString("titles/bodies. Core concepts: day-strategies × time-models (redate),\n")
+	b.WriteString("a backup ref before every apply, and the dry-run/--execute/--force gradient.\n\n")
+	b.WriteString("Convention: mutating commands PREVIEW by default; pass --execute to apply,\n")
+	b.WriteString("and --execute --force to rewrite already-pushed commits. `undo` is exempt and\n")
+	b.WriteString("restores immediately.\n")
+
+	for _, c := range Registry() {
+		b.WriteString(h2(c.Name))
+		b.WriteString(c.Summary + "\n\n")
+		b.WriteString("Flags:\n")
+		for _, p := range c.Params {
+			applies := ""
+			if p.AppliesIf != "" {
+				applies = " [only with " + humanPredicate(p.AppliesIf) + "]"
+			}
+			req := ""
+			if p.Required {
+				req = " (required)"
+			}
+			b.WriteString(fmt.Sprintf("  --%-16s %s%s%s\n", p.Name+"="+typeHint(p), p.Help, req, applies))
+		}
+		if len(c.Examples) > 0 {
+			b.WriteString("\nExamples:\n")
+			for _, e := range c.Examples {
+				tag := "ok "
+				if e.Bad {
+					tag = "BAD"
+				}
+				b.WriteString(fmt.Sprintf("  [%s] %s\n        # %s\n", tag, e.Cmd, e.Why))
+			}
+		}
+		if len(c.Limitations) > 0 {
+			b.WriteString("\nLimitations:\n")
+			for _, l := range c.Limitations {
+				b.WriteString("  - " + l + "\n")
+			}
+		}
+		if len(c.ExitCodes) > 0 {
+			b.WriteString("\nExit codes: ")
+			for _, code := range []int{0, 1, 2, 3} {
+				if msg, ok := c.ExitCodes[code]; ok {
+					b.WriteString(fmt.Sprintf("%d=%s  ", code, msg))
+				}
+			}
+			b.WriteString("\n")
+		}
+	}
+
+	b.WriteString(h2("Environment variables"))
+	b.WriteString("  REGIT_* override config (REGIT_TIMEZONE, REGIT_DEFAULT_STRATEGY, REGIT_SEED, …).\n")
+	b.WriteString("  API keys (env only): REGIT_LLM_API_KEY → OPENAI_API_KEY / OPENROUTER_API_KEY → none (local).\n\n")
+	b.WriteString("Source & docs: https://github.com/wlame/regit\n")
+	return b.String(), nil
 }

@@ -1,6 +1,7 @@
 package capability
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -22,5 +23,40 @@ func TestHelpCommandListsFlags(t *testing.T) {
 	out := HelpCommand(c)
 	if !strings.Contains(out, "--llm") || !strings.Contains(out, "--execute") {
 		t.Errorf("HelpCommand missing flags:\n%s", out)
+	}
+}
+
+func TestLLMHelpTextCoversEveryCommand(t *testing.T) {
+	out, err := LLMHelp("text")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range Registry() {
+		if !strings.Contains(out, c.Name) {
+			t.Errorf("LLMHelp text missing %q", c.Name)
+		}
+		for _, p := range c.Params {
+			if !strings.Contains(out, "--"+p.Name) {
+				t.Errorf("LLMHelp missing --%s for %s", p.Name, c.Name)
+			}
+		}
+	}
+	// Must include at least one bad example annotation and the env-var section.
+	if !strings.Contains(out, "REGIT_LLM_API_KEY") {
+		t.Error("LLMHelp should document API-key env vars")
+	}
+}
+
+func TestLLMHelpJSONParses(t *testing.T) {
+	out, err := LLMHelp("json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cmds []map[string]any
+	if err := json.Unmarshal([]byte(out), &cmds); err != nil {
+		t.Fatalf("json invalid: %v", err)
+	}
+	if len(cmds) != len(Registry()) {
+		t.Errorf("json has %d commands, registry has %d", len(cmds), len(Registry()))
 	}
 }
