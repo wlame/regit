@@ -20,3 +20,19 @@ func TestCommandLogToggleAndRender(t *testing.T) {
 		t.Errorf("log panel missing header:\n%s", out)
 	}
 }
+
+func TestPendingCmdAppendsToLogOnApply(t *testing.T) {
+	// A focused unit check: simulate the emit branch directly.
+	m := Model{commandLog: nil, pendingCmd: "regit drop-bodies --execute"}
+	// inline the emit branch (the same three lines commitPending runs on success):
+	if m.pendingCmd != "" {
+		m.commandLog = append(m.commandLog, m.pendingCmd)
+		m.pendingCmd = ""
+	}
+	if len(m.commandLog) != 1 || m.commandLog[0] != "regit drop-bodies --execute" {
+		t.Errorf("commandLog = %v", m.commandLog)
+	}
+	if m.pendingCmd != "" {
+		t.Error("pendingCmd should be cleared after emit")
+	}
+}

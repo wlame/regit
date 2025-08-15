@@ -7,6 +7,8 @@ package ui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/wlame/regit/internal/capability"
 	"github.com/wlame/regit/internal/config"
 	"github.com/wlame/regit/internal/gitio"
 	"github.com/wlame/regit/internal/model"
@@ -207,6 +210,8 @@ func (m *Model) stageActive() {
 		return
 	}
 	a.form.errMsg = ""
+	m.pendingCmd = capability.Render("redate", capability.RedateArgMap(
+		a.form.strat.Name(), pickTimeModel(a.form).Name(), params, m.cfg.LinkDates))
 }
 
 // strategyStaged reports whether a strategy has staged a date distribution — an
@@ -272,6 +277,23 @@ func New(repo *gitio.Repo, mgr *safety.Manager, cfg config.Config, state model.R
 			m.baseBranch, len(m.plan.Active()), m.plan.Base), statusOK)
 	}
 	return m
+}
+
+// appendCommandLog mirrors a logged command into .git/regit/command.log so the
+// history survives across sessions. Best-effort: write errors are swallowed.
+func appendCommandLog(repo *gitio.Repo, line string) {
+	gitDir, err := repo.GitDir()
+	if err != nil {
+		return
+	}
+	dir := filepath.Join(gitDir, "regit")
+	_ = os.MkdirAll(dir, 0o755)
+	f, err := os.OpenFile(filepath.Join(dir, "command.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = f.WriteString(line + "\n\n")
 }
 
 // Init kicks off the first detail-stat fetch so the panel is populated before
@@ -722,6 +744,7 @@ func (m *Model) dropAllBodies() {
 		return
 	}
 	m.setStatus(fmt.Sprintf("Dropped the body of %d commit(s) — titles kept", dropped), statusOK)
+	m.pendingCmd = capability.Render("drop-bodies", capability.DropBodiesArgMap(""))
 }
 
 // updateDropBodies drives the drop-bodies confirmation popup: enter applies the
@@ -803,6 +826,8 @@ func (m Model) applyRetitle() (tea.Model, tea.Cmd) {
 	}
 	m.mode = modeMain
 	m.setStatus(fmt.Sprintf("Retitled %d commit(s)", changed), statusOK)
+	m.pendingCmd = capability.Render("retitle", capability.RetitleArgMap(
+		m.retitle.pattern.Value(), m.retitle.replace.Value(), ""))
 	return m, nil
 }
 
@@ -1179,6 +1204,11 @@ func (m Model) commitPending(confirmed bool) (tea.Model, tea.Cmd) {
 	}
 	m.mode = modeMain
 	m.setStatus(fmt.Sprintf("%s ✓ backup at %s — press u to undo", title, short(res.BackupRef)), statusOK)
+	if m.pendingCmd != "" {
+		m.commandLog = append(m.commandLog, m.pendingCmd)
+		appendCommandLog(m.repo, m.pendingCmd)
+		m.pendingCmd = ""
+	}
 	return m, m.markAndFetch()
 }
 
@@ -1439,6 +1469,7 @@ func (m Model) beginSplit() (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 	m.pending = sc
+	m.pendingCmd = capability.Render("split", capability.SplitArgMap(capability.Short(c.Hash)))
 	m.pendingGuard = guard
 	m.pipelineApply = true
 	m.previewOffset = 0

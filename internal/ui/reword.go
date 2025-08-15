@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/wlame/regit/internal/capability"
 	"github.com/wlame/regit/internal/llm"
 	"github.com/wlame/regit/internal/model"
 	"github.com/wlame/regit/internal/reword"
@@ -414,6 +415,7 @@ func (m Model) updateReword(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.plan.SetEdit(hash, result.ToEdit(m.rewordSt.sel))
+			m.pendingCmd = capability.Render("reword", capability.RewordArgMap(capability.Short(hash)))
 			if next, cmd, more := m.advanceReword(); more {
 				return next, cmd // walk to the next commit in the set
 			}
