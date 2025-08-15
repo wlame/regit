@@ -58,12 +58,47 @@ var workspaces = []workspaceMeta{
 	{WSSearch, "Search", false},
 }
 
-// Feature is a registry row: a named action that lives inside a workspace. A
-// workspace's menu is the features whose Workspace matches, in registry order.
-// Run performs the action against the model, reusing the existing action methods;
-// holding it as a function value keeps dispatch data-driven instead of a growing
-// switch. Run is nil for the Dates "feature" because the Dates workspace is the
-// rich calendar/strategy widget, not a menu (it is listed only for completeness).
+// featureBinding is the TUI half of a registry command: how it appears in a menu
+// (Title) and the closure that runs it against the Model. The capability registry
+// owns the command's metadata (its Workspace, Selection, and params); internal/ui
+// owns only this presentation-and-invocation half. The two are joined by command
+// Name in featuresFor, so the menu is a PROJECTION of capability.Registry() rather
+// than a parallel table that could silently drift from it.
+type featureBinding struct {
+	Title string
+	Run   func(m Model) (tea.Model, tea.Cmd)
+}
+
+// featureBindings maps a capability command Name to its interactive presentation.
+// A registry command with no entry here has no menu presence (e.g. "undo", which
+// is a global key, not a menu row). "redate" binds to a nil Run because the Dates
+// workspace is the calendar/strategy widget, not a menu — it is listed so the
+// Dates tab still reports its one feature. Each Run re-invokes an existing action
+// method, so this introduces no new mutation path (the safety contract is unchanged).
+var featureBindings = map[string]featureBinding{
+	"redate": {Title: "Date/time spread", Run: nil},
+	"split": {Title: "Split commit", Run: func(m Model) (tea.Model, tea.Cmd) {
+		model, cmd, _ := m.beginSplit()
+		return model, cmd
+	}},
+	"reword": {Title: "Reword message", Run: func(m Model) (tea.Model, tea.Cmd) {
+		model, cmd, _ := m.beginReword()
+		return model, cmd
+	}},
+	"retitle": {Title: "Retitle (regex)", Run: func(m Model) (tea.Model, tea.Cmd) {
+		m.retitle = newRetitleState()
+		m.mode = modeRetitle
+		return m, nil
+	}},
+	"drop-bodies": {Title: "Drop bodies", Run: func(m Model) (tea.Model, tea.Cmd) {
+		m.mode = modeDropBodies
+		return m, nil
+	}},
+}
+
+// Feature is one menu row: a named action inside a workspace. Name and Run come
+// from the TUI binding; Workspace and Selection are carried straight from the
+// registry command so the menu cannot disagree with the headless surface.
 type Feature struct {
 	Name      string
 	Workspace WorkspaceID
@@ -71,38 +106,27 @@ type Feature struct {
 	Run       func(m Model) (tea.Model, tea.Cmd)
 }
 
-// features is the single source of truth for the action surface. Restructure
-// hosts the v1 history-editing actions; each Run re-invokes an existing method so
-// Phase 3 introduces no new mutation path (the safety contract is unchanged).
-var features = []Feature{
-	{Name: "Date/time spread", Workspace: WSDates, Selection: SelActive, Run: nil},
-	{Name: "Split commit", Workspace: WSRestructure, Selection: SelSingle, Run: func(m Model) (tea.Model, tea.Cmd) {
-		model, cmd, _ := m.beginSplit()
-		return model, cmd
-	}},
-	{Name: "Reword message", Workspace: WSRestructure, Selection: SelSingle, Run: func(m Model) (tea.Model, tea.Cmd) {
-		model, cmd, _ := m.beginReword()
-		return model, cmd
-	}},
-	{Name: "Retitle (regex)", Workspace: WSRestructure, Selection: SelActive, Run: func(m Model) (tea.Model, tea.Cmd) {
-		m.retitle = newRetitleState()
-		m.mode = modeRetitle
-		return m, nil
-	}},
-	{Name: "Drop bodies", Workspace: WSRestructure, Selection: SelActive, Run: func(m Model) (tea.Model, tea.Cmd) {
-		m.mode = modeDropBodies
-		return m, nil
-	}},
-}
-
-// featuresFor returns the features owned by a workspace, in registry order. The
-// Restructure menu and any future workspace menu are rendered straight from this.
+// featuresFor returns a workspace's menu rows as a projection of the capability
+// registry: every registry command whose Workspace matches and which has a TUI
+// binding, in registry order. This is the single derivation point — the
+// Restructure menu and the Dates feature list both come from here, so adding a
+// headless verb with a Workspace and a binding automatically gives it a menu row.
 func featuresFor(id WorkspaceID) []Feature {
 	var out []Feature
-	for _, f := range features {
-		if f.Workspace == id {
-			out = append(out, f)
+	for _, c := range capability.Registry() {
+		if c.Workspace != id {
+			continue
 		}
+		b, ok := featureBindings[c.Name]
+		if !ok {
+			continue // headless-only command with no interactive menu presence
+		}
+		out = append(out, Feature{
+			Name:      b.Title,
+			Workspace: c.Workspace,
+			Selection: c.Selection,
+			Run:       b.Run,
+		})
 	}
 	return out
 }
