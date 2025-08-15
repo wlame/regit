@@ -2312,3 +2312,23 @@ func TestCalendarPane_showsConflictCountNotOldViolation(t *testing.T) {
 		t.Errorf("calendar pane should not use the old out-of-order/✗ marker, got:\n%s", out)
 	}
 }
+
+// TestPipelineCancel_clearsPendingCmd guards that esc/q in the pipeline overlay
+// wipes pendingCmd so a future unrelated apply cannot log a stale command.
+func TestPipelineCancel_clearsPendingCmd(t *testing.T) {
+	m := newTestModel(t)
+	m = applyStrategyInPane(m) // stage edits (tab tab enter) so p works
+	m = send(m, "p")           // open the pipeline overlay (modePipeline)
+	if m.mode != modePipeline {
+		t.Fatalf("p should open the pipeline overlay, got %v", m.mode)
+	}
+	// Inject a stale command as if a previous operation set it.
+	m.pendingCmd = "regit split x"
+	m = send(m, "esc") // cancel — should clear both pending and pendingCmd
+	if m.mode != modeMain {
+		t.Fatalf("esc should return to main mode, got %v", m.mode)
+	}
+	if m.pendingCmd != "" {
+		t.Errorf("esc in pipeline overlay should clear pendingCmd, got %q", m.pendingCmd)
+	}
+}

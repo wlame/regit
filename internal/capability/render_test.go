@@ -34,6 +34,39 @@ func TestRenderOmitsDefaults(t *testing.T) {
 	}
 }
 
+// TestLinkDatesFalse_roundTrip guards the fidelity of the --link-dates=false
+// flag through a full Render → tokenize → Parse cycle. link-dates has
+// Default="true", so a value of "false" passes the default-omission check but
+// was previously silently dropped in the bool branch — producing a command that
+// re-ran with link-dates=true (a different behaviour).
+func TestLinkDatesFalse_roundTrip(t *testing.T) {
+	c := mustLookup(t, "redate")
+	// Minimal redate argMap with execute=true and linkDates=false.
+	// strategy and time are required for Validate; linkDates=false is the focus.
+	args := map[string]string{
+		"strategy":   "Even-Spread",
+		"time":       "Working-hours",
+		"execute":    "true",
+		"link-dates": "false",
+	}
+	line := Render("redate", args)
+	toks := tokenize(line)
+	// Trim "regit redate" prefix before parsing.
+	if len(toks) < 2 {
+		t.Fatalf("too few tokens: %v", toks)
+	}
+	parsed, err := Parse(c, toks[2:])
+	if err != nil {
+		t.Fatalf("re-parse err: %v from %q", err, line)
+	}
+	if !parsed.Has("link-dates") {
+		t.Errorf("--link-dates=false was silently dropped; rendered line: %q", line)
+	}
+	if parsed.Bool("link-dates") {
+		t.Errorf("link-dates should be false after round-trip, got true; line: %q", line)
+	}
+}
+
 func mustLookup(t *testing.T, name string) Command {
 	t.Helper()
 	c, ok := Lookup(name)

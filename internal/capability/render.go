@@ -45,6 +45,8 @@ func Render(name string, argMap map[string]string) string {
 		if known && p.Type == ParamBool {
 			if val == "true" {
 				parts = append(parts, "--"+pName)
+			} else {
+				parts = append(parts, "--"+pName+"=false")
 			}
 			return
 		}

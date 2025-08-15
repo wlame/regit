@@ -1134,6 +1134,7 @@ func (m Model) updatePipeline(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "q":
 		m.mode = modeMain
 		m.pending = nil
+		m.pendingCmd = ""
 		return m, nil
 	case "up", "k":
 		if m.previewOffset > 0 {
@@ -1149,6 +1150,7 @@ func (m Model) updatePipeline(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !m.pipelineApply {
 			m.mode = modeMain
 			m.pending = nil
+			m.pendingCmd = ""
 			return m, nil
 		}
 		if m.pendingGuard.NeedsConfirmation {
@@ -1192,6 +1194,7 @@ func (m Model) commitPending(confirmed bool) (tea.Model, tea.Cmd) {
 	if err != nil {
 		m.mode = modeMain
 		m.pending = nil
+		m.pendingCmd = ""
 		m.setStatus(err.Error(), statusErr)
 		return m, nil
 	}
