@@ -55,6 +55,7 @@ var keymap = []keyBinding{
 	{Key: "A", Scope: scopeAction, Desc: "apply: preview the before/after, then enter to apply (confirm if pushed)", Bar: "[A]pply"},
 	{Key: "U", Scope: scopeAction, Desc: "undo the last apply", Bar: "[U]ndo"},
 	{Key: "R", Scope: scopeAction, Desc: "reset all pending edits", Bar: "[R]eset"},
+	{Key: "L", Scope: scopeAction, Desc: "toggle the command-log footer (read-only)", Bar: "[L]og"},
 
 	// Commit list (focused)
 	{Key: "d", Scope: scopeList, Desc: "toggle date grouping in the commit list", Bar: "[d]ates"},

@@ -137,6 +137,16 @@ type Model struct {
 	statusMsg  string
 	statusKind statusKind
 
+	// commandLog holds the CLI-equivalent commands for applied actions, shown in
+	// the transparency footer so the user can copy them for headless use.
+	commandLog []string
+	// logVisible controls whether the command-log footer panel is rendered.
+	// Toggled with 'L'.
+	logVisible bool
+	// pendingCmd is the CLI-equivalent command for the in-flight staged change,
+	// populated at stage time so it can be appended to commandLog on apply.
+	pendingCmd string
+
 	st       styles
 	quitting bool
 }
@@ -464,6 +474,9 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	case "<", "[":
 		m.prevWorkspace()
+		return m, nil, true
+	case "L":
+		m.logVisible = !m.logVisible
 		return m, nil, true
 	}
 	return m, nil, false

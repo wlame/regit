@@ -25,8 +25,12 @@ func (m Model) viewMain() string {
 	}
 	status := m.viewStatusBar()
 	keybar := m.st.keybar.Render(keybarHint())
-
-	return lipgloss.JoinVertical(lipgloss.Left, title, tabs, body, status, keybar)
+	regions := []string{title, tabs, body, status}
+	if log := m.viewCommandLog(); log != "" {
+		regions = append(regions, log)
+	}
+	regions = append(regions, keybar)
+	return lipgloss.JoinVertical(lipgloss.Left, regions...)
 }
 
 func (m Model) viewTitle() string {
@@ -74,6 +78,31 @@ func (m Model) viewDetailPane(width int) string {
 // calendar and strategy panes: grid gutter + 27 two-char week columns + the
 // pane's own padding.
 const rightPaneWidth = calGutter + halfCols*cellWidth + 2
+
+// logPanelHeight is the number of terminal rows the command-log footer
+// occupies when visible: one header line plus up to 5 recent command lines.
+const logPanelHeight = 6
+
+// viewCommandLog renders the bottom transparency panel showing the most recent
+// CLI-equivalent commands for applied actions. Returns an empty string when
+// the panel is hidden (logVisible is false), so the caller can skip it cleanly.
+func (m Model) viewCommandLog() string {
+	if !m.logVisible {
+		return ""
+	}
+	header := m.st.dim.Render("⌥ command log — copy to run headlessly  (toggle: [L])")
+	body := m.st.dim.Render("  (no actions yet)")
+	if n := len(m.commandLog); n > 0 {
+		// Show only the most recent entries that fit within the panel height
+		// (one row is consumed by the header).
+		start := 0
+		if n > logPanelHeight-1 {
+			start = n - (logPanelHeight - 1)
+		}
+		body = strings.Join(m.commandLog[start:], "\n")
+	}
+	return header + "\n" + body
+}
 
 func (m Model) viewStatusBar() string {
 	if m.statusMsg == "" {
