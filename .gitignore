@@ -25,10 +25,12 @@ go.work.sum
 
 # ---- AI assistant working files ----
 # Claude / Serena and any plans, notes, analysis, or context written for models.
-# Workflow specs and plans live under .claude/superpowers/ so they stay out of git.
+# Workflow specs, plans, and the subagent ledger live under .claude/superpowers/
+# and .superpowers/ so they stay out of git.
 .claude/
 .serena/
 .remember/
+.superpowers/
 .vb
 .aider*
 .cursor/
