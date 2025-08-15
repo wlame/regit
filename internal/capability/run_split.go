@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/wlame/regit/internal/gitio"
 	"github.com/wlame/regit/internal/safety"
@@ -122,7 +123,7 @@ func runSplit(ctx *RunContext, a ParsedArgs) error {
 	return nil
 }
 
-// buildSplitOptions maps flags+config to split.Options.
+// buildSplitOptions maps flags+config to split.Options, deriving ContextKey from cfg.Split.Context.
 // Uses ctx.Now (never time.Now()) so tests can inject a deterministic clock.
 func buildSplitOptions(ctx *RunContext, a ParsedArgs) split.Options {
 	o := split.Options{
@@ -131,7 +132,7 @@ func buildSplitOptions(ctx *RunContext, a ParsedArgs) split.Options {
 		MinSplitLines:  ctx.Cfg.Split.MinSplitLines,
 		RepairAttempts: ctx.Cfg.Split.RepairAttempts,
 		WIPPrefix:      ctx.Cfg.Split.WIPPrefix,
-		ContextKey:     "readme",
+		ContextKey:     strings.Join(ctx.Cfg.Split.Context, ","),
 		UserHint:       a.String("prompt"),
 		Now:            ctx.Now,
 	}

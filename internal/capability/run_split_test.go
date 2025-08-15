@@ -266,3 +266,20 @@ func TestRunSplitPushedHistoryIsGuardBlocked(t *testing.T) {
 		t.Error("pushed split moved HEAD despite the guard")
 	}
 }
+
+// TestBuildSplitOptionsContextKeyFromConfig: the cache-fingerprint ContextKey must
+// reflect the configured split context, not a hardcoded "readme", so changing the
+// context invalidates the cache.
+func TestBuildSplitOptionsContextKeyFromConfig(t *testing.T) {
+	cfg := config.Default()
+	cfg.Split.Context = []string{"readme", "filestates"}
+	ctx := &RunContext{Cfg: cfg, Now: time.Unix(0, 0)}
+	if got := buildSplitOptions(ctx, newParsedArgs(nil, nil)).ContextKey; got != "readme,filestates" {
+		t.Errorf("ContextKey = %q, want %q", got, "readme,filestates")
+	}
+
+	def := &RunContext{Cfg: config.Default(), Now: time.Unix(0, 0)}
+	if got := buildSplitOptions(def, newParsedArgs(nil, nil)).ContextKey; got != "readme" {
+		t.Errorf("default ContextKey = %q, want %q", got, "readme")
+	}
+}
