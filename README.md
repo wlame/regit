@@ -68,6 +68,36 @@ regit --repo=/path/to/repo
 | `r` | reset pending edits |
 | `?` | help · `q` quit |
 
+## Commands (headless)
+
+Every interactive action has a non-interactive equivalent. Mutating commands
+**preview by default**; pass `--execute` to apply, and `--execute --force` to
+rewrite already-pushed commits. `undo` is exempt and restores immediately.
+
+| Command | What it does |
+|---------|--------------|
+| `regit redate --strategy=… --time=…` | spread commit/author dates across a calendar |
+| `regit split <commit-ish>` | split one commit into 2–4 with an LLM |
+| `regit reword [<commit-ish>…]` | regenerate commit message(s) with an LLM |
+| `regit retitle --match=RE --replace=S` | regex-rewrite commit subjects across a range |
+| `regit drop-bodies [--commits=A..B]` | strip commit bodies, keep titles |
+| `regit undo [--list]` | restore the branch to the latest backup ref |
+
+```bash
+regit redate --strategy=Even-Spread --time=Working-hours \
+  --start=2026-01-01 --end=2026-03-01            # preview
+regit redate --strategy=Even-Spread --time=Working-hours \
+  --start=2026-01-01 --end=2026-03-01 --execute  # apply
+
+regit --help                # the command list
+regit redate --help         # one command's flags
+regit --llm-help            # full agent-facing documentation
+```
+
+In the TUI, press `L` to toggle the **command-log footer**, which shows the exact
+headless command for each action you apply (also written to
+`.git/regit/command.log`).
+
 ## Strategies
 
 `regit` separates **where** a commit lands (day) from **when** during that day

@@ -110,6 +110,22 @@ split commit="HEAD" *args:
 reword commit="HEAD" *args:
     go run ./cmd/regit reword {{commit}} {{args}}
 
+# Preview an even date spread on the current repo (dry-run).
+redate *args:
+    go run ./cmd/regit redate --strategy=Even-Spread --time=Working-hours {{args}}
+
+# Preview a regex retitle (dry-run); pass --execute to apply.
+retitle match replace *args:
+    go run ./cmd/regit retitle --match={{match}} --replace={{replace}} {{args}}
+
+# Print the agent-facing documentation.
+llm-help:
+    go run ./cmd/regit --llm-help
+
+# List every registered command (uses the terse help projection).
+commands:
+    go run ./cmd/regit --help
+
 # Remove build and coverage artifacts.
 clean:
     rm -rf {{bin_dir}} {{coverage_file}}
