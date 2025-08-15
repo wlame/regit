@@ -91,17 +91,24 @@ func runSplit(ctx *RunContext, a ParsedArgs) error {
 		return nil
 	}
 
-	// Pushed-history gate (split builds no model.Plan, so check the target directly).
-	if target.IsPushed && !a.Bool("force") {
-		return guardErr("commit %s is already pushed — re-run with --force to rewrite it", Short(target.Hash))
-	}
-
-	subs := split.BuildSubCommits(target, prop.Groups, trees, ctx.Cfg.Split.WIPPrefix)
-	tail := commits[idx+1:]
+	// Guard the apply exactly as the plan-based verbs do, returning exit code 2
+	// (guard-blocked) for a dirty tree or already-pushed history. Doing the checks
+	// here — before ApplySplit — means ApplySplit's equivalent internal guards are
+	// never the ones that fire, so a blocked split reports exit 2 (guard) instead
+	// of exit 3 (runtime), matching redate / retitle / drop-bodies.
 	state, err := repo.ReadState()
 	if err != nil {
 		return runtimeErr("read state: %v", err)
 	}
+	if state.IsDirty {
+		return guardErr("working tree has uncommitted changes; commit or stash them first")
+	}
+	if state.HasPushedCommits() && !a.Bool("force") {
+		return guardErr("commit %s is on a branch with already-pushed history — re-run with --force to rewrite it", Short(target.Hash))
+	}
+
+	subs := split.BuildSubCommits(target, prop.Groups, trees, ctx.Cfg.Split.WIPPrefix)
+	tail := commits[idx+1:]
 	mgr := safety.NewManager(repo)
 	res, err := mgr.ApplySplit(target, prop.ParentHash, subs, tail, state, safety.ApplyOptions{
 		Sign:          gitio.DropSignatures,

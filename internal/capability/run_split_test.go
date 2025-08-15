@@ -3,10 +3,15 @@ package capability
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/wlame/regit/internal/config"
+	"github.com/wlame/regit/internal/gitio"
+	"github.com/wlame/regit/internal/model"
 )
 
 // TestRunSplitSingleGroupNoPanic covers the guard that was dropped in an earlier
@@ -97,5 +102,167 @@ func TestRunSplitSingleGroupNoPanic(t *testing.T) {
 	}
 	if before.HeadHash != after.HeadHash {
 		t.Error("runSplit with single-group proposal moved HEAD")
+	}
+}
+
+// tSplitGroup / tSplitWire mirror the split LLM JSON wire shape for test stubs.
+type tSplitGroup struct {
+	Order   int      `json:"order"`
+	HunkIDs []string `json:"hunk_ids"`
+	Subject string   `json:"subject"`
+}
+type tSplitWire struct {
+	ShouldSplit bool          `json:"should_split"`
+	Reason      string        `json:"reason"`
+	Groups      []tSplitGroup `json:"groups"`
+}
+
+// twoGroupPayload builds a valid 2-group split proposal that covers every hunk of
+// child's diff exactly once, so ParseAndValidate's coverage check passes and the
+// engine yields >=2 groups (reaching runSplit's apply guards).
+func twoGroupPayload(t *testing.T, repo *gitio.Repo, child model.Commit) string {
+	t.Helper()
+	parentTree, err := ParentTreeOf(repo, child)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hunks, err := repo.Hunks(parentTree, child.TreeHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hunks) < 2 {
+		t.Fatalf("need >=2 hunks for a 2-group proposal, got %d", len(hunks))
+	}
+	ids := make([]string, len(hunks))
+	for i, h := range hunks {
+		ids[i] = h.ID
+	}
+	mid := len(ids) / 2
+	if mid == 0 {
+		mid = 1
+	}
+	raw, _ := json.Marshal(tSplitWire{
+		ShouldSplit: true,
+		Reason:      "two cohesive groups",
+		Groups: []tSplitGroup{
+			{Order: 1, HunkIDs: ids[:mid], Subject: "group one"},
+			{Order: 2, HunkIDs: ids[mid:], Subject: "group two"},
+		},
+	})
+	return string(raw)
+}
+
+// newSplittableRepoWithPushedParent is newSplittableCapabilityRepo plus a bare
+// origin to which only the PARENT commit is pushed: HEAD (the child, our split
+// target) is unpushed, so state.HasPushedCommits() is true while target.IsPushed
+// is false — the exact case that used to surface as exit 3 from ApplySplit.
+func newSplittableRepoWithPushedParent(t *testing.T) (string, *gitio.Repo) {
+	t.Helper()
+	dir := t.TempDir()
+	origin := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if out, err := exec.Command("git", "init", "-q", "--bare", origin).CombinedOutput(); err != nil {
+		t.Fatalf("init bare: %v\n%s", err, out)
+	}
+	run("init", "-q", "-b", "main")
+	run("config", "commit.gpgsign", "false")
+	run("remote", "add", "origin", origin)
+
+	// Parent commit (two files) — pushed.
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("hello\nworld\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.txt"), []byte("foo\nbar\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "-A")
+	run("commit", "-q", "-m", "parent")
+	run("push", "-q", "-u", "origin", "main")
+
+	// Child commit (modifies both files) — unpushed, becomes HEAD / split target.
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("HELLO\nworld\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.txt"), []byte("foo\nBAR\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "-A")
+	run("commit", "-q", "-m", "child: update a and b")
+
+	repo, err := gitio.Open(dir)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	return dir, repo
+}
+
+// TestRunSplitDirtyTreeIsGuardBlocked: a dirty working tree must block the split
+// with exit code 2 (guard), not exit 3 surfacing from ApplySplit.
+func TestRunSplitDirtyTreeIsGuardBlocked(t *testing.T) {
+	dir, repo := newSplittableCapabilityRepo(t)
+	commits, _ := repo.ReadCommits()
+	child := commits[1] // root-first: [parent, child]
+	payload := twoGroupPayload(t, repo, child)
+
+	// Dirty the working tree (committed trees, hence the proposal, are unaffected).
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("dirty edit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Default()
+	cfg.Split.MinSplitLines = 1
+	var out bytes.Buffer
+	ctx := &RunContext{Repo: repo, Cfg: cfg, Stdout: &out, Stderr: &out, Now: time.Unix(1000, 0), Backend: stubBackend{payload: payload}}
+	a := newParsedArgs(map[string]any{"execute": true, "no-cache": true}, []string{"HEAD"})
+
+	before, _ := repo.ReadState()
+	err := runSplit(ctx, a)
+	if got := ExitCode(err); got != 2 {
+		t.Fatalf("dirty split exit = %d, want 2 (err=%v)", got, err)
+	}
+	after, _ := repo.ReadState()
+	if before.HeadHash != after.HeadHash {
+		t.Error("dirty split moved HEAD despite the guard")
+	}
+}
+
+// TestRunSplitPushedHistoryIsGuardBlocked: a branch with already-pushed history
+// (even when the split target itself is unpushed) must block with exit code 2
+// without --force — matching the plan-based verbs rather than exit 3.
+func TestRunSplitPushedHistoryIsGuardBlocked(t *testing.T) {
+	_, repo := newSplittableRepoWithPushedParent(t)
+	commits, _ := repo.ReadCommits()
+	child := commits[1]
+	if child.IsPushed {
+		t.Fatal("setup: the split target should be unpushed")
+	}
+	payload := twoGroupPayload(t, repo, child)
+
+	cfg := config.Default()
+	cfg.Split.MinSplitLines = 1
+	var out bytes.Buffer
+	ctx := &RunContext{Repo: repo, Cfg: cfg, Stdout: &out, Stderr: &out, Now: time.Unix(1000, 0), Backend: stubBackend{payload: payload}}
+	a := newParsedArgs(map[string]any{"execute": true, "no-cache": true}, []string{"HEAD"})
+
+	before, _ := repo.ReadState()
+	if !before.HasPushedCommits() {
+		t.Fatal("setup: branch should report pushed history")
+	}
+	err := runSplit(ctx, a)
+	if got := ExitCode(err); got != 2 {
+		t.Fatalf("pushed split exit = %d, want 2 (err=%v)", got, err)
+	}
+	after, _ := repo.ReadState()
+	if before.HeadHash != after.HeadHash {
+		t.Error("pushed split moved HEAD despite the guard")
 	}
 }
