@@ -105,25 +105,6 @@ branch-ref CAS) and reloads. `p` opens the same preview read-only. The safety
 contract is unchanged — the pipeline only makes the preview + confirm mandatory
 before the existing apply call.
 
-## The capability registry (`internal/capability`)
-
-`internal/capability` is the single source of truth for every non-interactive
-action. Each action is a `Command` row (name, typed `Param`s, examples, limits,
-and a headless `Run`). The CLI dispatch (`cmd/regit`), the TUI feature menu
-(`internal/ui`), the transparency footer, and `--help`/`--llm-help` are all
-PROJECTIONS of this table — they cannot drift apart.
-
-- **Layering:** `engines → capability → ui → cmd/regit`. `capability` imports the
-  engine packages but **never** `internal/ui`. TUI closures stay in `ui`, keyed by
-  command `Name`.
-- **Adding a verb = one registry row** in `registry.go` (+ a name-keyed TUI closure
-  if it has a TUI presence). Flag parsing, help, the footer line, and the future
-  `mcp` tool all derive automatically.
-- **The convention lives in one place:** `pipeline.go`'s `applyOrPreview` runs the
-  dry-run / `--execute` / `--force` gradient against the existing `safety.Manager`.
-- **Footer fidelity** is guaranteed by a round-trip test: `Render` (footer) is the
-  inverse of `Parse` (CLI), so a logged line is always one the CLI accepts.
-
 ### What each package does
 
 **`internal/model`** — shared vocabulary. Every other package imports it; it
@@ -169,6 +150,25 @@ the file. Never read `os.Getenv` anywhere else for configuration values.
 **`internal/ui`** — Bubble Tea TUI. Imports all packages above. The Split action
 (in the Restructure menu) uses the same `split.Engine` that `cmd/regit/split.go`
 uses — one code path, not two.
+
+## The capability registry (`internal/capability`)
+
+`internal/capability` is the single source of truth for every non-interactive
+action. Each action is a `Command` row (name, typed `Param`s, examples, limits,
+and a headless `Run`). The CLI dispatch (`cmd/regit`), the TUI feature menu
+(`internal/ui`), the transparency footer, and `--help`/`--llm-help` are all
+PROJECTIONS of this table — they cannot drift apart.
+
+- **Layering:** `engines → capability → ui → cmd/regit`. `capability` imports the
+  engine packages but **never** `internal/ui`. TUI closures stay in `ui`, keyed by
+  command `Name`.
+- **Adding a verb = one registry row** in `registry.go` (+ a name-keyed TUI closure
+  if it has a TUI presence). Flag parsing, help, the footer line, and the future
+  `mcp` tool all derive automatically.
+- **The convention lives in one place:** `pipeline.go`'s `applyOrPreview` runs the
+  dry-run / `--execute` / `--force` gradient against the existing `safety.Manager`.
+- **Footer fidelity** is guaranteed by a round-trip test: `Render` (footer) is the
+  inverse of `Parse` (CLI), so a logged line is always one the CLI accepts.
 
 ## How to build, run, and test
 

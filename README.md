@@ -81,7 +81,7 @@ rewrite already-pushed commits. `undo` is exempt and restores immediately.
 | `regit reword [<commit-ish>…]` | regenerate commit message(s) with an LLM |
 | `regit retitle --match=RE --replace=S` | regex-rewrite commit subjects across a range |
 | `regit drop-bodies [--commits=A..B]` | strip commit bodies, keep titles |
-| `regit undo [--list]` | restore the branch to the latest backup ref |
+| `regit undo [--list] [--to=<ref-or-hash>]` | restore the branch to the latest backup ref or a specific one |
 
 ```bash
 regit redate --strategy=Even-Spread --time=Working-hours \
