@@ -77,7 +77,7 @@ func (m *Manager) Apply(plan *model.Plan, state model.RepoState, opts ApplyOptio
 	}
 
 	// 2. Replay history with the new dates/messages.
-	newHead, err := m.repo.Replay(plan, opts.Sign)
+	newHead, _, err := m.repo.Replay(plan, opts.Sign)
 	if err != nil {
 		return ApplyResult{}, err
 	}

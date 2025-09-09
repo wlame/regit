@@ -114,7 +114,7 @@ func TestShortAndBranchRef(t *testing.T) {
 
 func TestReplay_emptyPlanErrors(t *testing.T) {
 	repo, _ := testRepo(t)
-	if _, err := repo.Replay(model.NewPlan(nil), DropSignatures); err == nil {
+	if _, _, err := repo.Replay(model.NewPlan(nil), DropSignatures); err == nil {
 		t.Error("expected error replaying empty plan")
 	}
 }

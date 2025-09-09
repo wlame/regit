@@ -36,9 +36,9 @@ const gitDateFormat = time.RFC3339
 // the next commit can point its first parent at the rewritten ancestor. For
 // merge commits (locked in v1) we remap only the first parent and keep the other
 // parents pointing at their original, un-rewritten side branches.
-func (r *Repo) Replay(plan *model.Plan, sign SignMode) (newHead string, err error) {
+func (r *Repo) Replay(plan *model.Plan, sign SignMode) (newHead string, remap map[string]string, err error) {
 	if len(plan.Commits) == 0 {
-		return "", fmt.Errorf("nothing to replay: plan has no commits")
+		return "", nil, fmt.Errorf("nothing to replay: plan has no commits")
 	}
 
 	// Commits before the plan's base boundary are not replayed at all. The
@@ -47,10 +47,10 @@ func (r *Repo) Replay(plan *model.Plan, sign SignMode) (newHead string, err erro
 	// guarantee that frozen history never changes.
 	active := plan.Active()
 	if len(active) == 0 {
-		return "", fmt.Errorf("nothing to replay: every commit is frozen")
+		return "", nil, fmt.Errorf("nothing to replay: every commit is frozen")
 	}
 
-	remap := make(map[string]string, len(active)) // old hash -> new hash
+	remap = make(map[string]string, len(active)) // old hash -> new hash
 
 	for _, c := range active {
 		edit, _ := plan.EditFor(c.Hash)
@@ -69,13 +69,13 @@ func (r *Repo) Replay(plan *model.Plan, sign SignMode) (newHead string, err erro
 		// Message is fed on stdin (no -m) so multi-line bodies need no escaping.
 		newHash, err := r.gitWithEnvStdin(env, message, args...)
 		if err != nil {
-			return "", fmt.Errorf("commit-tree for %s: %w", short(c.Hash), err)
+			return "", nil, fmt.Errorf("commit-tree for %s: %w", short(c.Hash), err)
 		}
 		remap[c.Hash] = newHash
 		newHead = newHash
 	}
 
-	return newHead, nil
+	return newHead, remap, nil
 }
 
 // remapParents replaces the first parent with its rewritten counterpart while

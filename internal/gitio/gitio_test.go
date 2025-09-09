@@ -112,7 +112,7 @@ func TestReplay_changesDatesButNotFiles(t *testing.T) {
 		plan.SetEdit(c.Hash, model.Edit{NewAuthorDate: &d, NewCommitDate: &d})
 	}
 
-	newHead, err := repo.Replay(plan, DropSignatures)
+	newHead, _, err := repo.Replay(plan, DropSignatures)
 	if err != nil {
 		t.Fatalf("Replay: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestReplay_dropBodyKeepsSubject(t *testing.T) {
 	// Drop the body of the first commit only.
 	plan.SetEdit(commits[0].Hash, model.Edit{DropBody: true})
 
-	newHead, err := repo.Replay(plan, DropSignatures)
+	newHead, _, err := repo.Replay(plan, DropSignatures)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +237,7 @@ func TestReplay_preservesTrickyMessages(t *testing.T) {
 		nd := c.OrigAuthorDate.Add(-time.Hour)
 		plan.Edits[c.Hash] = model.Edit{NewAuthorDate: &nd, NewCommitDate: &nd}
 	}
-	newHead, err := repo.Replay(plan, DropSignatures)
+	newHead, _, err := repo.Replay(plan, DropSignatures)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +279,7 @@ func TestReplay_baseBoundaryFreezesPriorCommits(t *testing.T) {
 		plan.Edits[c.Hash] = model.Edit{NewAuthorDate: &nd, NewCommitDate: &nd}
 	}
 
-	newHead, err := repo.Replay(plan, DropSignatures)
+	newHead, _, err := repo.Replay(plan, DropSignatures)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,6 +351,36 @@ func TestBackupRefs_createListResolve(t *testing.T) {
 	}
 	if refs, _ := repo.ListBackupRefs(); len(refs) != 0 {
 		t.Error("backup ref should be deleted")
+	}
+}
+
+func TestReplay_returnsOldToNewRemap(t *testing.T) {
+	repo, _ := testRepo(t)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := model.NewPlan(commits)
+	d := mustParse(t, "2026-03-01T10:00:00+00:00")
+	for _, c := range commits {
+		plan.SetEdit(c.Hash, model.Edit{NewAuthorDate: &d, NewCommitDate: &d})
+	}
+	newHead, remap, err := repo.Replay(plan, DropSignatures)
+	if err != nil {
+		t.Fatalf("Replay: %v", err)
+	}
+	if len(remap) != len(commits) {
+		t.Fatalf("remap has %d entries, want %d", len(remap), len(commits))
+	}
+	// The newest commit's remapped hash must be the returned newHead.
+	if remap[commits[len(commits)-1].Hash] != newHead {
+		t.Errorf("remap[newest] = %s, want newHead %s", remap[commits[len(commits)-1].Hash], newHead)
+	}
+	// Every new hash must differ from its original (dates changed).
+	for old, new := range remap {
+		if old == new {
+			t.Errorf("commit %s was not rewritten", old)
+		}
 	}
 }
 
