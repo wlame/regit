@@ -25,7 +25,9 @@ of strategies, edit messages, and apply the change with strong safety guarantees
 
 - **File contents never change.** Rewrites replay history with `git commit-tree`
   reusing each commit's original tree object, so the snapshot is byte-for-byte
-  identical. A post-apply `git diff --stat` check enforces this.
+  identical. A per-commit change-set verifier enforces this before the branch
+  moves — it proves every rewritten commit is byte-identical by comparing git
+  tree hashes, and aborts (changing nothing) otherwise.
 - **Commits stay in order.** Dates are forced monotonic along the parent chain;
   a child is never dated before its parent.
 - **Every apply is reversible.** A backup ref is created before each rewrite,
@@ -103,7 +105,7 @@ headless command for each action you apply (also written to
 `regit` separates **where** a commit lands (day) from **when** during that day
 (time), so a small menu yields many combinations.
 
-**Day assignment:** Even Spread · Per-Day Quota · Manual Pin · Rate Fill ·
+**Day assignment:** Even Spread · Manual Pin · Picked Days · Rate Fill ·
 Working Days · Weekends Only · Offset Shift · Preserve-Relative ·
 Backwards-from-Deadline · Compress.
 
@@ -163,8 +165,8 @@ regit split <commit-ish>          # commit to split (default: HEAD)
   --max-commits=4                 # clamp on resulting commits (auto-scales with diff size)
   --prompt="keep tests separate"  # short user guidance passed to the LLM
   --test-cmd="go test ./..."      # validate each intermediate commit before applying
-  --dry-run                       # print proposal and write cache; move nothing
-  --yes                           # skip confirmation (CI / one-shot)
+  --execute                       # apply the split (default: dry-run preview)
+  --force                         # allow rewriting already-pushed commits
   --no-cache                      # ignore any cached proposal (force a fresh LLM call)
   --clear-cache                   # delete the split cache directory and exit
   --repo=<path>                   # path to the git repository (default: current dir)
@@ -187,11 +189,15 @@ operation aborts and changes nothing:
 1. **Local** — the last sub-commit's tree equals the original commit's tree
    (`Tₖ == C.TreeHash`). The union of the sub-commit diffs equals the original
    diff: nothing is added, dropped, or altered.
-2. **Global** — after replaying the untouched tail on top of the split, the
-   final `HEAD` tree is byte-identical to the original `HEAD` tree. The only
-   structural change to the repository is that commit `C` became `k` commits.
+2. **Global** — after replaying the untouched tail on top of the split, every
+   commit's snapshot is byte-identical to its original (the final `HEAD` tree
+   matches the original `HEAD` tree). The only structural change to the repository
+   is that commit `C` became `k` commits.
 
-Every split is preceded by a backup ref and can be undone.
+Both are enforced by the per-commit change-set verifier: the split declares an
+**empty** change-set, so the boundary pair `C → Cₖ` plus each replayed tail pair
+must be content-identical or the operation aborts before the branch moves. Every
+split is also preceded by a backup ref and can be undone.
 
 ### Cache
 
@@ -214,8 +220,8 @@ using an external LLM. It reads the commit's diff with a wide context window
 (default 30 lines), asks the LLM to propose ranked title + body alternatives, and
 lets you accept or reject each proposal before the branch is rewritten. The same
 safety machinery used by every other rewrite operation protects the operation:
-a backup ref is created before anything moves, and the final tree is verified
-byte-identical to the original.
+a backup ref is created before anything moves, and the change-set verifier proves
+every rewritten commit is byte-identical to its original.
 
 ```bash
 regit reword [<commit-ish>...]     # commits to reword (default: HEAD)
@@ -224,13 +230,12 @@ regit reword [<commit-ish>...]     # commits to reword (default: HEAD)
   --agent-args="<flags>"           # replace default agent invocation args
   --llm-base-url=<url>             # override the inferred OpenAI-compatible endpoint
   --prompt="focus on the why"      # short user guidance passed to the LLM
-  --variants=3                     # ranked alternatives to request (0 = config default)
   --context=readme,filestates      # comma-separated context keys to include in prompt
   --context-lines=30               # git diff -U context depth (0 = config default, default: 30)
   --agent-scan                     # agent inspects the commit itself via git show
                                    # (read-only sandbox; requires --agent)
-  --dry-run                        # print proposals and write cache; apply nothing
-  --yes                            # skip Y/n confirmation (CI / one-shot)
+  --execute                        # apply the reword (default: dry-run preview)
+  --force                          # allow rewriting already-pushed commits
   --no-cache                       # ignore cached proposals (force a fresh LLM call)
   --clear-cache                    # delete the reword cache directory and exit
   --repo=<path>                    # path to the git repository (default: current dir)
@@ -301,7 +306,7 @@ Or via `just` (see `just --list` for all recipes):
 just build
 just test
 just ci
-just split HEAD -- --llm=ollama/qwen2.5-coder --dry-run
+just split HEAD -- --llm=ollama/qwen2.5-coder   # preview (default; add --execute to apply)
 ```
 
 The codebase is layered so the interesting logic is pure and testable:
