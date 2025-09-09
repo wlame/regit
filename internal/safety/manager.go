@@ -41,9 +41,10 @@ type ApplyOptions struct {
 
 // ApplyResult reports what happened on success.
 type ApplyResult struct {
-	BackupRef string // ref the previous tip was saved to
-	OldHead   string
-	NewHead   string
+	BackupRef    string // ref the previous tip was saved to
+	OldHead      string
+	NewHead      string
+	Verification model.VerificationSummary // result of the change-set verifier
 }
 
 // Apply runs the full guarded rewrite for the plan against the given state. It
@@ -77,13 +78,15 @@ func (m *Manager) Apply(plan *model.Plan, state model.RepoState, opts ApplyOptio
 	}
 
 	// 2. Replay history with the new dates/messages.
-	newHead, _, err := m.repo.Replay(plan, opts.Sign)
+	newHead, remap, err := m.repo.Replay(plan, opts.Sign)
 	if err != nil {
 		return ApplyResult{}, err
 	}
 
-	// 3. Prove no file content changed before we commit to the new history.
-	if err := m.repo.VerifyTreesUnchanged(oldHead, newHead); err != nil {
+	// 3. Prove every rewritten commit changed exactly nothing before we commit to
+	//    the new history. (Empty expectations => verified by tree-hash equality.)
+	verification, err := m.verify(emptyExpectations(remap))
+	if err != nil {
 		return ApplyResult{}, err
 	}
 
@@ -93,7 +96,7 @@ func (m *Manager) Apply(plan *model.Plan, state model.RepoState, opts ApplyOptio
 	}
 
 	m.undoStack = append(m.undoStack, backupRef)
-	return ApplyResult{BackupRef: backupRef, OldHead: oldHead, NewHead: newHead}, nil
+	return ApplyResult{BackupRef: backupRef, OldHead: oldHead, NewHead: newHead, Verification: verification}, nil
 }
 
 // ApplySplit replaces one commit with sub-commits and replays the tail, guarded
@@ -148,14 +151,19 @@ func (m *Manager) ApplySplit(commit model.Commit, parentHash string, subs []giti
 
 	// --- Replay ---
 
-	newHead, _, err := m.repo.ApplySplit(parentHash, subs, tail, opts.Sign)
+	newHead, splitRemap, err := m.repo.ApplySplit(parentHash, subs, tail, opts.Sign)
 	if err != nil {
 		return ApplyResult{}, err
 	}
 
-	// --- Global invariant: file content must be unchanged end-to-end ---
-
-	if err := m.repo.VerifyTreesUnchanged(oldHead, newHead); err != nil {
+	// --- Global invariant: every commit changed exactly what the split promised.
+	//     The boundary pair (original commit -> last sub-commit Ck) must be
+	//     content-identical, as must every replayed tail pair.
+	exps := append([]model.Expectation{
+		{OldCommit: commit.Hash, NewCommit: splitRemap.LastSub},
+	}, emptyExpectations(splitRemap.Tail)...)
+	verification, err := m.verify(exps)
+	if err != nil {
 		return ApplyResult{}, err
 	}
 
@@ -166,7 +174,7 @@ func (m *Manager) ApplySplit(commit model.Commit, parentHash string, subs []giti
 	}
 
 	m.undoStack = append(m.undoStack, backupRef)
-	return ApplyResult{BackupRef: backupRef, OldHead: oldHead, NewHead: newHead}, nil
+	return ApplyResult{BackupRef: backupRef, OldHead: oldHead, NewHead: newHead, Verification: verification}, nil
 }
 
 // CanUndo reports whether there is a backup to roll back to.
