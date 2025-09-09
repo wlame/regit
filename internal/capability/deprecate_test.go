@@ -57,3 +57,16 @@ func TestDeprecatedRewriteYesFalseStaysDryRun(t *testing.T) {
 		}
 	}
 }
+
+func TestDeprecatedRewriteBarePositionalNotRewritten(t *testing.T) {
+	var warn bytes.Buffer
+	// A commit-ish literally named "yes" is a positional, not the deprecated flag:
+	// it must pass through unchanged and emit no notice.
+	got := DeprecatedRewrite("split", []string{"yes"}, &warn)
+	if len(got) != 1 || got[0] != "yes" {
+		t.Errorf("bare positional should pass through unchanged, got %v", got)
+	}
+	if warn.Len() != 0 {
+		t.Errorf("bare positional should not trigger a deprecation notice, got %q", warn.String())
+	}
+}

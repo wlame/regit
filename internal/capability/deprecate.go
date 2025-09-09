@@ -19,6 +19,10 @@ func DeprecatedRewrite(verb string, args []string, warn io.Writer) []string {
 	}
 	var out []string
 	for _, a := range args {
+		if !strings.HasPrefix(a, "-") {
+			out = append(out, a)
+			continue
+		}
 		name, val, hasVal := strings.Cut(strings.TrimLeft(a, "-"), "=")
 		switch name {
 		case "yes":
