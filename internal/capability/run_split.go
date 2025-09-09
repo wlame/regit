@@ -120,6 +120,7 @@ func runSplit(ctx *RunContext, a ParsedArgs) error {
 		return runtimeErr("%v", err)
 	}
 	fmt.Fprintf(ctx.Stdout, "\nSplit into %d commits. New HEAD %s (backup %s)\n", len(subs), Short(res.NewHead), res.BackupRef)
+	fmt.Fprintln(ctx.Stdout, res.Verification.String())
 	return nil
 }
 

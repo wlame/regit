@@ -67,3 +67,22 @@ func TestRedateParams_invalidLunchClockIsSilentlyDisabled(t *testing.T) {
 		t.Errorf("LunchStart = %d, want 0 (invalid lunch clock should disable the gap)", p.LunchStart)
 	}
 }
+
+func TestRedateExecuteEmitsVerificationLine(t *testing.T) {
+	_, repo := newTestRepo(t, 4)
+	var out bytes.Buffer
+	ctx := &RunContext{Repo: repo, Cfg: config.Default(), Stdout: &out, Stderr: &out, Now: time.Unix(1_700_000_000, 0)}
+	a, err := Parse(mustLookup(t, "redate"), []string{
+		"--strategy=Even-Spread", "--time=Working-hours",
+		"--start=2026-01-01", "--end=2026-03-01", "--execute",
+	})
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if err := runRedate(ctx, a); err != nil {
+		t.Fatalf("runRedate: %v", err)
+	}
+	if !bytes.Contains(out.Bytes(), []byte("verified")) || !bytes.Contains(out.Bytes(), []byte("0 paths changed")) {
+		t.Errorf("expected a verification line in output:\n%s", out.String())
+	}
+}

@@ -70,5 +70,6 @@ func applyOrPreview(ctx *RunContext, plan *model.Plan, a ParsedArgs, preview fun
 		return runtimeErr("%v", err)
 	}
 	fmt.Fprintf(ctx.Stdout, "\nApplied. New HEAD %s (backup %s)\n", Short(res.NewHead), res.BackupRef)
+	fmt.Fprintln(ctx.Stdout, res.Verification.String())
 	return nil
 }

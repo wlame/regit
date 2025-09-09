@@ -1210,6 +1210,9 @@ func (m Model) commitPending(confirmed bool) (tea.Model, tea.Cmd) {
 	if m.pendingCmd != "" {
 		m.commandLog = append(m.commandLog, m.pendingCmd)
 		appendCommandLog(m.repo, m.pendingCmd)
+		vline := res.Verification.String()
+		m.commandLog = append(m.commandLog, vline)
+		appendCommandLog(m.repo, vline)
 		m.pendingCmd = ""
 	}
 	return m, m.markAndFetch()

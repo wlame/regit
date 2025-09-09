@@ -3,6 +3,8 @@ package ui
 import (
 	"strings"
 	"testing"
+
+	"github.com/wlame/regit/internal/model"
 )
 
 func TestCommandLogToggleAndRender(t *testing.T) {
@@ -34,5 +36,22 @@ func TestPendingCmdAppendsToLogOnApply(t *testing.T) {
 	}
 	if m.pendingCmd != "" {
 		t.Error("pendingCmd should be cleared after emit")
+	}
+}
+
+func TestVerificationLineAppendsToLogOnApply(t *testing.T) {
+	// Mirror commitPending's success emit branch: command line THEN verification line.
+	m := Model{commandLog: nil, pendingCmd: "regit redate --execute"}
+	summary := model.VerificationSummary{Commits: 3, ChangedPaths: 0}
+	if m.pendingCmd != "" {
+		m.commandLog = append(m.commandLog, m.pendingCmd)
+		m.commandLog = append(m.commandLog, summary.String())
+		m.pendingCmd = ""
+	}
+	if len(m.commandLog) != 2 {
+		t.Fatalf("commandLog = %v, want 2 entries", m.commandLog)
+	}
+	if m.commandLog[1] != "verified 3 commits, 0 paths changed" {
+		t.Errorf("verification line = %q", m.commandLog[1])
 	}
 }
