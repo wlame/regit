@@ -148,7 +148,7 @@ func (m *Manager) ApplySplit(commit model.Commit, parentHash string, subs []giti
 
 	// --- Replay ---
 
-	newHead, err := m.repo.ApplySplit(parentHash, subs, tail, opts.Sign)
+	newHead, _, err := m.repo.ApplySplit(parentHash, subs, tail, opts.Sign)
 	if err != nil {
 		return ApplyResult{}, err
 	}

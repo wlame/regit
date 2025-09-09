@@ -4,6 +4,8 @@ package gitio
 import (
 	"testing"
 	"time"
+
+	"github.com/wlame/regit/internal/model"
 )
 
 // TestApplySplit_emptyTailSplittingHEAD covers the common case where the commit
@@ -48,7 +50,7 @@ func TestApplySplit_emptyTailSplittingHEAD(t *testing.T) {
 
 	oldHead := mustGit(t, repo, "rev-parse", "HEAD")
 	// nil tail: we are splitting HEAD itself, no downstream commits to replay.
-	newHead, err := repo.ApplySplit(childCommit.ParentHashes[0], subs, nil, DropSignatures)
+	newHead, _, err := repo.ApplySplit(childCommit.ParentHashes[0], subs, nil, DropSignatures)
 	if err != nil {
 		t.Fatalf("ApplySplit with empty tail: %v", err)
 	}
@@ -63,7 +65,12 @@ func TestApplySplit_emptyTailSplittingHEAD(t *testing.T) {
 	}
 }
 
-func TestApplySplit_twoSubsPreserveTailAndFinalTree(t *testing.T) {
+// splitFixtureTwoSubsOneTail builds a repo with a parent commit (a.txt, b.txt),
+// a child commit that modifies a.txt and adds c.txt, and one empty tail commit.
+// It returns the repo, the parentHash (the original split commit's parent),
+// two SubCommits whose combined tree equals the child tree, and the tail slice.
+func splitFixtureTwoSubsOneTail(t *testing.T) (repo *Repo, parentHash string, subs []SubCommit, tail []model.Commit) {
+	t.Helper()
 	repo, parent, child := twoCommitRepo(t)
 	// Add a tail commit after the child so we can prove the tail is preserved.
 	gitT(t, repo.Root(), "commit", "-q", "--allow-empty", "-m", "tail")
@@ -75,7 +82,7 @@ func TestApplySplit_twoSubsPreserveTailAndFinalTree(t *testing.T) {
 	// commits: [parent, child, tail]. We split `child` into two pieces using its
 	// hunks: H1 (a.txt edit) and the rest.
 	childCommit := commits[1]
-	tail := commits[2:]
+	tail = commits[2:]
 	hs, err := repo.Hunks(parent, child)
 	if err != nil {
 		t.Fatal(err)
@@ -94,13 +101,18 @@ func TestApplySplit_twoSubsPreserveTailAndFinalTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := childCommit.OrigAuthorDate
-	subs := []SubCommit{
+	subs = []SubCommit{
 		{Tree: t1, Subject: "part one", AuthorName: childCommit.AuthorName, AuthorEmail: childCommit.AuthorEmail, CommitterName: childCommit.CommitterName, CommitterEmail: childCommit.CommitterEmail, AuthorDate: base, CommitDate: base},
 		{Tree: t2, Subject: "part two", AuthorName: childCommit.AuthorName, AuthorEmail: childCommit.AuthorEmail, CommitterName: childCommit.CommitterName, CommitterEmail: childCommit.CommitterEmail, AuthorDate: base.Add(time.Second), CommitDate: base.Add(time.Second)},
 	}
+	return repo, childCommit.ParentHashes[0], subs, tail
+}
+
+func TestApplySplit_twoSubsPreserveTailAndFinalTree(t *testing.T) {
+	repo, parentHash, subs, tail := splitFixtureTwoSubsOneTail(t)
 
 	oldHead := mustGit(t, repo, "rev-parse", "HEAD")
-	newHead, err := repo.ApplySplit(childCommit.ParentHashes[0], subs, tail, DropSignatures)
+	newHead, _, err := repo.ApplySplit(parentHash, subs, tail, DropSignatures)
 	if err != nil {
 		t.Fatalf("ApplySplit: %v", err)
 	}
@@ -115,5 +127,26 @@ func TestApplySplit_twoSubsPreserveTailAndFinalTree(t *testing.T) {
 	}
 	if subj := mustGit(t, repo, "log", "-1", "--format=%s", newHead); subj != "tail" {
 		t.Fatalf("tail subject = %q, want \"tail\"", subj)
+	}
+}
+
+func TestApplySplit_returnsRemapForBoundaryAndTail(t *testing.T) {
+	// Reuse the same fixture construction as TestApplySplit_twoSubsPreserveTailAndFinalTree:
+	// a parent, a child split into two subs, and one tail commit.
+	repo, parentHash, subs, tail := splitFixtureTwoSubsOneTail(t)
+
+	newHead, remap, err := repo.ApplySplit(parentHash, subs, tail, DropSignatures)
+	if err != nil {
+		t.Fatalf("ApplySplit: %v", err)
+	}
+	if remap.LastSub == "" {
+		t.Error("SplitRemap.LastSub should be the final sub-commit hash")
+	}
+	if len(remap.Tail) != len(tail) {
+		t.Fatalf("Tail has %d entries, want %d", len(remap.Tail), len(tail))
+	}
+	// The replayed last tail commit must be the returned newHead.
+	if remap.Tail[tail[len(tail)-1].Hash] != newHead {
+		t.Errorf("Tail[lastTail] = %s, want newHead %s", remap.Tail[tail[len(tail)-1].Hash], newHead)
 	}
 }

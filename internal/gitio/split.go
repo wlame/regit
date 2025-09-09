@@ -20,6 +20,15 @@ type SubCommit struct {
 	AuthorDate, CommitDate        time.Time
 }
 
+// SplitRemap reports how a split mapped old commits to new ones so the safety
+// layer can verify each pair. LastSub is the hash of the final sub-commit (Cₖ),
+// whose tree must equal the original split commit's tree. Tail maps each original
+// tail commit hash to its replayed counterpart.
+type SplitRemap struct {
+	LastSub string
+	Tail    map[string]string
+}
+
 // ApplySplit rebuilds history by replacing one commit with subs (C1..Ck) and
 // then replaying the unchanged tail on top. The remap chain works as follows:
 //
@@ -32,35 +41,35 @@ type SubCommit struct {
 //
 // Tail commits reuse their ORIGINAL tree, message, dates, and identity — only
 // their first parent (and therefore their hash) change. No ref is moved; the
-// new HEAD hash is returned.
-func (r *Repo) ApplySplit(parentHash string, subs []SubCommit, tail []model.Commit, sign SignMode) (string, error) {
+// new HEAD hash and a SplitRemap describing the boundary and tail pairs are returned.
+func (r *Repo) ApplySplit(parentHash string, subs []SubCommit, tail []model.Commit, sign SignMode) (newHead string, remap SplitRemap, err error) {
 	if len(subs) == 0 {
-		return "", fmt.Errorf("ApplySplit: no sub-commits")
+		return "", SplitRemap{}, fmt.Errorf("ApplySplit: no sub-commits")
 	}
 
 	// Emit the mini-chain: C1 on parentHash, C2 on C1, …, Ck on C(k-1).
 	prev := parentHash
-	var newHead string
 	for _, s := range subs {
 		hash, err := r.commitSub(s, prev, sign)
 		if err != nil {
-			return "", err
+			return "", SplitRemap{}, err
 		}
 		prev = hash
 		newHead = hash
 	}
+	lastSub := newHead // Ck — the final sub-commit, before any tail is replayed.
 
-	// Replay the tail with the existing remap mechanism. The first tail commit's
-	// first parent is the ORIGINAL split commit hash; we map it to the last
-	// sub-commit (newHead) so the tail grafts on cleanly.
-	remap := map[string]string{}
+	// Replay the tail. The first tail commit's first parent is the ORIGINAL split
+	// commit hash; map it to Ck so the tail grafts on cleanly. tailRemap records
+	// only the original->new tail pairs (not the graft entry) for verification.
+	graft := map[string]string{}
+	tailRemap := map[string]string{}
 	if len(tail) > 0 {
-		// tail[0].ParentHashes[0] is the original split commit hash.
-		remap[tail[0].ParentHashes[0]] = newHead
+		graft[tail[0].ParentHashes[0]] = newHead
 	}
 
 	for _, c := range tail {
-		newParents := remapParents(c.ParentHashes, remap)
+		newParents := remapParents(c.ParentHashes, graft)
 		message := strings.TrimRight(c.Message, "\n") + "\n"
 		env := []string{
 			"GIT_AUTHOR_NAME=" + c.AuthorName,
@@ -80,13 +89,14 @@ func (r *Repo) ApplySplit(parentHash string, subs []SubCommit, tail []model.Comm
 		// Message is fed on stdin (no -m) so multi-line bodies need no escaping.
 		hash, err := r.gitWithEnvStdin(env, message, args...)
 		if err != nil {
-			return "", fmt.Errorf("replay tail %s: %w", short(c.Hash), err)
+			return "", SplitRemap{}, fmt.Errorf("replay tail %s: %w", short(c.Hash), err)
 		}
-		remap[c.Hash] = hash
+		graft[c.Hash] = hash     // so the next tail commit's parent remaps
+		tailRemap[c.Hash] = hash // recorded for verification
 		newHead = hash
 	}
 
-	return newHead, nil
+	return newHead, SplitRemap{LastSub: lastSub, Tail: tailRemap}, nil
 }
 
 // commitSub creates a single sub-commit object on top of parent. The message is
