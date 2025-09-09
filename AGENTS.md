@@ -33,6 +33,8 @@ all projected from one capability registry (see "The capability registry" below)
 | `model.Hunk` | `split.go` | One contiguous region of `diff(parent, commit)`, carrying a stable ID, file header, and patch body. Language-agnostic. |
 | `model.HunkGroup` | `split.go` | One future sub-commit: a set of hunk IDs + LLM-generated subject/body/intent/confidence. |
 | `model.SplitProposal` | `split.go` | The full ordered plan for splitting one commit: `Hunks`, `Groups`, `ShouldSplit`, and `Reason`. |
+| `model.ChangeSet` | `changeset.go` | A normalized set of per-path `PathChange`s between two commits; the **empty** set means "byte-identical". Pure `Equal`/`Mismatch` comparator, no git. |
+| `model.Expectation` | `changeset.go` | `(oldCommit, newCommit, Expected ChangeSet)` — what an operation promises to change between two commits. The unit the change-set verifier checks (see "Change-set verification"). |
 
 `model.ValidateCoverage` enforces the partition invariant (every hunk in exactly
 one group, no unknown IDs) before any git object is created.
@@ -111,7 +113,7 @@ for date/message edits, applied with `A`; splitChange for a reviewed split, run
 from the Restructure menu); the
 `modePipeline` overlay shows its mandatory before/after preview; a typed
 branch-name confirm gates already-pushed rewrites; then `commitPending` applies it
-through `safety.Manager` (backup ref → op → byte-identical tree verify →
+through `safety.Manager` (backup ref → op → per-commit change-set verify →
 branch-ref CAS) and reloads. `p` opens the same preview read-only. The safety
 contract is unchanged — the pipeline only makes the preview + confirm mandatory
 before the existing apply call.
@@ -125,15 +127,18 @@ imports nothing from `internal/`.
 No git, no TUI, no LLM. Fully unit-testable.
 
 **`internal/gitio`** — the only place `git` runs. All git commands go through
-`gitio.Repo`. Key methods: `ReadCommits`, `Replay` (date rewrite), `Hunks`
-(extract diff hunks), `BuildTreeFromHunks` (apply hunk subset to worktree),
-`ApplySplit` (emit sub-commits and replay tail), `VerifyTreesUnchanged`,
+`gitio.Repo`. Key methods: `ReadCommits`, `Replay` (date rewrite; returns the
+old→new commit remap), `Hunks` (extract diff hunks), `BuildTreeFromHunks` (apply
+hunk subset to worktree), `ApplySplit` (emit sub-commits and replay tail; returns
+a `SplitRemap`), `DiffChangeSet`/`CommitTrees` (per-path change-set and batched
+tree-OID reads that feed the verifier), `VerifyTreesUnchanged` (the ∅-case shim),
 `NewWorktree`/`Worktree.Close` (isolated scratch space).
 **Never add a git call anywhere else.**
 
 **`internal/safety`** — `Manager` runs the guarded apply protocol:
-`CheckGuards` → backup ref → replay → `VerifyTreesUnchanged` → move branch
-(compare-and-swap). Also exposes `ApplySplit` for the splitting flow.
+`CheckGuards` → backup ref → replay → `verify` (the change-set verifier, see
+"Change-set verification" below) → move branch (compare-and-swap). Also exposes
+`ApplySplit` for the splitting flow.
 
 **`internal/split`** — orchestrates one split: extract hunks → skip-split
 guards → LLM grouping → build intermediate trees → validate/repair loop →
@@ -225,22 +230,43 @@ go test ./... -cover
 go vet ./...
 ```
 
-## Split invariants (the safety contract)
+## Change-set verification (the safety contract)
 
-Two invariants are checked before the branch ever moves; either failure aborts
-the operation and leaves the repo unchanged:
+Every history rewrite is proven content-safe before the branch ref moves: after
+replay but **before** the compare-and-swap, `safety.Manager.verify` (verify.go)
+asserts that each rewritten commit changed **exactly** what the operation
+promised. A failure aborts and leaves the repo byte-for-byte unchanged — the
+branch never moved; only an unreferenced backup ref and dangling objects remain.
 
-1. **Local** (`safety.ApplySplit`, before replay): `subs[last].Tree == commit.TreeHash`
-   — the last sub-commit's tree equals the original commit's tree. The union of
-   sub-commit diffs is identical to the original diff.
+The mechanism is data-driven. Each operation produces a list of
+`model.Expectation{oldCommit, newCommit, Expected}`, and the verifier checks the
+**actual** change-set (from git) against the **expected** one for every pair:
 
-2. **Global** (`safety.ApplySplit`, after replay): `VerifyTreesUnchanged(oldHead, newHead)`
-   — the final HEAD tree is byte-identical to the original HEAD tree. The only
-   structural change to the repository is that commit `C` became `k` commits.
+- **Empty expectation** (the safe ops — redate / reword / split) means "these two
+  commits must be byte-identical", proven for free by comparing tree OIDs
+  (`gitio.CommitTrees`): identical tree ⟺ identical files, every path and mode. No
+  diff is run unless a mismatch needs a message.
+- **Non-empty expectation** (reserved for future content-changing ops — remove a
+  file from history, redact a line) is checked against the actual per-path
+  change-set from `gitio.DiffChangeSet` (`git diff --raw`, statuses A/M/D; rename
+  detection is off), so exactly the declared paths change and nothing else moves.
 
-The engine (`split.Engine.Propose`) also enforces this locally before returning:
-if `trees[last] != commit.TreeHash` it returns an error rather than a corrupt
-proposal.
+`gitio.VerifyTreesUnchanged` is now just the ∅-expectation HEAD case and remains
+as a thin shim. On success `verify` returns a `model.VerificationSummary` that
+both surfaces render (`verified N commits, 0 paths changed` — the TUI command log
+and the headless `Applied.` / `Split into …` output).
+
+**Split** folds its two historical invariants into this model; either failure
+aborts before the branch moves:
+
+1. **Local** (`safety.ApplySplit`, before replay): `subs[last].Tree ==
+   commit.TreeHash` — the last sub-commit reproduces the original commit's tree.
+   The engine (`split.Engine.Propose`) enforces the same check before returning,
+   rejecting a corrupt proposal in pure Go.
+2. **Global** (via `verify`): the boundary expectation `(C → Cₖ, ∅)` plus an ∅
+   expectation per replayed tail pair — every commit's snapshot is
+   content-identical end to end. `Cₖ` is the last sub-commit; HEAD is whichever
+   pair ends the chain. The only structural change is that commit `C` became `k`.
 
 ## Commit-splitting flow (end to end)
 
@@ -303,12 +329,15 @@ internal/model/
   plan.go               Plan (validated batch of edits)
   repo.go               RepoState
   split.go              Hunk, HunkGroup, SplitProposal, ValidateCoverage
+  changeset.go          ChangeSet, PathChange, Expectation, VerificationSummary, Equal/Mismatch
 internal/gitio/
   repo.go               Repo, Open, git shell-out choke point
   read.go               ReadCommits, ReadState
-  rewrite.go            Replay, ApplySplit, VerifyTreesUnchanged
+  rewrite.go            Replay (→ remap), VerifyTreesUnchanged
+  split.go              ApplySplit (→ SplitRemap), SubCommit
   hunks.go              Hunks(), BuildTreeFromHunks(), Worktree
   refs.go               UpdateRef, BackupRefPrefix, BranchRef
+  changeset.go          DiffChangeSet (git diff --raw), CommitTrees (batched tree OIDs)
 internal/split/
   engine.go             Engine, Propose, buildAndValidate, rebuildAll
   cache.go              Cache, CacheEntry (.git/regit/cache/split/)
@@ -325,7 +354,8 @@ internal/llm/
   agent.go              AgentBackend (CLI driver), ScanDefaultArgs
   schema.go             Split-specific SchemaJSON (JSON schema for structured output)
 internal/safety/
-  manager.go            Manager, Apply, ApplySplit, Undo
+  manager.go            Manager, Apply, ApplySplit (both call verify), Undo, ApplyResult.Verification
+  verify.go             Manager.verify, emptyExpectations, verifyError (the change-set verifier)
   guards.go             CheckGuards, Guard
 internal/config/
   config.go             Config, Load, REGIT_* overrides, RewordConfig
