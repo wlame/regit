@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/wlame/regit/internal/capability"
 	"github.com/wlame/regit/internal/reword"
 )
 
@@ -147,5 +148,40 @@ func TestReword_escMidWalkReportsPartialAndResets(t *testing.T) {
 	}
 	if len(m.sel.set) != 0 {
 		t.Errorf("selection set should be empty after cancel, got %v", m.sel.set)
+	}
+}
+
+// TestReword_multiRewordLogsEveryHash: walking a Set must leave pendingCmd listing
+// every reworded commit, not just the last one.
+func TestReword_multiRewordLogsEveryHash(t *testing.T) {
+	m := newTestModel(t) // 3 commits, none frozen
+	h0 := m.commitAtDisplayIndex(0).Hash
+	h1 := m.commitAtDisplayIndex(1).Hash
+
+	res := reword.Result{Variants: []reword.Variant{{Title: "New title", Body: "New body"}}}
+	m.rewordSt.buffer = map[string]reword.Result{h0: res, h1: res}
+	m.rewordSt.inFlight = map[string]bool{}
+	m.sel.mode = SelSet
+	m.sel.set = map[string]bool{h0: true, h1: true}
+
+	model, _, _ := m.beginReword()
+	m = model.(Model)
+
+	// Apply both commits in the walk.
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if m.mode != modeMain {
+		t.Fatalf("walk should complete, mode = %v", m.mode)
+	}
+
+	for _, h := range []string{h0, h1} {
+		if !strings.Contains(m.pendingCmd, capability.Short(h)) {
+			t.Errorf("pendingCmd %q is missing reworded commit %s", m.pendingCmd, capability.Short(h))
+		}
+	}
+	if !strings.Contains(m.pendingCmd, "reword") || !strings.Contains(m.pendingCmd, "--execute") {
+		t.Errorf("pendingCmd is not a reword --execute line: %q", m.pendingCmd)
 	}
 }

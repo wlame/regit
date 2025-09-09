@@ -415,7 +415,23 @@ func (m Model) updateReword(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.plan.SetEdit(hash, result.ToEdit(m.rewordSt.sel))
-			m.pendingCmd = capability.Render("reword", capability.RewordArgMap(capability.Short(hash)))
+			// Log every commit reworded in this walk so the footer reproduces the
+			// whole operation. targets[:targetIdx+1] is the set applied so far —
+			// advanceReword increments targetIdx only after each successful apply,
+			// so the current commit is included here.
+			applied := m.rewordSt.targets
+			if len(applied) == 0 {
+				applied = []string{hash}
+			}
+			upTo := m.rewordSt.targetIdx + 1
+			if upTo > len(applied) {
+				upTo = len(applied)
+			}
+			shorts := make([]string, upTo)
+			for i, h := range applied[:upTo] {
+				shorts[i] = capability.Short(h)
+			}
+			m.pendingCmd = capability.Render("reword", capability.RewordArgMap(shorts...))
 			if next, cmd, more := m.advanceReword(); more {
 				return next, cmd // walk to the next commit in the set
 			}

@@ -86,9 +86,13 @@ func SplitArgMap(commitish string) map[string]string {
 	return map[string]string{"_positional": commitish, "execute": "true"}
 }
 
-// RewordArgMap builds the flag map for a `regit reword <commitish> --execute` line.
-func RewordArgMap(commitish string) map[string]string {
-	return map[string]string{"_positional": commitish, "execute": "true"}
+// RewordArgMap builds the flag map for a `regit reword <commitish>… --execute`
+// line. It is variadic because a reword walks a whole selected set; pass every
+// reworded commit so the logged command reproduces the entire walk, not just the
+// last commit. Hashes are space-joined into the positional slot. (SplitArgMap stays
+// single-commit because split targets exactly one commit.)
+func RewordArgMap(commitishes ...string) map[string]string {
+	return map[string]string{"_positional": strings.Join(commitishes, " "), "execute": "true"}
 }
 
 // keyValsToString serialises a map[date]count as "DAY=N,DAY=N" in stable
