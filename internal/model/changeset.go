@@ -119,13 +119,10 @@ func (s VerificationSummary) String() string {
 		s.Commits, plural(s.Commits, "commit"), s.ChangedPaths, plural(s.ChangedPaths, "path"))
 }
 
-// plural returns the singular noun for n == 1, else a simple pluralization.
+// plural returns the singular noun for n == 1, else appends "s".
 func plural(n int, noun string) string {
 	if n == 1 {
 		return noun
-	}
-	if noun == "path" {
-		return "paths"
 	}
 	return noun + "s"
 }

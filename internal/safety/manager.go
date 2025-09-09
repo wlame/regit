@@ -105,8 +105,9 @@ func (m *Manager) Apply(plan *model.Plan, state model.RepoState, opts ApplyOptio
 //
 //  1. The last sub-commit's tree must equal the original commit's tree
 //     (caller-supplied structural guarantee).
-//  2. The final HEAD tree must be byte-identical to the original tip's tree
-//     (end-to-end content guarantee, verified by VerifyTreesUnchanged).
+//  2. Every rewritten pair must be content-identical to its original
+//     (end-to-end content guarantee, verified by m.verify over the boundary
+//     pair (C → Cₖ) and all replayed tail expectations).
 func (m *Manager) ApplySplit(commit model.Commit, parentHash string, subs []gitio.SubCommit, tail []model.Commit, state model.RepoState, opts ApplyOptions) (ApplyResult, error) {
 	// --- Guards ---
 

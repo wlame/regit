@@ -78,7 +78,7 @@ func TestDiffChangeSet_identicalCommitsIsEmpty(t *testing.T) {
 	}
 }
 
-func TestCommitTrees_sameTreeForSameCommit(t *testing.T) {
+func TestCommitTrees_differentCommitsHaveDifferentTrees(t *testing.T) {
 	repo, old, newC := changeRepo(t)
 	trees, err := repo.CommitTrees([]string{old, newC})
 	if err != nil {

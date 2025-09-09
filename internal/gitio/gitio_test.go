@@ -377,8 +377,8 @@ func TestReplay_returnsOldToNewRemap(t *testing.T) {
 		t.Errorf("remap[newest] = %s, want newHead %s", remap[commits[len(commits)-1].Hash], newHead)
 	}
 	// Every new hash must differ from its original (dates changed).
-	for old, new := range remap {
-		if old == new {
+	for old, newHash := range remap {
+		if old == newHash {
 			t.Errorf("commit %s was not rewritten", old)
 		}
 	}
