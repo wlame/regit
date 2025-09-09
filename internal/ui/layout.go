@@ -5,7 +5,7 @@ package ui
 // interface uses the whole window (clamped to a readable band) and reflows on
 // resize instead of relying on fixed constants. Keeping this pure — no Bubble
 // Tea, no rendering, no git — makes the breakpoint logic trivially testable and
-// gives later redesign phases one seam to extend.
+// gives future layout work one seam to extend.
 
 const (
 	// maxContentWidth caps how many columns of content we ever lay out, so the
@@ -13,8 +13,8 @@ const (
 	// 120 columns; below that the layout degrades but still renders.
 	maxContentWidth = 240
 
-	// listFloorWidth/listCeilWidth bound the commit-list pane. The floor matches
-	// the pre-redesign minimum so narrow terminals do not regress; the ceiling
+	// listFloorWidth/listCeilWidth bound the commit-list pane. The floor is a
+	// conservative minimum so narrow terminals do not regress; the ceiling
 	// caps the list at a scannable ~80 columns so the detail pane absorbs the rest
 	// of a wide terminal and stretches.
 	listFloorWidth = 44
@@ -49,15 +49,15 @@ const (
 // layoutDims is the computed column/row budget for the main screen, derived
 // entirely from the terminal size. listWidth, detailWidth, and editorWidth are
 // consumed by production rendering today; contentWidth, rightWidth, and
-// bodyHeight are reserved for later redesign phases (3-zone responsive
+// bodyHeight are reserved for future work (3-zone responsive
 // breakpoints) and not yet wired — height still flows through the listHeight()
 // method, width through rightPaneWidth const.
 type layoutDims struct {
-	contentWidth int // terminal width, capped at maxContentWidth (reserved for later phases; not yet wired)
+	contentWidth int // terminal width, capped at maxContentWidth (reserved for future work; not yet wired)
 	listWidth    int // commit-list pane width (border excluded)
 	detailWidth  int // commit-detail pane width (0 when the detail column is hidden)
-	rightWidth   int // right column (calendar/strategy) width — currently fixed (reserved for later phases; not yet wired)
-	bodyHeight   int // rows available to the list/right body (reserved for later phases; not yet wired)
+	rightWidth   int // right column (calendar/strategy) width — currently fixed (reserved for future work; not yet wired)
+	bodyHeight   int // rows available to the list/right body (reserved for future work; not yet wired)
 	editorWidth  int // editor-modal field width
 }
 
@@ -77,7 +77,7 @@ func computeLayout(termW, termH int) layoutDims {
 	}
 
 	// Seat a detail column between the list and the fixed right column when the
-	// content is wide enough; otherwise keep Phase 0's two-column layout and let
+	// content is wide enough; otherwise keep the current two-column layout and let
 	// the detail panel surface as an on-demand overlay. The list keeps priority:
 	// it grows to listCeilWidth first, and the detail takes whatever remains.
 	var listW, detailW int

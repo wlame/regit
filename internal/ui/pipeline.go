@@ -10,7 +10,7 @@ import (
 	"github.com/wlame/regit/internal/safety"
 )
 
-// pipeline.go is the stage → preview → confirm → apply funnel (spec §6.7). Every
+// pipeline.go is the stage → preview → confirm → apply funnel. Every
 // history mutation is expressed as a pendingChange: the UI shows its preview, gates
 // pushed rewrites behind a typed confirmation, and then calls its apply, which runs
 // through safety.Manager. The interface keeps the apply UX uniform across features

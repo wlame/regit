@@ -47,9 +47,8 @@ type workspaceMeta struct {
 }
 
 // workspaces is the ordered tab list. History/Authorship/Search are present but
-// disabled in v1 (stub tabs) so the chassis's extensibility is real and the
-// three-zone layout is exercised before those features are built (spec §6.5,
-// decision #7).
+// disabled (stub tabs) so the chassis's extensibility is real and the three-zone
+// layout is exercised before those features are built.
 var workspaces = []workspaceMeta{
 	{WSDates, "Dates", true},
 	{WSRestructure, "Restructure", true},

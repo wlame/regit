@@ -9,7 +9,7 @@ import "strings"
 // viewTabBar renders the tabs in registry order: the active tab is highlighted,
 // disabled (v1-stub) tabs are dimmed, and a trailing hint shows the switch keys.
 // The set is bounded, so this single line never overflows regardless of how many
-// features exist (req #7).
+// features exist.
 func (m Model) viewTabBar() string {
 	sep := m.st.dim.Render(" │ ")
 	parts := make([]string, 0, len(workspaces))
@@ -69,7 +69,7 @@ func (m Model) viewRightColumn() string {
 
 // viewStubWorkspace renders a disabled (not-yet-built) workspace: its name and a
 // "coming soon" note. The stub tabs exist so the chassis's extensibility is real
-// and the three-zone layout is exercised before the features land (spec §6.5).
+// and the three-zone layout is exercised before the features land.
 func (m Model) viewStubWorkspace() string {
 	meta, _ := workspaceByID(m.workspace)
 	body := m.st.modalTitle.Render(strings.ToUpper(meta.Title)) + "\n\n" +

@@ -20,8 +20,8 @@ import (
 // fixtureMu serializes git fixture construction. The package's tests shell out to
 // git to build throwaway repos; running the module's test binaries concurrently
 // (go test -race ./...) let those git invocations race on shared state and
-// intermittently fail with "bad tree object HEAD". Serializing the build phase and
-// giving each repo a hermetic git environment makes -race runs deterministic.
+// intermittently fail with "bad tree object HEAD". Serializing fixture construction
+// and giving each repo a hermetic git environment makes -race runs deterministic.
 var fixtureMu sync.Mutex
 
 // hermeticGitEnv returns the environment for git invocations against a throwaway

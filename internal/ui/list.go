@@ -201,7 +201,7 @@ func (m Model) renderCommitRow(displayIdx, inner int, calKey string) string {
 		}
 	}
 
-	// ---- Single / Active (and any frozen row): unchanged from before Phase 4 ----
+	// ---- Single / Active (and any frozen row) ----
 	onDay := calKey != "" && m.plan.EffectiveAuthorDate(c).In(m.loc).Format(dateLayout) == calKey
 	prefix := "  "
 	switch {

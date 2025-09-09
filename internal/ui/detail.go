@@ -124,7 +124,7 @@ func renderDiffstat(st gitio.Stat, haveStat bool, statErr string, sty styles) st
 	}
 	plus := sty.newDate.Render(fmt.Sprintf("+%d", st.Additions))
 	minus := sty.statusErr.Render(fmt.Sprintf("−%d", st.Deletions))
-	// Separator is the U+00B7 middle dot per spec §6.3 ("N files · +X −Y").
+	// Separator is the U+00B7 middle dot ("N files · +X −Y").
 	return fmt.Sprintf("%d files · %s %s", len(st.Files), plus, minus)
 }
 

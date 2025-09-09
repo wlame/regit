@@ -10,17 +10,16 @@ import (
 	"github.com/wlame/regit/internal/gitio"
 )
 
-// dispatch routes a registry verb (other than the Phase-1-special-cased split
-// and reword) through the capability registry. It loads config + repo, builds a
-// RunContext, parses the flags via capability.Parse, and calls c.Run.
+// dispatch routes a registry verb through the capability registry: it loads
+// config + repo, builds a RunContext, parses the flags via capability.Parse, and
+// calls the command's Run.
 //
 // repoDir is the default repository path supplied by the top-level --repo flag
 // (or "." when absent). The verb's own --repo flag, when explicitly provided,
 // takes precedence.
 //
-// In Phase 1 no command has a non-nil Run yet, so this path is unreachable for
-// any currently-registered verb. The nil guard returns a clear error rather than
-// a nil-dereference panic.
+// A registry row whose Run was never wired up is rejected with a clear error
+// rather than a nil-dereference panic.
 func dispatch(verb string, repoDir string, args []string) error {
 	c, _ := capability.Lookup(verb)
 
@@ -47,7 +46,7 @@ func dispatch(verb string, repoDir string, args []string) error {
 		return err
 	}
 
-	// Guard: no verb has a Run wired up in Phase 1.
+	// Guard against a registry row whose Run was never wired up.
 	if c.Run == nil {
 		return fmt.Errorf("command %q is not yet implemented", verb)
 	}

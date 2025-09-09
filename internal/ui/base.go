@@ -7,7 +7,7 @@ import (
 )
 
 // chooseBaseBranch picks the branch whose merge-base with the current branch
-// defines the frozen (shared) history cone, following spec §6.4's precedence:
+// defines the frozen (shared) history cone, following this precedence:
 //  1. the current branch's upstream tracking ref, if configured;
 //  2. otherwise a local "main" or "master" (other than the current branch);
 //  3. otherwise none ("" — nothing is auto-frozen).

@@ -12,12 +12,12 @@ import (
 // single-letter code: A (added), M (modified), or D (deleted). M does double
 // duty: it is also the fallback CommitStat assigns to an entry that
 // --name-status did not classify (e.g. a mode-only change), so a caller should
-// read M as "modified or otherwise-unclassified". Renames are not detected in
-// Phase 1, so a moved file appears as a D + an A.
+// read M as "modified or otherwise-unclassified". Renames are not detected, so a
+// moved file appears as a D + an A.
 type FileStat struct {
 	Status  string
 	Path    string
-	OldPath string // reserved for rename support; always "" in Phase 1
+	OldPath string // reserved for rename support; currently always ""
 	Add     int
 	Del     int
 	Binary  bool

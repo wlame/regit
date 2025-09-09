@@ -586,7 +586,7 @@ func (m Model) editorFieldWidth() int {
 
 // listNavKey handles fast list-navigation keys when the commit list is focused.
 // It returns true when it consumed the key. Routing this BEFORE globalAction
-// lets g/G mean top/bottom of the list (spec binding); the calendar and params
+// lets g/G mean top/bottom of the list; the calendar and params
 // panes see g as a no-op (staging is automatic, so there is no re-apply key).
 func (m *Model) listNavKey(key string) bool {
 	last := len(m.plan.Commits) - 1
@@ -911,7 +911,7 @@ func (m *Model) applyDefaultSelectionMode() {
 	}
 }
 
-// applyAutoBase detects the base branch (spec §6.4 precedence) and freezes the
+// applyAutoBase detects the base branch (per chooseBaseBranch's precedence) and freezes the
 // commits up to and including the merge-base. It is best-effort: any git failure
 // leaves the freeze unchanged rather than erroring. Called on load and after
 // every reload, so the freeze re-establishes itself (and survives apply/undo).

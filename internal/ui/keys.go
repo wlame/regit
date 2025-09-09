@@ -7,8 +7,8 @@ import (
 
 // keys.go is the single source of truth for the keymap. The help overlay (the
 // '?' screen) and the compact keybar hint are GENERATED from the keymap table, so
-// the documentation can never drift from the keys the code actually handles
-// (spec §6.8) — there is one table, not a hand-maintained help slice plus a
+// the documentation can never drift from the keys the code actually handles —
+// there is one table, not a hand-maintained help slice plus a
 // separately hard-coded keybar string.
 
 // keyScope groups a binding by the context it applies in, so the generated help

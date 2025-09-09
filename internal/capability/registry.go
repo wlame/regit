@@ -6,8 +6,9 @@ import (
 	"github.com/wlame/regit/internal/strategy"
 )
 
-// registry is the ordered single source of truth. Phase 1 seeds split and reword
-// (metadata only; Run wired in later phases). New verbs append rows here.
+// registry is the ordered single source of truth for every non-interactive
+// action. Each row carries the command's metadata and its headless Run. New
+// verbs append a row here.
 var registry = []Command{
 	{
 		Name:      "split",

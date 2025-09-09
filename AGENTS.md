@@ -16,7 +16,13 @@ Three independent features share a common safety/gitio core:
    semantically meaningful commits using an external LLM to group its diff hunks.
 3. **Commit rewording** (`regit reword`) — regenerate the commit message of one
    or more commits using an LLM; proposes ranked title + body alternatives, with
-   an interactive picker in the TUI (via the Restructure menu) and a headless Y/n flow on the CLI.
+   an interactive picker in the TUI (via the Restructure menu) and a headless
+   dry-run/`--execute` flow on the CLI (one proposal, previewed by default,
+   applied with `--execute` — no interactive prompt).
+
+A complete, **registry-driven headless CLI** mirrors the TUI: every action is
+also a flat verb (`regit redate · split · reword · retitle · drop-bodies · undo`),
+all projected from one capability registry (see "The capability registry" below).
 
 ## Core domain types (`internal/model`)
 
@@ -34,7 +40,7 @@ one group, no unknown IDs) before any git object is created.
 ## Architecture: layered packages
 
 ```
-cmd/regit/          CLI entry points (main.go, split.go, reword.go)
+cmd/regit/          CLI entry points (main.go, dispatch.go)
 internal/
   model/            Pure domain types — no imports from other internal packages
   strategy/         Pure date-distribution algorithms — no git, no UI
@@ -44,19 +50,24 @@ internal/
   reword/           Commit-rewording engine (variants, cache, prompt building)
   llm/              LLM backend abstraction
   config/           YAML + REGIT_* env configuration
-  ui/               Bubble Tea TUI (depends on all of the above)
+  capability/       Single source of truth: every action as a Command row + headless Run.
+                    Imports the engine packages; NEVER imports internal/ui.
+  ui/               Bubble Tea TUI (depends on all of the above, incl. capability)
 ```
 
 The TUI is a bounded tab chassis (internal/ui). Five fixed category tabs —
 Dates · Restructure · History · Authorship · Search — sit over a persistent
-commit backbone (list + detail). Tabs and per-tab feature menus are DATA: the
-`workspaces` table and the `features` registry in feature.go are the single
-source of truth, and the tab bar, menus, and key help are derived from them
-(add a feature = add a registry row; the action surface grows down, never wide).
+commit backbone (list + detail). Tabs and per-tab feature menus are DATA. The
+`workspaces` table in feature.go drives the tab bar; the per-tab menus are a
+**projection of `capability.Registry()`** — `featuresFor(id)` filters the registry
+by `Command.Workspace` and joins each row to its TUI presentation (display title +
+`Run` closure) held in `featureBindings` (feature.go), keyed by command `Name`. So
+the headless surface and the menu cannot drift (add a verb = a registry row + a
+`featureBindings` entry; the action surface grows down, never wide).
 `< / >` (or `[ / ]`) switch tabs; `tab` focuses the active workspace's widget. Dates is the
 rich calendar/strategy workspace; Restructure is a menu that re-invokes the
 existing split/reword/retitle/drop-bodies actions; History/Authorship/Search are
-disabled stub tabs awaiting later phases.
+disabled stub tabs awaiting future work.
 
 The Dates workspace holds per-strategy state (`m.strats`, selected by `m.stratIdx`):
 a `◀ Name ▶` carousel on the strategy pane's first focus row picks the strategy
@@ -95,7 +106,7 @@ exists, else the whole active range. Drop bodies opens a confirmation popup
 (`modeDropBodies`) reporting how many commits would change before any edit is staged.
 
 Every history mutation funnels through one stage → preview → confirm → apply
-pipeline (pipeline.go, spec §6.7). A feature stages a `pendingChange` (planChange
+pipeline (pipeline.go). A feature stages a `pendingChange` (planChange
 for date/message edits, applied with `A`; splitChange for a reviewed split, run
 from the Restructure menu); the
 `modePipeline` overlay shows its mandatory before/after preview; a typed
@@ -147,9 +158,9 @@ their respective packages.
 applies `REGIT_*` environment variable overrides. Env vars always win over
 the file. Never read `os.Getenv` anywhere else for configuration values.
 
-**`internal/ui`** — Bubble Tea TUI. Imports all packages above. The Split action
-(in the Restructure menu) uses the same `split.Engine` that `cmd/regit/split.go`
-uses — one code path, not two.
+**`internal/ui`** — Bubble Tea TUI. Imports all packages above, including
+`capability`. The Split action (in the Restructure menu) uses the same
+`split.Engine` that the headless `capability` `Run` uses — one code path, not two.
 
 ## The capability registry (`internal/capability`)
 
@@ -170,6 +181,25 @@ PROJECTIONS of this table — they cannot drift apart.
 - **Footer fidelity** is guaranteed by a round-trip test: `Render` (footer) is the
   inverse of `Parse` (CLI), so a logged line is always one the CLI accepts.
 
+**The verbs** (each a `Command` row with a `Run` in `run_<verb>.go`): `redate`,
+`split`, `reword`, `retitle`, `drop-bodies`, `undo`. Every mutating verb except
+`undo` **previews by default** and applies with `--execute`, requiring `--execute
+--force` to rewrite already-pushed history; a dirty tree or out-of-order plan is a
+hard block. `undo` is exempt — it restores immediately; `undo --list` is read-only.
+Exit codes: `0` ok/dry-run · `1` usage error · `2` guard-blocked (dirty, pushed
+without `--force`) · `3` apply/runtime error. (`split`/`reword` keep deprecated
+`--yes`→`--execute` and no-op `--dry-run` aliases, translated by `deprecate.go`.)
+
+**Agent surface:** `regit --llm-help[=text|md|json]` prints a self-contained,
+registry-projected doc of every verb; `regit --help` is the terse list; `regit
+<verb> --help` shows one verb's flags.
+
+**Transparency footer (TUI):** the `L` key toggles a command-log panel; on each
+applied action the TUI renders its exact `regit … --execute` equivalent via
+`capability.Render` (from per-verb `argMap` builders in `argmap.go`) and appends it
+to `.git/regit/command.log` (best-effort, non-fatal) — so doing a thing in the UI
+teaches its headless command.
+
 ## How to build, run, and test
 
 Use `just` (run `just` or `just --list` for all recipes):
@@ -180,7 +210,11 @@ just test                               # go test ./...
 just test-race                          # tests with race detector + coverage
 just ci                                 # full local CI: fmt-check + vet + build + test-race
 just run                                # launch TUI on current repo
-just split HEAD -- --llm=ollama/qwen2.5-coder --dry-run   # test the splitter
+just split HEAD -- --llm=ollama/qwen2.5-coder   # preview a split (dry-run is the default; add --execute to apply)
+just redate -- --start=2026-01-01 --end=2026-03-01   # preview an even date spread
+just retitle '^feat: ' ''                # preview a regex subject rewrite
+just llm-help                            # agent-facing docs (regit --llm-help)
+just commands                            # list every registered verb (regit --help)
 ```
 
 Bare go commands also work:
@@ -221,8 +255,9 @@ regit split <commit-ish>
   7. Build cumulative trees T1..Tk in an isolated worktree
      — if --test-cmd: run after each stage; repair loop (≤2 regroups) on failure
   8. Verify Tk == C.TreeHash (invariant 1) → write cache
-  9. If --dry-run: print proposal + git commands; stop here
- 10. Backup ref → ApplySplit (emit C1..Ck, replay tail) → VerifyTreesUnchanged
+  9. Default (no --execute): print proposal + equivalent commands; stop here
+ 10. With --execute: guard (dirty/already-pushed → exit 2 unless --force) → backup
+     ref → ApplySplit (emit C1..Ck, replay tail) → VerifyTreesUnchanged
      (invariant 2) → move branch (compare-and-swap) → print summary
 ```
 
@@ -255,14 +290,13 @@ regit split <commit-ish>
 
 - **`model.Hunk` fields**: `FileHeader` (the per-file `diff --git…/---/+++` block)
   and `Body` (the `@@ …` hunk line + diff lines). The `Patch()` method combines
-  them. The design spec uses different field names; the code uses `FileHeader`/`Body`.
+  them. The fields are named `FileHeader`/`Body` in the code.
 
 ## Where things live
 
 ```
-cmd/regit/main.go       Subcommand dispatch (split → runSplit; reword → runReword; default → TUI)
-cmd/regit/split.go      Flag parsing, backend wiring, orchestration for `regit split`
-cmd/regit/reword.go     Flag parsing, backend wiring, pipeline for `regit reword`
+cmd/regit/main.go       Entry point: --version/--help/--llm-help, verb dispatch over capability.Registry(), else TUI
+cmd/regit/dispatch.go   Builds RunContext (config + repo + clock), parses via capability.Parse, calls Command.Run
 internal/model/
   commit.go             Commit, SplitMessage
   edit.go               Edit (pending date/message change)
@@ -295,17 +329,30 @@ internal/safety/
   guards.go             CheckGuards, Guard
 internal/config/
   config.go             Config, Load, REGIT_* overrides, RewordConfig
+internal/capability/
+  command.go            Command, Param, Example, ParamType, RunContext, ParsedArgs (+ typed accessors)
+  registry.go           Registry() table (single source of truth), Lookup, strategy/time name resolution
+  parse.go              Parse + data-driven Validate (Required / Enum / AppliesIf)
+  render.go             Render(name, argMap) — exact runnable CLI line, inverse of Parse (footer fidelity)
+  help.go               HelpTerse, HelpCommand, LLMHelp(text|md|json)
+  pipeline.go           applyOrPreview (dry-run/--execute/--force gate) + CodedError, ExitCode
+  argmap.go             Per-verb argMap builders the TUI footer renders (RedateArgMap, RewordArgMap, …)
+  deprecate.go          DeprecatedRewrite (--yes→--execute, drop --dry-run) for split/reword
+  backend.go commits.go targets.go splitprint.go   Shared LLM-backend wiring, commit lookup, range resolution, split print
+  run_*.go              Headless Run impls: redate, split, reword, retitle, dropbodies, undo
 internal/ui/
-  app.go                Main Bubble Tea model and update loop
+  app.go                Main Bubble Tea model + update loop; commandLog/pendingCmd footer state, appendCommandLog
   split.go              Split review screen + backend wiring for TUI
   reword.go             Reword variant picker + async Generate cmd for TUI
-  feature.go            Data-driven registry: WorkspaceID, SelectionMode, the workspaces table + features registry
+  retitle.go            Retitle (regex) input modal (modeRetitle)
+  feature.go            WorkspaceID/SelectionMode aliases, workspaces tab table, featureBindings + featuresFor (menu = projection of capability.Registry())
   workspace.go          Tab bar render + tab navigation (< / > switch); zone-3 dispatch (viewRightColumn)
   ws_dates.go           Dates workspace widget (calendar + strategy form)
   ws_restructure.go     Restructure feature menu + the disabled stub-tab panel
   selection.go          Commit-list selection model: Single/Range/Set/Active/Global + visual-mode range, set toggling
   pipeline.go           Apply pipeline: pendingChange interface + planChange/splitChange + the preview overlay
-  keys.go               Data-driven keymap table; generates the help overlay and keybar
+  view.go               Layout incl. viewCommandLog (the L-toggle transparency panel)
+  keys.go               Data-driven keymap table ([L]og toggle); generates the help overlay and keybar
   (other .go files)     Calendar, editor, strategy carousel/form, preview, styles
 justfile                All dev recipes — prefer these over raw go commands
 AGENTS.md               This file

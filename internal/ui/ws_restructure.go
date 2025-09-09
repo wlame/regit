@@ -8,10 +8,10 @@ import (
 )
 
 // ws_restructure.go is the Restructure workspace: a vertical, scrollable menu of
-// history-editing features derived from the registry. This is how req #7 is met —
-// features grow DOWN as menu rows, never as new tabs, so the action surface is
-// unbounded while the tab bar stays fixed. Each row re-invokes an existing action
-// method via the feature's Run; Phase 3 adds no new mutation path.
+// history-editing features derived from the registry. Features grow DOWN as menu
+// rows, never as new tabs, so the action surface is unbounded while the tab bar
+// stays fixed. Each row re-invokes an existing action method via the feature's
+// Run, so the menu adds no new mutation path.
 
 // viewRestructureMenu renders the feature menu for the Restructure tab. The
 // highlighted row is shown only while the menu is focused, so the user can see

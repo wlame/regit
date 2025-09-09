@@ -10,7 +10,7 @@ import (
 	"github.com/wlame/regit/internal/safety"
 )
 
-// CodedError carries a process exit code (per the spec's documented codes). main
+// CodedError carries a process exit code (per the documented exit codes). main
 // maps it via ExitCode; a plain error implies code 1.
 type CodedError struct {
 	Code int
