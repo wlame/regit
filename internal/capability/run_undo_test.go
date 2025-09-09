@@ -54,3 +54,34 @@ func TestUndoListReadOnly(t *testing.T) {
 		t.Errorf("expected 'no backups':\n%s", out.String())
 	}
 }
+
+// TestUndoListWithBackupsIsReadOnly: --list exercises the listing path (a backup
+// exists) and must not move HEAD.
+func TestUndoListWithBackupsIsReadOnly(t *testing.T) {
+	_, repo := newTestRepo(t, 3)
+	commits, _ := repo.ReadCommits()
+
+	// Create a backup ref by applying a redate.
+	plan := model.NewPlan(commits)
+	last := commits[len(commits)-1]
+	nd := last.OrigAuthorDate.Add(48 * time.Hour)
+	e, _ := plan.EditFor(last.Hash)
+	e.NewAuthorDate = &nd
+	plan.SetBase(len(commits) - 1)
+	plan.SetEdit(last.Hash, e)
+	actx := &RunContext{Repo: repo, Cfg: config.Default(), Stdout: io.Discard, Stderr: io.Discard, Now: time.Unix(1000, 0)}
+	if err := applyOrPreview(actx, plan, newParsedArgs(map[string]any{"execute": true}, nil), func(io.Writer, *model.Plan) {}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	moved, _ := repo.ReadState()
+
+	var out bytes.Buffer
+	lctx := &RunContext{Repo: repo, Cfg: config.Default(), Stdout: &out, Stderr: &out, Now: time.Unix(2000, 0)}
+	if err := runUndo(lctx, newParsedArgs(map[string]any{"list": true}, nil)); err != nil {
+		t.Fatalf("undo --list: %v", err)
+	}
+	after, _ := repo.ReadState()
+	if after.HeadHash != moved.HeadHash {
+		t.Errorf("undo --list mutated HEAD: %s -> %s", Short(moved.HeadHash), Short(after.HeadHash))
+	}
+}

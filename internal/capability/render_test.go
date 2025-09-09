@@ -1,6 +1,11 @@
 package capability
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/wlame/regit/internal/strategy"
+)
 
 func TestRenderRoundTrip(t *testing.T) {
 	// Use the reword command (real registry entry) with a representative argMap.
@@ -107,6 +112,32 @@ func TestShellQuote(t *testing.T) {
 		if got := shellQuote(c.in); got != c.want {
 			t.Errorf("shellQuote(%q) = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+// TestRenderWrapsLongInvocation: a long command wraps with a backslash continuation
+// and still round-trips through tokenize -> Parse.
+func TestRenderWrapsLongInvocation(t *testing.T) {
+	args := RedateArgMap("Manual-Pin", "Working-hours", strategy.Params{
+		Quotas: map[string]int{
+			"2026-01-01": 1, "2026-01-02": 2, "2026-01-03": 3,
+			"2026-01-04": 4, "2026-01-05": 5,
+		},
+	}, true)
+	line := Render("redate", args)
+	if !strings.Contains(line, "\\\n") {
+		t.Fatalf("expected a wrapped continuation in:\n%s", line)
+	}
+	toks := tokenize(line)
+	parsed, err := Parse(mustLookup(t, "redate"), toks[2:])
+	if err != nil {
+		t.Fatalf("wrapped line failed to re-parse: %v\n%s", err, line)
+	}
+	if parsed.String("strategy") != "Manual-Pin" {
+		t.Errorf("strategy = %q after wrap", parsed.String("strategy"))
+	}
+	if got := parsed.KeyVals("pin"); len(got) != 5 {
+		t.Errorf("pin lost across wrap: %v", got)
 	}
 }
 

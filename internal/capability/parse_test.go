@@ -51,3 +51,23 @@ func TestParseAppliesIfViolation(t *testing.T) {
 		t.Error("expected AppliesIf violation for --pin under Even-Spread")
 	}
 }
+
+func TestParseTrailingPositional(t *testing.T) {
+	a, err := Parse(testCmd, []string{"--strategy=Even-Spread", "--execute", "HEAD"})
+	if err != nil {
+		t.Fatalf("Parse err: %v", err)
+	}
+	if len(a.Positional) != 1 || a.Positional[0] != "HEAD" {
+		t.Errorf("trailing positional = %v", a.Positional)
+	}
+}
+
+func TestParseLeadingAndTrailingPositional(t *testing.T) {
+	a, err := Parse(testCmd, []string{"A", "--strategy=Even-Spread", "B"})
+	if err != nil {
+		t.Fatalf("Parse err: %v", err)
+	}
+	if len(a.Positional) != 2 || a.Positional[0] != "A" || a.Positional[1] != "B" {
+		t.Errorf("positionals = %v", a.Positional)
+	}
+}
