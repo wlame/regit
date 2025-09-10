@@ -1,6 +1,9 @@
 package model
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func selSet(hashes ...string) map[string]bool {
 	m := map[string]bool{}
@@ -74,5 +77,86 @@ func TestDetectChains_membersAreRootFirst(t *testing.T) {
 	}
 	if chains[0].Members[0].Hash != "a" || chains[0].Members[2].Hash != "c" {
 		t.Errorf("members not root-first: %v", chains[0].Members)
+	}
+}
+
+func datedCommit(hash, author, email string, d time.Time) Commit {
+	return Commit{Hash: hash, AuthorName: author, AuthorEmail: email, OrigAuthorDate: d}
+}
+
+func TestDefaultSquashConfig_identityFromFirstDateFromLast(t *testing.T) {
+	t0 := time.Date(2026, 3, 2, 14, 0, 0, 0, time.UTC)
+	t1 := time.Date(2026, 3, 9, 9, 0, 0, 0, time.UTC)
+	ch := SquashChain{Members: []Commit{
+		{Hash: "a", Subject: "Add model", Body: "first body", AuthorName: "ann", AuthorEmail: "ann@x", OrigAuthorDate: t0},
+		{Hash: "b", Subject: "Add tests", Body: "last body", AuthorName: "wlame", AuthorEmail: "w@x", OrigAuthorDate: t1},
+	}}
+	got := DefaultSquashConfig(ch)
+	if got.Subject != "Add model" || got.Body != "first body" {
+		t.Errorf("message should come from first commit, got %q / %q", got.Subject, got.Body)
+	}
+	if got.AuthorName != "ann" || got.AuthorEmail != "ann@x" {
+		t.Errorf("identity should come from first commit, got %s <%s>", got.AuthorName, got.AuthorEmail)
+	}
+	if !got.AuthorDate.Equal(t1) {
+		t.Errorf("date should come from last commit, got %s want %s", got.AuthorDate, t1)
+	}
+}
+
+func TestChainDateBounds_middleChainBoundedByNeighbors(t *testing.T) {
+	d := func(day int) time.Time { return time.Date(2026, 3, day, 12, 0, 0, 0, time.UTC) }
+	commits := []Commit{
+		datedCommit("p", "x", "x", d(1)),
+		datedCommit("a", "x", "x", d(2)),
+		datedCommit("b", "x", "x", d(3)),
+		datedCommit("n", "x", "x", d(9)),
+	}
+	ch := SquashChain{Members: []Commit{commits[1], commits[2]}}
+	lo, hi, hasLo, hasHi := ChainDateBounds(commits, ch)
+	if !hasLo || !lo.Equal(d(1)) {
+		t.Errorf("lo = %s (%v), want %s", lo, hasLo, d(1))
+	}
+	if !hasHi || !hi.Equal(d(9)) {
+		t.Errorf("hi = %s (%v), want %s", hi, hasHi, d(9))
+	}
+}
+
+func TestChainDateBounds_rootAndHeadChainsAreOpen(t *testing.T) {
+	d := func(day int) time.Time { return time.Date(2026, 3, day, 12, 0, 0, 0, time.UTC) }
+	commits := []Commit{datedCommit("a", "x", "x", d(2)), datedCommit("b", "x", "x", d(3))}
+	ch := SquashChain{Members: []Commit{commits[0], commits[1]}} // spans root..HEAD
+	_, _, hasLo, hasHi := ChainDateBounds(commits, ch)
+	if hasLo {
+		t.Error("root chain should have no lower bound")
+	}
+	if hasHi {
+		t.Error("HEAD chain should have no upper bound")
+	}
+}
+
+func TestValidate_rejectsOutOfWindowDate(t *testing.T) {
+	d := func(day int) time.Time { return time.Date(2026, 3, day, 12, 0, 0, 0, time.UTC) }
+	commits := []Commit{
+		datedCommit("p", "x", "x", d(1)),
+		datedCommit("a", "x", "x", d(2)),
+		datedCommit("b", "x", "x", d(3)),
+		datedCommit("n", "x", "x", d(9)),
+	}
+	ch := SquashChain{Members: []Commit{commits[1], commits[2]}, AuthorDate: d(20)} // past upper bound
+	if err := (SquashPlan{Chains: []SquashChain{ch}}).Validate(commits); err == nil {
+		t.Error("expected out-of-window date to be rejected")
+	}
+	ch.AuthorDate = d(5) // within [1, 9]
+	if err := (SquashPlan{Chains: []SquashChain{ch}}).Validate(commits); err != nil {
+		t.Errorf("in-window date should validate, got %v", err)
+	}
+}
+
+func TestValidate_rejectsOverlappingChains(t *testing.T) {
+	commits := chainCommits("a", "b", "c")
+	ch1 := SquashChain{Members: []Commit{commits[0], commits[1]}, AuthorDate: time.Time{}}
+	ch2 := SquashChain{Members: []Commit{commits[1], commits[2]}, AuthorDate: time.Time{}}
+	if err := (SquashPlan{Chains: []SquashChain{ch1, ch2}}).Validate(commits); err == nil {
+		t.Error("expected overlapping chains to be rejected")
 	}
 }
