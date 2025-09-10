@@ -2,6 +2,7 @@
 package capability
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wlame/regit/internal/config"
 	"github.com/wlame/regit/internal/gitio"
 )
 
@@ -108,5 +110,66 @@ func TestParseSquashSpec_badRefErrors(t *testing.T) {
 	commits, _ := repo.ReadCommits()
 	if _, err := parseSquashSpec(repo, commits, "deadbeefdeadbeef"); err == nil {
 		t.Error("an unresolvable ref must error")
+	}
+}
+
+func TestRunSquash_dryRunNoLLMUsesFirstCommitMessage(t *testing.T) {
+	repo, h := squashTestRepo(t, 4)
+	var out bytes.Buffer
+	ctx := &RunContext{Repo: repo, Cfg: config.Config{}, Stdout: &out, Stderr: &out, Now: time.Unix(1717689600, 0)}
+	// Squash h2,h3 (include h2 via caret). No --execute => dry-run.
+	a := newParsedArgs(map[string]any{}, []string{h[1] + "^.." + h[3]})
+	if err := runSquash(ctx, a); err != nil {
+		t.Fatalf("runSquash: %v", err)
+	}
+	s := out.String()
+	if !strings.Contains(s, "into 1") && !strings.Contains(s, "1 commit") {
+		t.Errorf("expected a 1-chain summary, got:\n%s", s)
+	}
+	if !strings.Contains(s, "dry run") {
+		t.Errorf("dry-run notice missing:\n%s", s)
+	}
+	// History unchanged after a dry run.
+	commits, _ := repo.ReadCommits()
+	if len(commits) != 4 {
+		t.Fatalf("dry run must not change history; got %d commits", len(commits))
+	}
+}
+
+func TestRunSquash_executeCollapsesChain(t *testing.T) {
+	repo, h := squashTestRepo(t, 4)
+	var out bytes.Buffer
+	ctx := &RunContext{Repo: repo, Cfg: config.Config{}, Stdout: &out, Stderr: &out, Now: time.Unix(1717689600, 0)}
+	a := newParsedArgs(map[string]any{"execute": true}, []string{h[2] + "^.." + h[3]})
+	if err := runSquash(ctx, a); err != nil {
+		t.Fatalf("runSquash --execute: %v", err)
+	}
+	commits, _ := repo.ReadCommits()
+	if len(commits) != 3 {
+		t.Fatalf("expected 3 commits after squash, got %d", len(commits))
+	}
+}
+
+func TestRunSquash_noChainsIsNoOp(t *testing.T) {
+	repo, h := squashTestRepo(t, 4)
+	var out bytes.Buffer
+	ctx := &RunContext{Repo: repo, Cfg: config.Config{}, Stdout: &out, Stderr: &out, Now: time.Unix(1, 0)}
+	// Two non-adjacent singletons => no chains.
+	a := newParsedArgs(map[string]any{}, []string{h[0] + "," + h[2]})
+	if err := runSquash(ctx, a); err != nil {
+		t.Fatalf("runSquash: %v", err)
+	}
+	if !strings.Contains(out.String(), "Nothing to squash") {
+		t.Errorf("expected no-op message, got:\n%s", out.String())
+	}
+}
+
+func TestRunSquash_missingSpecIsUsageError(t *testing.T) {
+	repo, _ := squashTestRepo(t, 2)
+	var out bytes.Buffer
+	ctx := &RunContext{Repo: repo, Cfg: config.Config{}, Stdout: &out, Stderr: &out, Now: time.Unix(1, 0)}
+	err := runSquash(ctx, newParsedArgs(map[string]any{}, nil))
+	if err == nil || ExitCode(err) != 1 {
+		t.Errorf("missing spec should be a usage error (exit 1), got %v (code %d)", err, ExitCode(err))
 	}
 }
