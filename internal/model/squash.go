@@ -31,11 +31,13 @@ type SquashPlan struct {
 }
 
 // DetectChains partitions the selected commit hashes into maximal runs of
-// consecutive commits in the root-first history. A selected commit with an
-// unselected parent cannot be in any run and is returned as a singleton in
-// ignored. Runs of length 1 (singletons) have nothing to squash with and are
-// returned in ignored. Chains carry empty config (the caller fills defaults via
-// DefaultSquashConfig or the LLM engine).
+// consecutive commits in the root-first history. Adjacency in the commits slice
+// IS parent-child linkage (the slice is first-parent linear), so two selected
+// commits join the same chain exactly when no unselected commit sits between
+// them. Runs of length 1 (singletons) have nothing to squash with and are
+// returned in ignored. A chain's first member normally has an unselected parent
+// (the anchor the squash sits on); that never drops it. Chains carry empty config
+// (the caller fills defaults via DefaultSquashConfig or the LLM engine).
 func DetectChains(commits []Commit, selected map[string]bool) (chains []SquashChain, ignored []string) {
 	var run []Commit
 	flush := func() {
@@ -50,25 +52,12 @@ func DetectChains(commits []Commit, selected map[string]bool) (chains []SquashCh
 		run = nil
 	}
 	for _, c := range commits {
-		if !selected[c.Hash] {
-			flush()
+		if selected[c.Hash] {
+			run = append(run, c)
 			continue
 		}
-
-		// Current commit is selected. Check if its parent is also selected.
-		// A commit with an unselected parent cannot be in a run.
-		parentSelected := len(c.ParentHashes) == 0 || selected[c.ParentHashes[0]]
-
-		if !parentSelected {
-			// Parent not selected: this commit is a singleton
-			flush()
-			ignored = append(ignored, c.Hash)
-		} else {
-			// Parent is selected or doesn't exist: add to run
-			run = append(run, c)
-		}
+		flush()
 	}
-
 	flush()
 	return chains, ignored
 }

@@ -24,9 +24,9 @@ func chainCommits(hashes ...string) []Commit {
 }
 
 func TestDetectChains_findsMaximalRunsAndDropsSingletons(t *testing.T) {
-	commits := chainCommits("a", "b", "c", "d", "e", "f")
-	// Select a,b (run), d (singleton), e,f (run). c is unselected.
-	chains, ignored := DetectChains(commits, selSet("a", "b", "d", "e", "f"))
+	commits := chainCommits("a", "b", "c", "d", "e", "f", "g")
+	// Select a,b (run); d alone (c and e unselected → singleton); f,g (run).
+	chains, ignored := DetectChains(commits, selSet("a", "b", "d", "f", "g"))
 
 	if len(chains) != 2 {
 		t.Fatalf("want 2 chains, got %d", len(chains))
@@ -34,11 +34,27 @@ func TestDetectChains_findsMaximalRunsAndDropsSingletons(t *testing.T) {
 	if got := chains[0].First().Hash + chains[0].Last().Hash; got != "ab" {
 		t.Errorf("chain0 = %s, want first=a last=b", got)
 	}
-	if got := chains[1].First().Hash + chains[1].Last().Hash; got != "ef" {
-		t.Errorf("chain1 = %s, want first=e last=f", got)
+	if got := chains[1].First().Hash + chains[1].Last().Hash; got != "fg" {
+		t.Errorf("chain1 = %s, want first=f last=g", got)
 	}
 	if len(ignored) != 1 || ignored[0] != "d" {
 		t.Errorf("ignored = %v, want [d]", ignored)
+	}
+}
+
+// Regression guard: a chain that does NOT start at the root must keep its first
+// (oldest) member. Its parent being unselected is normal — that parent is the
+// anchor the squash sits on — so it must never cause the first member to be
+// dropped.
+func TestDetectChains_chainNotStartingAtRootKeepsFirstMember(t *testing.T) {
+	commits := chainCommits("a", "b", "c", "d") // a is the root
+	// Select b,c,d; a (root) is unselected. The chain must be {b,c,d}, not {c,d}.
+	chains, ignored := DetectChains(commits, selSet("b", "c", "d"))
+	if len(chains) != 1 || len(chains[0].Members) != 3 {
+		t.Fatalf("want one 3-member chain {b,c,d}, got %+v (ignored %v)", chains, ignored)
+	}
+	if chains[0].First().Hash != "b" {
+		t.Errorf("chain must keep its first member b (parent a is the squash anchor), got first=%s", chains[0].First().Hash)
 	}
 }
 
