@@ -95,6 +95,13 @@ func RewordArgMap(commitishes ...string) map[string]string {
 	return map[string]string{"_positional": strings.Join(commitishes, " "), "execute": "true"}
 }
 
+// SquashArgMap builds the flag map for a `regit squash <spec> --execute` line. The
+// TUI passes the chains as a comma-joined "first^..last" spec so the logged command
+// round-trips through parseSquashSpec to the same commits.
+func SquashArgMap(spec string) map[string]string {
+	return map[string]string{"_positional": spec, "execute": "true"}
+}
+
 // keyValsToString serialises a map[date]count as "DAY=N,DAY=N" in stable
 // (sorted) order, matching the --pin flag's wire format.
 func keyValsToString(kv map[string]int) string {

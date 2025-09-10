@@ -3,6 +3,7 @@ package capability
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -171,5 +172,33 @@ func TestRunSquash_missingSpecIsUsageError(t *testing.T) {
 	err := runSquash(ctx, newParsedArgs(map[string]any{}, nil))
 	if err == nil || ExitCode(err) != 1 {
 		t.Errorf("missing spec should be a usage error (exit 1), got %v (code %d)", err, ExitCode(err))
+	}
+}
+
+// fakeSquashBackend is a deterministic llm.Backend for prefill tests.
+type fakeSquashBackend struct{ resp string }
+
+func (f fakeSquashBackend) Generate(ctx context.Context, system, user string, schema []byte, validate func(string) error) (string, error) {
+	if err := validate(f.resp); err != nil {
+		return "", err
+	}
+	return f.resp, nil
+}
+func (f fakeSquashBackend) Name() string { return "fake:squash" }
+
+func TestRunSquash_llmPrefillOverridesMessage(t *testing.T) {
+	repo, h := squashTestRepo(t, 4)
+	var out bytes.Buffer
+	ctx := &RunContext{
+		Repo: repo, Cfg: config.Config{}, Stdout: &out, Stderr: &out,
+		Now:     time.Unix(1717689600, 0),
+		Backend: fakeSquashBackend{resp: `{"subject":"Combined summary","body":""}`},
+	}
+	a := newParsedArgs(map[string]any{"llm": "ollama/x"}, []string{h[2] + "^.." + h[3]})
+	if err := runSquash(ctx, a); err != nil {
+		t.Fatalf("runSquash: %v", err)
+	}
+	if !strings.Contains(out.String(), "Combined summary") {
+		t.Errorf("LLM subject should appear in the preview, got:\n%s", out.String())
 	}
 }

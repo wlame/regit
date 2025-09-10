@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -13,9 +14,6 @@ import (
 	"github.com/wlame/regit/internal/safety"
 	"github.com/wlame/regit/internal/squash"
 )
-
-// Ensure context is used (it will be wired in Task 10).
-var _ = context.Background
 
 // parseSquashSpec parses a comma-separated list of A..B ranges and single refs
 // into the union of selected commit hashes. Each item resolves via resolveTargets,
@@ -122,9 +120,45 @@ func runSquash(ctx *RunContext, a ParsedArgs) error {
 	return nil
 }
 
-// prefillSquashMessages is the LLM hook. In this task it is a no-op (no-LLM
-// defaults already set); Task 10 replaces the body with the engine wiring.
+// prefillSquashMessages overrides each chain's Subject/Body with an LLM summary
+// when an LLM is configured (a ctx.Backend, an --llm/--agent flag, or a config
+// provider). With nothing configured it returns nil, leaving the no-LLM defaults.
 func prefillSquashMessages(ctx *RunContext, a ParsedArgs, gitDir string, chains []model.SquashChain) error {
+	backend := ctx.Backend
+	if backend == nil {
+		wantLLM := a.String("llm") != "" || a.String("agent") != "" || ctx.Cfg.LLM.Provider != ""
+		if !wantLLM {
+			return nil // no-LLM path: keep DefaultSquashConfig messages
+		}
+		b, err := BuildBackend(ctx.Cfg, BackendOptions{
+			LLM: a.String("llm"), Agent: a.String("agent"), AgentArgs: a.String("agent-args"),
+			BaseURL: a.String("llm-base-url"), RepoRoot: ctx.Repo.Root(),
+		})
+		if err != nil {
+			return usageErr("%v", err)
+		}
+		backend = b
+	}
+
+	cache := squash.NewCache(gitDir)
+	if a.Bool("no-cache") {
+		tmp, err := os.MkdirTemp("", "regit-squash-nocache-*")
+		if err != nil {
+			return runtimeErr("temp cache: %v", err)
+		}
+		defer os.RemoveAll(tmp)
+		cache = squash.NewCache(tmp)
+	}
+	eng := squash.NewEngine(ctx.Repo, backend, cache)
+	opts := squash.Options{WithDiffs: a.Bool("with-diffs"), Prompt: a.String("prompt"), NoCache: a.Bool("no-cache"), Now: ctx.Now}
+	for i := range chains {
+		prop, err := eng.Summarize(context.Background(), chains[i], opts)
+		if err != nil {
+			return runtimeErr("summarize chain %s: %v", Short(chains[i].Last().Hash), err)
+		}
+		chains[i].Subject = prop.Subject
+		chains[i].Body = prop.Body
+	}
 	return nil
 }
 
