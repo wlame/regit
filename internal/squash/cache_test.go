@@ -42,3 +42,17 @@ func TestCache_clearRemovesEntries(t *testing.T) {
 		t.Error("cache should be empty after Clear")
 	}
 }
+
+// TestCache_putEmptyHashRefuses verifies that Put rejects entries with an
+// empty commit hash rather than silently writing an invalid cache file.
+func TestCache_putEmptyHashRefuses(t *testing.T) {
+	c := NewCache(t.TempDir())
+	err := c.Put(CacheEntry{
+		CommitHash:  "",
+		Fingerprint: "abc",
+		Proposal:    Proposal{Subject: "x"},
+	})
+	if err == nil {
+		t.Error("Put with empty CommitHash should return an error")
+	}
+}

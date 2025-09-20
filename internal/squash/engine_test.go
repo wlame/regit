@@ -3,6 +3,7 @@ package squash
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -61,5 +62,30 @@ func TestSummarize_noCacheAlwaysCallsBackend(t *testing.T) {
 	eng.Summarize(context.Background(), ch, Options{NoCache: true, Now: time.Unix(0, 0)})
 	if backend.calls != 2 {
 		t.Errorf("with NoCache, backend should be called every time, got %d", backend.calls)
+	}
+}
+
+// TestSummarize_promptAppendsGuidanceToUserMessage verifies that a non-empty
+// Prompt option is appended to the user message sent to the backend, so the
+// model can tailor the combined message to the user's request.
+func TestSummarize_promptAppendsGuidanceToUserMessage(t *testing.T) {
+	dir := t.TempDir()
+	backend := &stubBackend{resp: `{"subject":"Add feature","body":""}`}
+	eng := NewEngine(nil, backend, NewCache(dir))
+
+	ch := model.SquashChain{Members: []model.Commit{
+		{Hash: "c", Subject: "wip"},
+		{Hash: "d", Subject: "done"},
+	}}
+	_, err := eng.Summarize(context.Background(), ch, Options{
+		NoCache: true,
+		Prompt:  "keep it concise",
+		Now:     time.Unix(0, 0),
+	})
+	if err != nil {
+		t.Fatalf("Summarize with Prompt: %v", err)
+	}
+	if !strings.Contains(backend.lastUser, "keep it concise") {
+		t.Errorf("user message should contain the Prompt guidance; got:\n%s", backend.lastUser)
 	}
 }

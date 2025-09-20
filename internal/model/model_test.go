@@ -132,3 +132,132 @@ func TestRepoState_Guards(t *testing.T) {
 		t.Error("state with upstream should report pushed commits")
 	}
 }
+
+// TestPlan_SetBase verifies that SetBase clamps the boundary within [0, last],
+// updates the Base field, and drops any pending edits on frozen commits.
+func TestPlan_SetBase(t *testing.T) {
+	commits := []Commit{{Hash: "a"}, {Hash: "b"}, {Hash: "c"}}
+	p := NewPlan(commits)
+	p.Edits["a"] = Edit{}
+	p.Edits["b"] = Edit{}
+
+	p.SetBase(1) // freeze commit a
+	if p.Base != 1 {
+		t.Errorf("Base = %d, want 1", p.Base)
+	}
+	if _, ok := p.Edits["a"]; ok {
+		t.Error("frozen commit a's edit should be removed")
+	}
+	if _, ok := p.Edits["b"]; !ok {
+		t.Error("editable commit b's edit should remain")
+	}
+
+	// Clamping: negative index → 0, index > last → last.
+	p.SetBase(-5)
+	if p.Base != 0 {
+		t.Errorf("negative SetBase should clamp to 0, got %d", p.Base)
+	}
+	p.SetBase(100)
+	if p.Base != 2 {
+		t.Errorf("out-of-range SetBase should clamp to last (%d), got %d", len(commits)-1, p.Base)
+	}
+}
+
+// TestPlan_ActiveAndIsFrozen verifies that Active returns only commits from
+// Base onward and that IsFrozen correctly identifies frozen positions.
+func TestPlan_ActiveAndIsFrozen(t *testing.T) {
+	commits := []Commit{{Hash: "a"}, {Hash: "b"}, {Hash: "c"}}
+	p := NewPlan(commits)
+	p.Base = 1
+
+	active := p.Active()
+	if len(active) != 2 || active[0].Hash != "b" || active[1].Hash != "c" {
+		t.Errorf("Active() = %v, want [{b} {c}]", active)
+	}
+	if !p.IsFrozen(0) {
+		t.Error("index 0 (before Base=1) should be frozen")
+	}
+	if p.IsFrozen(1) {
+		t.Error("index 1 (== Base) should not be frozen")
+	}
+}
+
+// TestPlan_EffectiveSubject verifies that EffectiveSubject returns the edited
+// subject when an edit is present, and falls back to the original otherwise.
+func TestPlan_EffectiveSubject(t *testing.T) {
+	c := Commit{Hash: "x", Subject: "original"}
+	p := NewPlan([]Commit{c})
+
+	if got := p.EffectiveSubject(c); got != "original" {
+		t.Errorf("no edit: EffectiveSubject = %q, want %q", got, "original")
+	}
+
+	newSubj := "edited"
+	p.SetEdit("x", Edit{NewSubject: &newSubj})
+	if got := p.EffectiveSubject(c); got != "edited" {
+		t.Errorf("with edit: EffectiveSubject = %q, want %q", got, "edited")
+	}
+}
+
+// TestPlan_EditFor verifies that EditFor returns the stored edit and true when
+// present, and the zero Edit with false when absent.
+func TestPlan_EditFor(t *testing.T) {
+	p := NewPlan([]Commit{{Hash: "a"}})
+	if _, ok := p.EditFor("a"); ok {
+		t.Error("EditFor should return false when no edit exists")
+	}
+	newSubj := "s"
+	p.SetEdit("a", Edit{NewSubject: &newSubj})
+	e, ok := p.EditFor("a")
+	if !ok {
+		t.Error("EditFor should return true after SetEdit")
+	}
+	if e.NewSubject == nil || *e.NewSubject != "s" {
+		t.Errorf("EditFor returned wrong edit: %+v", e)
+	}
+}
+
+// TestCommit_SplitMessage verifies that SplitMessage splits a raw git commit
+// message at the first blank line: the first line becomes the subject and the
+// rest (without the leading newlines) becomes the body.
+func TestCommit_SplitMessage(t *testing.T) {
+	cases := []struct {
+		raw     string
+		subject string
+		body    string
+	}{
+		{"subject only", "subject only", ""},
+		{"subject\n\nbody text", "subject", "body text"},
+		{"subject\n\nline1\nline2", "subject", "line1\nline2"},
+		{"trailing newline\n", "trailing newline", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.raw, func(t *testing.T) {
+			subj, body := SplitMessage(tc.raw)
+			if subj != tc.subject {
+				t.Errorf("subject = %q, want %q", subj, tc.subject)
+			}
+			if body != tc.body {
+				t.Errorf("body = %q, want %q", body, tc.body)
+			}
+		})
+	}
+}
+
+// TestEdit_EffectiveCommitDate verifies that EffectiveCommitDate returns the
+// override when set and falls back to the original committer date otherwise.
+func TestEdit_EffectiveCommitDate(t *testing.T) {
+	orig := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	override := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
+	c := Commit{OrigCommitDate: orig}
+
+	e := Edit{}
+	if got := e.EffectiveCommitDate(c); got != orig {
+		t.Errorf("no override: EffectiveCommitDate = %v, want %v", got, orig)
+	}
+
+	e.NewCommitDate = &override
+	if got := e.EffectiveCommitDate(c); got != override {
+		t.Errorf("with override: EffectiveCommitDate = %v, want %v", got, override)
+	}
+}

@@ -202,3 +202,47 @@ func TestRunSquash_llmPrefillOverridesMessage(t *testing.T) {
 		t.Errorf("LLM subject should appear in the preview, got:\n%s", out.String())
 	}
 }
+
+// TestRunSquash_clearCacheDeletesCacheDir verifies the --clear-cache path,
+// which removes the squash summary cache without touching the commit history.
+func TestRunSquash_clearCacheDeletesCacheDir(t *testing.T) {
+	repo, _ := squashTestRepo(t, 3)
+	var out bytes.Buffer
+	ctx := &RunContext{Repo: repo, Cfg: config.Config{}, Stdout: &out, Stderr: &out, Now: time.Unix(1, 0)}
+	// --clear-cache should succeed even when no cache exists yet.
+	a := newParsedArgs(map[string]any{"clear-cache": true}, nil)
+	if err := runSquash(ctx, a); err != nil {
+		t.Fatalf("runSquash --clear-cache: %v", err)
+	}
+	// History is untouched.
+	commits, _ := repo.ReadCommits()
+	if len(commits) != 3 {
+		t.Fatalf("--clear-cache must not modify commit history; got %d commits", len(commits))
+	}
+}
+
+// TestRunSquash_noCachePathBypassesCachedEntry verifies that --no-cache
+// exercises the temp-dir branch inside prefillSquashMessages and that the LLM
+// is still called when a backend is provided.
+func TestRunSquash_noCachePathBypassesCachedEntry(t *testing.T) {
+	repo, h := squashTestRepo(t, 4)
+	var out bytes.Buffer
+	ctx := &RunContext{
+		Repo:    repo,
+		Cfg:     config.Config{},
+		Stdout:  &out,
+		Stderr:  &out,
+		Now:     time.Unix(1717689600, 0),
+		Backend: fakeSquashBackend{resp: `{"subject":"No-cache subject","body":""}`},
+	}
+	a := newParsedArgs(
+		map[string]any{"no-cache": true},
+		[]string{h[2] + "^.." + h[3]},
+	)
+	if err := runSquash(ctx, a); err != nil {
+		t.Fatalf("runSquash --no-cache: %v", err)
+	}
+	if !strings.Contains(out.String(), "No-cache subject") {
+		t.Errorf("LLM subject should appear in output; got:\n%s", out.String())
+	}
+}

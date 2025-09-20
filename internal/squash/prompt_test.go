@@ -54,3 +54,56 @@ func TestValidateProposalJSON_requiresSubject(t *testing.T) {
 		t.Errorf("subject-only should be valid, got %v", err)
 	}
 }
+
+// TestExtractJSON_invalidInputReturnsEmpty verifies that extractJSON returns ""
+// when the input contains no JSON object delimiters or they are in the wrong order.
+func TestExtractJSON_invalidInputReturnsEmpty(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+	}{
+		{"empty string", ""},
+		{"no braces", "just plain text"},
+		{"only open brace", "{ no close"},
+		{"close before open", "} { misorder "},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := extractJSON(tc.input); got != "" {
+				t.Errorf("extractJSON(%q) = %q, want empty string", tc.input, got)
+			}
+		})
+	}
+}
+
+// TestValidateProposalJSON_noObjectErrors verifies that text with no JSON object
+// is rejected before any unmarshal attempt.
+func TestValidateProposalJSON_noObjectErrors(t *testing.T) {
+	if err := validateProposalJSON("no json here"); err == nil {
+		t.Error("input with no JSON object should return an error")
+	}
+}
+
+// TestValidateProposalJSON_malformedJSONErrors verifies that a string with
+// braces but invalid JSON content is rejected.
+func TestValidateProposalJSON_malformedJSONErrors(t *testing.T) {
+	if err := validateProposalJSON("{not valid json at all!!}"); err == nil {
+		t.Error("malformed JSON should return an error")
+	}
+}
+
+// TestParseProposal_noJSONObjectErrors verifies that ParseProposal returns an
+// error when the raw string contains no JSON object.
+func TestParseProposal_noJSONObjectErrors(t *testing.T) {
+	if _, err := ParseProposal("no braces here"); err == nil {
+		t.Error("ParseProposal with no JSON should return an error")
+	}
+}
+
+// TestParseProposal_malformedJSONErrors verifies that ParseProposal returns an
+// error when the extracted JSON cannot be unmarshalled.
+func TestParseProposal_malformedJSONErrors(t *testing.T) {
+	if _, err := ParseProposal("{invalid!}"); err == nil {
+		t.Error("ParseProposal with invalid JSON should return an error")
+	}
+}
