@@ -102,6 +102,27 @@ func SquashArgMap(spec string) map[string]string {
 	return map[string]string{"_positional": spec, "execute": "true"}
 }
 
+// ReauthorArgMap builds the flag map for a `regit reauthor --execute` line. The
+// committer flag defaults to true, so it is emitted only when the caller turned
+// it off (Render omits any value equal to the Param default). commits is the
+// comma-joined target spec the TUI selection produced.
+func ReauthorArgMap(name, email string, committer bool, commits string) map[string]string {
+	m := map[string]string{"execute": "true"}
+	if name != "" {
+		m["name"] = name
+	}
+	if email != "" {
+		m["email"] = email
+	}
+	if !committer {
+		m["committer"] = "false"
+	}
+	if commits != "" {
+		m["commits"] = commits
+	}
+	return m
+}
+
 // keyValsToString serialises a map[date]count as "DAY=N,DAY=N" in stable
 // (sorted) order, matching the --pin flag's wire format.
 func keyValsToString(kv map[string]int) string {
