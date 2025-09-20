@@ -37,7 +37,7 @@ func TestWorkspaces_v1EnablementMatrix(t *testing.T) {
 
 func TestFeaturesFor_restructureMenu(t *testing.T) {
 	got := featuresFor(WSRestructure)
-	want := []string{"Split commit", "Reword message", "Retitle (regex)", "Drop bodies"}
+	want := []string{"Split commit", "Reword message", "Squash commits", "Retitle (regex)", "Drop bodies"}
 	if len(got) != len(want) {
 		t.Fatalf("Restructure should host %d features, got %d", len(want), len(got))
 	}
@@ -137,6 +137,7 @@ func TestFeaturesFor_restructureSelectionsMatchRegistry(t *testing.T) {
 	want := map[string]SelectionMode{
 		"Split commit":    SelSingle,
 		"Reword message":  SelSingle,
+		"Squash commits":  SelSet,
 		"Retitle (regex)": SelActive,
 		"Drop bodies":     SelActive,
 	}

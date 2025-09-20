@@ -339,6 +339,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case summarizeSquashResultMsg:
+		if msg.err == nil {
+			m.squashSt = m.squashSt.applySummary(msg.chainKey, msg.prop)
+		} else {
+			delete(m.squashSt.loading, msg.chainKey)
+			if m.mode == modeSquash {
+				m.setStatus("Squash summarize failed: "+msg.err.Error(), statusErr)
+			}
+		}
+		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -368,6 +378,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateDropBodies(msg)
 	case modeReword:
 		return m.updateReword(msg)
+	case modeSquash:
+		return m.updateSquash(msg)
 	case modeDetail:
 		if s := msg.String(); s == "." || s == "esc" || s == "q" {
 			m.mode = modeMain
@@ -1655,6 +1667,8 @@ func (m Model) View() string {
 		} else {
 			overlay = m.st.modal.Render(renderRewordPicker(reword.Result{}, m.rewordSt.sel))
 		}
+	case modeSquash:
+		overlay = m.viewSquash()
 	case modeDetail:
 		c := m.commitAtCursor()
 		stat, have := m.statCache[c.Hash]

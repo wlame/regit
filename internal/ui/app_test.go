@@ -1648,10 +1648,10 @@ func TestMenu_restructureTabFocusesMenu(t *testing.T) {
 func TestMenu_restructureRunsRetitle(t *testing.T) {
 	m := newTestModel(t)
 	m = send(m, ">", "tab") // Restructure, focus the menu
-	// Menu order: Split(0), Reword(1), Retitle(2), Drop bodies(3).
-	m = send(m, "down", "down")
-	if m.wsMenuCursor != 2 {
-		t.Fatalf("cursor should be on Retitle (index 2), got %d", m.wsMenuCursor)
+	// Menu order: Split(0), Reword(1), Squash(2), Retitle(3), Drop bodies(4).
+	m = send(m, "down", "down", "down")
+	if m.wsMenuCursor != 3 {
+		t.Fatalf("cursor should be on Retitle (index 3), got %d", m.wsMenuCursor)
 	}
 	m = send(m, "enter")
 	if m.mode != modeRetitle {
@@ -1662,7 +1662,7 @@ func TestMenu_restructureRunsRetitle(t *testing.T) {
 func TestMenu_restructureRunsDropBodies(t *testing.T) {
 	m := newTestModel(t) // commits c000..c002, each WITH a body
 	m = send(m, ">", "tab")
-	m = send(m, "down", "down", "down") // Drop bodies (index 3)
+	m = send(m, "down", "down", "down", "down") // Drop bodies (index 4)
 	m = send(m, "enter")                // opens the confirmation popup
 	if m.mode != modeDropBodies {
 		t.Fatalf("running Drop bodies from the menu should open the popup, got mode %v", m.mode)

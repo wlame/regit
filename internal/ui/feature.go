@@ -84,6 +84,10 @@ var featureBindings = map[string]featureBinding{
 		model, cmd, _ := m.beginReword()
 		return model, cmd
 	}},
+	"squash": {Title: "Squash commits", Run: func(m Model) (tea.Model, tea.Cmd) {
+		model, cmd, _ := m.beginSquash()
+		return model, cmd
+	}},
 	"retitle": {Title: "Retitle (regex)", Run: func(m Model) (tea.Model, tea.Cmd) {
 		m.retitle = newRetitleState()
 		m.mode = modeRetitle

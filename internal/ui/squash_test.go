@@ -131,6 +131,19 @@ func TestSquashState_editDateField(t *testing.T) {
 	}
 }
 
+func TestRestructureMenu_includesSquash(t *testing.T) {
+	feats := featuresFor(WSRestructure)
+	found := false
+	for _, f := range feats {
+		if strings.Contains(strings.ToLower(f.Name), "squash") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("the Restructure menu should include a Squash row")
+	}
+}
+
 func TestStageSquash_rejectsUnparseableDate(t *testing.T) {
 	commits := linearModelCommits("a", "b", "c")
 	m := modelWithSet(commits, "a", "b")

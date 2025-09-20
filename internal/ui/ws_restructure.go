@@ -22,7 +22,20 @@ func (m Model) viewRestructureMenu() string {
 	// features are shown — this method is only reached for WSRestructure today.
 	feats := featuresFor(m.workspace)
 	var b strings.Builder
-	b.WriteString(m.st.modalTitle.Render(fmt.Sprintf("RESTRUCTURE · %d commit(s)", len(m.affectedCommits()))) + "\n\n")
+	title := fmt.Sprintf("RESTRUCTURE · %d commit(s)", len(m.affectedCommits()))
+	if i := m.wsMenuCursor; m.focus == focusWorkspace && i >= 0 && i < len(feats) &&
+		strings.Contains(strings.ToLower(feats[i].Name), "squash") {
+		chains, ignored := m.affectedChains()
+		squashed := 0
+		for _, ch := range chains {
+			squashed += len(ch.Members)
+		}
+		title = fmt.Sprintf("RESTRUCTURE · %d commit(s) into %d commit(s)", squashed, len(chains))
+		if len(ignored) > 0 {
+			title += fmt.Sprintf(" · %d ignored", len(ignored))
+		}
+	}
+	b.WriteString(m.st.modalTitle.Render(title) + "\n\n")
 	for i, f := range feats {
 		if m.focus == focusWorkspace && i == m.wsMenuCursor {
 			b.WriteString(m.st.selected.Render("▸ "+f.Name) + "\n")
