@@ -21,7 +21,7 @@ Three independent features share a common safety/gitio core:
    applied with `--execute` — no interactive prompt).
 
 A complete, **registry-driven headless CLI** mirrors the TUI: every action is
-also a flat verb (`regit redate · split · reword · retitle · drop-bodies · undo`),
+also a flat verb (`regit redate · split · squash · reword · retitle · drop-bodies · undo`),
 all projected from one capability registry (see "The capability registry" below).
 
 ## Core domain types (`internal/model`)
@@ -49,6 +49,7 @@ internal/
   gitio/            THE ONLY PACKAGE THAT SHELLS OUT TO git
   safety/           Guards, backup refs, undo stack
   split/            Commit-splitting orchestrator
+  squash/           Commit-squash engine (chain summarization, cache, prompt)
   reword/           Commit-rewording engine (variants, cache, prompt building)
   llm/              LLM backend abstraction
   config/           YAML + REGIT_* env configuration
@@ -99,8 +100,8 @@ band, built with vim visual mode `v`), Set (○/● gutter, Space toggles · `a`
 `n` clear), Active (whole non-frozen range, frozen cone dimmed), Global (list
 dimmed). The mode defaults from the workspace (Dates → Active, others → Single).
 Reword consumes a Set as multi-reword (walks the picker per selected commit);
-frozen commits are never selectable. Range/Global are built and tested, awaiting
-their future consumers (Join / Search).
+Squash consumes a Set/Range to define one or more chains to collapse;
+frozen commits are never selectable. Global awaits future consumers (Search).
 
 Bulk actions (Drop bodies, Retitle) and the Restructure panel's affected-commit
 count operate on `affectedCommits()` — the explicit Set/Range selection when one
@@ -130,7 +131,8 @@ No git, no TUI, no LLM. Fully unit-testable.
 `gitio.Repo`. Key methods: `ReadCommits`, `Replay` (date rewrite; returns the
 old→new commit remap), `Hunks` (extract diff hunks), `BuildTreeFromHunks` (apply
 hunk subset to worktree), `ApplySplit` (emit sub-commits and replay tail; returns
-a `SplitRemap`), `DiffChangeSet`/`CommitTrees` (per-path change-set and batched
+a `SplitRemap`), `ApplySquash` (emit squashed chains and replay tail; returns a
+`SquashRemap`), `DiffChangeSet`/`CommitTrees` (per-path change-set and batched
 tree-OID reads that feed the verifier), `VerifyTreesUnchanged` (the ∅-case shim),
 `NewWorktree`/`Worktree.Close` (isolated scratch space).
 **Never add a git call anywhere else.**
@@ -138,7 +140,7 @@ tree-OID reads that feed the verifier), `VerifyTreesUnchanged` (the ∅-case shi
 **`internal/safety`** — `Manager` runs the guarded apply protocol:
 `CheckGuards` → backup ref → replay → `verify` (the change-set verifier, see
 "Change-set verification" below) → move branch (compare-and-swap). Also exposes
-`ApplySplit` for the splitting flow.
+`ApplySplit` for the splitting flow and `ApplySquash` for the squashing flow.
 
 **`internal/split`** — orchestrates one split: extract hunks → skip-split
 guards → LLM grouping → build intermediate trees → validate/repair loop →
@@ -268,6 +270,15 @@ aborts before the branch moves:
    content-identical end to end. `Cₖ` is the last sub-commit; HEAD is whichever
    pair ends the chain. The only structural change is that commit `C` became `k`.
 
+**Squash** reuses the empty-expectation model for verification:
+
+1. **Per-chain** (via `verify`): the boundary expectation `(chain.Last → S, ∅)`
+   for each collapsed chain, ensuring the squashed commit `S` is byte-identical
+   in content to the last commit of the chain. Tree OID comparison proves this.
+2. **Per-tail-pair**: an ∅ expectation for each replayed commit downstream of a
+   squashed chain — every snapshot remains content-identical end to end. The only
+   structural change is that consecutive commits in each chain became one.
+
 ## Commit-splitting flow (end to end)
 
 ```
@@ -285,6 +296,22 @@ regit split <commit-ish>
  10. With --execute: guard (dirty/already-pushed → exit 2 unless --force) → backup
      ref → ApplySplit (emit C1..Ck, replay tail) → VerifyTreesUnchanged
      (invariant 2) → move branch (compare-and-swap) → print summary
+```
+
+## Commit-squashing flow (end to end)
+
+```
+regit squash <range-ish>
+  1. Parse range(s) and resolve commits into chains
+  2. Guards: dirty tree? merge commit in range? (safety package)
+  3. For each chain: cache lookup at .git/regit/cache/squash/<chainHash>.json
+  4. Skip-squash guards: singleton chain? (ignored)
+  5. LLM Propose (optional) → message summary
+  6. Default (no --execute): print plan (N commits → 1) + equivalent commands; stop here
+  7. With --execute: guard (dirty/already-pushed → exit 2 unless --force) → backup
+     ref → ApplySquash (emit squashed commits per chain, replay tail) → verify
+     (empty expectation per chain + tail pairs) → move branch (compare-and-swap)
+     → print summary
 ```
 
 ## Gotchas and constraints
@@ -343,6 +370,9 @@ internal/split/
   cache.go              Cache, CacheEntry (.git/regit/cache/split/)
   size.go               ShouldSkipSplit, EffectiveMaxCommits, Fingerprint
   subcommits.go         BuildSubCommits (groups + trees → []gitio.SubCommit)
+internal/squash/
+  engine.go             Engine, Summarize, Proposal, Cache
+  cache.go              Cache, CacheEntry (.git/regit/cache/squash/)
 internal/reword/
   engine.go             Engine, Generate (normal + agent-scan modes), diffHash
   cache.go              Cache, CacheEntry (.git/regit/cache/reword/)

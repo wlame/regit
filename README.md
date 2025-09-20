@@ -80,6 +80,7 @@ rewrite already-pushed commits. `undo` is exempt and restores immediately.
 |---------|--------------|
 | `regit redate --strategy=… --time=…` | spread commit/author dates across a calendar |
 | `regit split <commit-ish>` | split one commit into 2–4 with an LLM |
+| `regit squash <range-ish>` | collapse consecutive commits into one |
 | `regit reword [<commit-ish>…]` | regenerate commit message(s) with an LLM |
 | `regit retitle --match=RE --replace=S` | regex-rewrite commit subjects across a range |
 | `regit drop-bodies [--commits=A..B]` | strip commit bodies, keep titles |
@@ -212,6 +213,30 @@ worktree. A failing stage triggers up to two LLM regrouping attempts; if it
 still fails the stage is marked `WIP:` in the commit subject. The test command
 must pass on the original commit before splitting begins; if it does not,
 `regit` aborts with a clear message so you can fix `--test-cmd`.
+
+## Commit squashing
+
+`regit squash` collapses consecutive runs of commits into one commit per run,
+in the TUI (Restructure → Squash, a tabbed wizard with one tab per chain) or
+headless:
+
+```bash
+regit squash 6f3a^..a2df                 # preview squashing one chain (dry-run)
+regit squash 6f3a^..a2df --execute       # apply
+regit squash A^..B,C,D^..E --execute     # several chains at once
+regit squash 6f3a^..a2df --llm=ollama/qwen2.5-coder --with-diffs --execute
+```
+
+**Range semantics.** `A..B` follows git: it means the commits **after** A through
+B — **A itself is excluded** (it is the anchor/parent). To include A, write
+`A^..B`. Single refs (`C`) select just that commit. Items are comma-separated.
+
+**Defaults.** The squashed commit's author identity and message default to the
+**first (oldest)** commit of the chain; its date defaults to the **last (newest)**
+commit. With an LLM configured (`--llm`/`--agent`), the message is an LLM summary
+of the chain instead (messages-only by default; `--with-diffs` adds the diffs).
+Singletons (a selected commit with no selected neighbor) are ignored. Squashing
+across a merge commit is refused. File contents are byte-for-byte unchanged.
 
 ## Commit rewording
 
