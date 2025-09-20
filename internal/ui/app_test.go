@@ -1663,7 +1663,7 @@ func TestMenu_restructureRunsDropBodies(t *testing.T) {
 	m := newTestModel(t) // commits c000..c002, each WITH a body
 	m = send(m, ">", "tab")
 	m = send(m, "down", "down", "down", "down") // Drop bodies (index 4)
-	m = send(m, "enter")                // opens the confirmation popup
+	m = send(m, "enter")                        // opens the confirmation popup
 	if m.mode != modeDropBodies {
 		t.Fatalf("running Drop bodies from the menu should open the popup, got mode %v", m.mode)
 	}

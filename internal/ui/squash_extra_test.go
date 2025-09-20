@@ -500,7 +500,7 @@ func TestRenderSquashWizard_bodyInInspectPane(t *testing.T) {
 // git repo is available. It exercises the provider/base-URL/key resolution
 // path (lines that are skipped in the no-LLM path tested elsewhere).
 func TestBuildSquashEngine_withProviderAndRepo(t *testing.T) {
-	m := newTestModelN(t, 2)       // provides a real git repository
+	m := newTestModelN(t, 2)      // provides a real git repository
 	m.cfg.LLM.Provider = "ollama" // any non-empty provider triggers the construction path
 	m.cfg.LLM.Model = "test-model"
 	eng, err := buildSquashEngine(&m)
