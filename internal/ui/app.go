@@ -39,6 +39,7 @@ const (
 	modeReword
 	modeDetail
 	modePicker
+	modeSquash // the tabbed squash wizard (one tab per chain)
 )
 
 type focusArea int
@@ -127,6 +128,7 @@ type Model struct {
 	confirmGuard safety.Guard
 
 	rewordSt rewordState
+	squashSt squashState
 
 	// Lazily-fetched, hash-keyed commit file stats for the detail panel. A stat
 	// is requested via a tea.Cmd when the cursor settles on a commit and cached

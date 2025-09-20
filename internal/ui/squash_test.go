@@ -1,10 +1,12 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/wlame/regit/internal/model"
+	"github.com/wlame/regit/internal/squash"
 )
 
 // modelWithCommits builds a minimal Model with a plan over the given root-first
@@ -54,5 +56,63 @@ func TestSquashChange_titleAndPreview(t *testing.T) {
 	pm := sc.preview(styles{})
 	if len(pm.lines) != 1 {
 		t.Fatalf("want 1 preview line, got %d", len(pm.lines))
+	}
+}
+
+func wizardState() squashState {
+	commits := linearModelCommits("aaaa", "bbbb", "cccc")
+	chains, _ := model.DetectChains(commits, map[string]bool{"aaaa": true, "bbbb": true, "cccc": true})
+	chains[0] = model.DefaultSquashConfig(chains[0])
+	chains[0].Subject = "Combined subject"
+	return squashState{chains: chains, tab: 0, field: fldTitle, loading: map[string]bool{}}
+}
+
+func TestRenderSquashWizard_newestFirstAndShowsResult(t *testing.T) {
+	st := wizardState()
+	out := renderSquashWizard(st, 100, 24, styles{})
+	// Newest member (cccc) must render ABOVE the oldest (aaaa).
+	iNew := strings.Index(out, "cccc")
+	iOld := strings.Index(out, "aaaa")
+	if iNew < 0 || iOld < 0 || iNew > iOld {
+		t.Errorf("commits should be newest-first (cccc before aaaa); idx new=%d old=%d", iNew, iOld)
+	}
+	if !strings.Contains(out, "Combined subject") {
+		t.Error("result title should be shown")
+	}
+}
+
+func TestRenderSquashWizard_loadingShowsSpinnerText(t *testing.T) {
+	st := wizardState()
+	st.loading[st.chains[0].Last().Hash] = true
+	out := renderSquashWizard(st, 100, 24, styles{})
+	if !strings.Contains(strings.ToLower(out), "summariz") {
+		t.Error("a loading chain should show a summarizing indicator")
+	}
+}
+
+func TestSquashState_switchTabClampsAndCycles(t *testing.T) {
+	commits := linearModelCommits("a", "b", "c", "d", "e")
+	chains, _ := model.DetectChains(commits, map[string]bool{"a": true, "b": true, "d": true, "e": true})
+	st := squashState{chains: chains, loading: map[string]bool{}}
+	st = st.switchTab(1)
+	if st.tab != 1 {
+		t.Errorf("tab = %d, want 1", st.tab)
+	}
+	st = st.switchTab(1) // past the end wraps to 0
+	if st.tab != 0 {
+		t.Errorf("tab should wrap to 0, got %d", st.tab)
+	}
+}
+
+func TestSummarizeResult_appliesUnlessEdited(t *testing.T) {
+	st := wizardState()
+	key := st.chains[0].Last().Hash
+	st.loading[key] = true
+	st = st.applySummary(key, squash.Proposal{Subject: "LLM subject", Body: "LLM body"})
+	if st.chains[0].Subject != "LLM subject" || st.chains[0].Body != "LLM body" {
+		t.Errorf("summary should fill the chain, got %q/%q", st.chains[0].Subject, st.chains[0].Body)
+	}
+	if st.loading[key] {
+		t.Error("loading flag should clear once the summary lands")
 	}
 }
