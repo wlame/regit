@@ -46,20 +46,40 @@ func TestBuildMessage(t *testing.T) {
 	}
 }
 
-func TestBuildDateEnv_preservesIdentityOverridesDates(t *testing.T) {
+func TestBuildCommitEnv_appliesIdentityAndDateOverrides(t *testing.T) {
 	c := model.Commit{
-		AuthorName: "wlame", AuthorEmail: "vvlame@gmail.com",
-		CommitterName: "wlame", CommitterEmail: "vvlame@gmail.com",
+		AuthorName: "old", AuthorEmail: "old@x",
+		CommitterName: "oldc", CommitterEmail: "oldc@x",
 	}
 	d := mustParse(t, "2026-03-01T10:00:00+00:00")
-	env := buildDateEnv(c, model.Edit{NewAuthorDate: &d, NewCommitDate: &d})
 
+	// Dates overridden, identity untouched: originals preserved.
+	env := buildCommitEnv(c, model.Edit{NewAuthorDate: &d, NewCommitDate: &d})
 	joined := strings.Join(env, "\n")
 	for _, want := range []string{
-		"GIT_AUTHOR_NAME=wlame",
-		"GIT_AUTHOR_EMAIL=vvlame@gmail.com",
+		"GIT_AUTHOR_NAME=old",
+		"GIT_AUTHOR_EMAIL=old@x",
+		"GIT_COMMITTER_NAME=oldc",
 		"GIT_AUTHOR_DATE=2026-03-01T10:00:00Z",
 		"GIT_COMMITTER_DATE=2026-03-01T10:00:00Z",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("env missing %q; got:\n%s", want, joined)
+		}
+	}
+
+	// Identity overridden (author + committer): new values flow through, dates
+	// fall back to the commit's originals.
+	env = buildCommitEnv(c, model.Edit{
+		NewAuthorName: strptr("new"), NewAuthorEmail: strptr("new@x"),
+		NewCommitterName: strptr("new"), NewCommitterEmail: strptr("new@x"),
+	})
+	joined = strings.Join(env, "\n")
+	for _, want := range []string{
+		"GIT_AUTHOR_NAME=new",
+		"GIT_AUTHOR_EMAIL=new@x",
+		"GIT_COMMITTER_NAME=new",
+		"GIT_COMMITTER_EMAIL=new@x",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("env missing %q; got:\n%s", want, joined)

@@ -57,7 +57,7 @@ func (r *Repo) Replay(plan *model.Plan, sign SignMode) (newHead string, remap ma
 
 		newParents := remapParents(c.ParentHashes, remap)
 		message := buildMessage(c, edit)
-		env := buildDateEnv(c, edit)
+		env := buildCommitEnv(c, edit)
 
 		args := []string{"commit-tree", c.TreeHash}
 		for _, p := range newParents {
@@ -123,20 +123,19 @@ func buildMessage(c model.Commit, e model.Edit) string {
 	return subject + "\n\n" + body + "\n"
 }
 
-// buildDateEnv produces the GIT_*_DATE / identity environment for one commit.
-// Identity (name/email) is always preserved from the original commit; only the
-// dates are overridden, and only when the edit specifies them.
-func buildDateEnv(c model.Commit, e model.Edit) []string {
-	authorDate := e.EffectiveAuthorDate(c)
-	commitDate := e.EffectiveCommitDate(c)
-
+// buildCommitEnv produces the GIT_*_DATE and identity environment for one commit.
+// Both identity (name/email) and dates come from the edit's effective values, so
+// each field is overridden only when the edit specifies it and otherwise replays
+// the original. File content is never affected: Replay always reuses the original
+// tree object, so this env governs only commit headers.
+func buildCommitEnv(c model.Commit, e model.Edit) []string {
 	return []string{
-		"GIT_AUTHOR_NAME=" + c.AuthorName,
-		"GIT_AUTHOR_EMAIL=" + c.AuthorEmail,
-		"GIT_AUTHOR_DATE=" + authorDate.Format(gitDateFormat),
-		"GIT_COMMITTER_NAME=" + c.CommitterName,
-		"GIT_COMMITTER_EMAIL=" + c.CommitterEmail,
-		"GIT_COMMITTER_DATE=" + commitDate.Format(gitDateFormat),
+		"GIT_AUTHOR_NAME=" + e.EffectiveAuthorName(c),
+		"GIT_AUTHOR_EMAIL=" + e.EffectiveAuthorEmail(c),
+		"GIT_AUTHOR_DATE=" + e.EffectiveAuthorDate(c).Format(gitDateFormat),
+		"GIT_COMMITTER_NAME=" + e.EffectiveCommitterName(c),
+		"GIT_COMMITTER_EMAIL=" + e.EffectiveCommitterEmail(c),
+		"GIT_COMMITTER_DATE=" + e.EffectiveCommitDate(c).Format(gitDateFormat),
 	}
 }
 

@@ -89,7 +89,7 @@ func (r *Repo) ApplySquash(commits []model.Commit, plan model.SquashPlan, sign S
 		if sign == ReSign {
 			args = append(args, "-S")
 		}
-		hash, e := r.gitWithEnvStdin(buildDateEnv(c, model.Edit{}), buildMessage(c, model.Edit{}), args...)
+		hash, e := r.gitWithEnvStdin(buildCommitEnv(c, model.Edit{}), buildMessage(c, model.Edit{}), args...)
 		if e != nil {
 			return "", SquashRemap{}, fmt.Errorf("replay %s: %w", short(c.Hash), e)
 		}
