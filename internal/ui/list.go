@@ -163,6 +163,48 @@ func (m Model) viewCommitList() string {
 	return pane.Width(width).Height(height + 1).Render(b.String())
 }
 
+// authorColWidth is the fixed character width of the optional author column. A
+// longer name truncates with an ellipsis; a shorter one is right-padded so the
+// subjects stay aligned regardless of name length.
+const authorColWidth = 12
+
+// authorLabel returns a commit's display author: the author name, or the
+// local-part ("username") of the author email when the name is blank. Git
+// commits always carry an author, but the name can be empty in odd histories,
+// so the email gives a sensible fallback.
+func authorLabel(c model.Commit) string {
+	if c.AuthorName != "" {
+		return c.AuthorName
+	}
+	if at := strings.IndexByte(c.AuthorEmail, '@'); at > 0 {
+		return c.AuthorEmail[:at]
+	}
+	return c.AuthorEmail
+}
+
+// authorCell builds the fixed-width author column (text plus a trailing gap)
+// shown when showAuthor is on, and returns the screen columns it consumes. When
+// the column is hidden it returns ("", 0) so callers add nothing to the row.
+func (m Model) authorCell(c model.Commit) (text string, width int) {
+	if !m.showAuthor {
+		return "", 0
+	}
+	name := truncate(authorLabel(c), authorColWidth)
+	if pad := authorColWidth - len([]rune(name)); pad > 0 {
+		name += strings.Repeat(" ", pad)
+	}
+	return name + " ", authorColWidth + 1
+}
+
+// styleAuthor applies the author color to a non-empty author cell, returning an
+// empty string untouched so a hidden column never emits stray escape codes.
+func (m Model) styleAuthor(text string) string {
+	if text == "" {
+		return ""
+	}
+	return m.st.author.Render(text)
+}
+
 // renderCommitRow renders a single commit line. The leading two-column gutter
 // reflects the selection mode: a ○/● circle in Set mode, a ┃ band in Range mode,
 // or the ▸/▌/space caret in Single/Active mode. Frozen commits are never
@@ -179,25 +221,29 @@ func (m Model) renderCommitRow(displayIdx, inner int, calKey string) string {
 		marker = "✎"
 	}
 
+	// The optional author column sits between the marker and the subject; its
+	// width is subtracted from the subject so the line never wraps.
+	auth, authWidth := m.authorCell(c)
+
 	// Fixed columns before the subject: gutter(2) + hash(8) + gap(1) + marker(1) + gap(1).
 	const fixed = 13
-	subj := truncate(m.plan.EffectiveSubject(c), max(1, inner-fixed))
+	subj := truncate(m.plan.EffectiveSubject(c), max(1, inner-fixed-authWidth))
 
 	frozen := m.plan.IsFrozen(len(m.plan.Commits) - 1 - displayIdx)
 	isCursor := displayIdx == m.listCursor
 
 	// Global mode dims the whole list — it is context only; focus is elsewhere.
 	if m.sel.mode == SelGlobal {
-		return m.st.dim.Render(fmt.Sprintf("  %s %s %s", short(c.Hash), marker, subj))
+		return m.st.dim.Render(fmt.Sprintf("  %s %s %s%s", short(c.Hash), marker, auth, subj))
 	}
 	// Set / Range gutters apply only to editable (non-frozen) rows; frozen rows
 	// fall through to the dimmed Single/Active path below.
 	if !frozen {
 		switch m.sel.mode {
 		case SelSet:
-			return m.renderSetRow(c, isCursor, marker, subj)
+			return m.renderSetRow(c, isCursor, marker, auth, subj)
 		case SelRange:
-			return m.renderRangeRow(c, displayIdx, isCursor, marker, subj)
+			return m.renderRangeRow(c, displayIdx, isCursor, marker, auth, subj)
 		}
 	}
 
@@ -210,7 +256,7 @@ func (m Model) renderCommitRow(displayIdx, inner int, calKey string) string {
 	case onDay:
 		prefix = "▌ "
 	}
-	plain := fmt.Sprintf("%s%s %s %s", prefix, short(c.Hash), marker, subj)
+	plain := fmt.Sprintf("%s%s %s %s%s", prefix, short(c.Hash), marker, auth, subj)
 	if frozen {
 		return m.st.dim.Render(plain)
 	}
@@ -225,13 +271,13 @@ func (m Model) renderCommitRow(displayIdx, inner int, calKey string) string {
 	if marker != " " {
 		styledMarker = m.st.marker.Render(marker)
 	}
-	return fmt.Sprintf("%s%s %s %s", styledPrefix, m.st.hash.Render(short(c.Hash)), styledMarker, subj)
+	return fmt.Sprintf("%s%s %s %s%s", styledPrefix, m.st.hash.Render(short(c.Hash)), styledMarker, m.styleAuthor(auth), subj)
 }
 
 // renderSetRow renders a row in Set mode: a ○ (unselected) / ● (selected) gutter,
 // then hash, marker, subject. The cursor row's circle takes the cursor color so
 // the pick position stays visible while toggling.
-func (m Model) renderSetRow(c model.Commit, isCursor bool, marker, subj string) string {
+func (m Model) renderSetRow(c model.Commit, isCursor bool, marker, auth, subj string) string {
 	circle := "○"
 	circleStyle := m.st.dim
 	if m.sel.isSet(c.Hash) {
@@ -244,14 +290,14 @@ func (m Model) renderSetRow(c model.Commit, isCursor bool, marker, subj string) 
 	if marker != " " {
 		styledMarker = m.st.marker.Render(marker)
 	}
-	return fmt.Sprintf("%s %s %s %s", circleStyle.Render(circle), m.st.hash.Render(short(c.Hash)), styledMarker, subj)
+	return fmt.Sprintf("%s %s %s %s%s", circleStyle.Render(circle), m.st.hash.Render(short(c.Hash)), styledMarker, m.styleAuthor(auth), subj)
 }
 
 // renderRangeRow renders a row in Range visual mode: in-range rows carry a ┃ band
 // at the left edge (the cursor row colored); out-of-range rows dim.
-func (m Model) renderRangeRow(c model.Commit, displayIdx int, isCursor bool, marker, subj string) string {
+func (m Model) renderRangeRow(c model.Commit, displayIdx int, isCursor bool, marker, auth, subj string) string {
 	if !m.sel.inRange(displayIdx, m.listCursor) {
-		return m.st.dim.Render(fmt.Sprintf("  %s %s %s", short(c.Hash), marker, subj))
+		return m.st.dim.Render(fmt.Sprintf("  %s %s %s%s", short(c.Hash), marker, auth, subj))
 	}
 	bar := m.st.marker.Render("┃")
 	if isCursor {
@@ -261,5 +307,5 @@ func (m Model) renderRangeRow(c model.Commit, displayIdx int, isCursor bool, mar
 	if marker != " " {
 		styledMarker = m.st.marker.Render(marker)
 	}
-	return fmt.Sprintf("%s %s %s %s", bar, m.st.hash.Render(short(c.Hash)), styledMarker, subj)
+	return fmt.Sprintf("%s %s %s %s%s", bar, m.st.hash.Render(short(c.Hash)), styledMarker, m.styleAuthor(auth), subj)
 }

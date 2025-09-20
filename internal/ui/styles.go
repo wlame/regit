@@ -13,6 +13,7 @@ type styles struct {
 	listItem     lipgloss.Style
 	listCursor   lipgloss.Style
 	hash         lipgloss.Style
+	author       lipgloss.Style
 	dayHighlight lipgloss.Style
 	picked       lipgloss.Style
 	origDate     lipgloss.Style
@@ -43,6 +44,7 @@ func newStyles() styles {
 		listItem:     lipgloss.NewStyle(),
 		listCursor:   lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("213")),
 		hash:         lipgloss.NewStyle().Foreground(lipgloss.Color("178")),
+		author:       lipgloss.NewStyle().Foreground(lipgloss.Color("109")),
 		dayHighlight: lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")).Background(lipgloss.Color("60")),
 		picked:       lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("84")),
 		origDate:     lipgloss.NewStyle().Foreground(lipgloss.Color("244")),

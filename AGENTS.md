@@ -88,7 +88,10 @@ beside a detail panel that stretches to fill the rest of a wide terminal. The
 detail's changed-files list is bounded to the pane height: overflow collapses to a
 `… +N more files` line and the whole body is hard-clamped (detail.go `clampLines`),
 so a many-file commit can never push the frame past the screen. `d` toggles
-date-grouping in the list (`[d]ates`); off renders a flat newest-first list. On an
+date-grouping in the list (`[d]ates`); off renders a flat newest-first list. `a`
+toggles an author column (`[a]uthor`, off by default) showing each commit's author
+name — or the email username when the name is blank; select-all in a selection
+lives on `s`. On an
 in-sync trunk branch (main/master with everything already pushed) history starts
 fully editable instead of freezing all but the newest commit (base.go
 `startsUnlocked`); the apply-time pushed-commit confirmation is unchanged, so this

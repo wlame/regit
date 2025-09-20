@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/wlame/regit/internal/model"
 )
@@ -96,6 +97,56 @@ func TestBuildListRows_flatWhenGroupingOff(t *testing.T) {
 	}
 	if len(rows) != 3 {
 		t.Errorf("flat list should have one row per commit, got %d", len(rows))
+	}
+}
+
+func TestAuthorLabel_prefersNameThenEmailUsername(t *testing.T) {
+	cases := []struct {
+		name, email, want string
+	}{
+		{"wlame", "vvlame@gmail.com", "wlame"}, // name wins when present
+		{"", "vvlame@gmail.com", "vvlame"},     // fall back to the email local-part
+		{"", "noatsign", "noatsign"},           // no '@' -> use the raw email
+		{"", "", ""},                           // nothing to show
+	}
+	for _, tc := range cases {
+		got := authorLabel(model.Commit{AuthorName: tc.name, AuthorEmail: tc.email})
+		if got != tc.want {
+			t.Errorf("authorLabel(name=%q,email=%q) = %q, want %q", tc.name, tc.email, got, tc.want)
+		}
+	}
+}
+
+// The author column is off by default and only appears once showAuthor is set,
+// so a normal row never leaks the author name until the user toggles it on.
+func TestRenderCommitRow_authorColumnHiddenByDefaultShownWhenOn(t *testing.T) {
+	m := newTestModel(t) // fixture commits are authored by "wlame"
+	const inner = 80
+
+	off := m.renderCommitRow(0, inner, "")
+	if strings.Contains(off, "wlame") {
+		t.Errorf("author should be hidden by default, got: %q", off)
+	}
+
+	m.showAuthor = true
+	on := m.renderCommitRow(0, inner, "")
+	if !strings.Contains(on, "wlame") {
+		t.Errorf("author column should show the author name when on, got: %q", on)
+	}
+}
+
+// Turning the column on must not widen the rendered line: the subject yields
+// space to the author cell instead, so a row can never wrap and overflow the pane.
+// lipgloss.Width measures visible width, ignoring the color escape codes.
+func TestRenderCommitRow_authorColumnDoesNotWidenTheLine(t *testing.T) {
+	m := newTestModelN(t, 1)
+	const inner = 60
+
+	off := lipgloss.Width(m.renderCommitRow(0, inner, ""))
+	m.showAuthor = true
+	on := lipgloss.Width(m.renderCommitRow(0, inner, ""))
+	if on > off {
+		t.Errorf("author column widened the line: off=%d on=%d (inner=%d)", off, on, inner)
 	}
 }
 

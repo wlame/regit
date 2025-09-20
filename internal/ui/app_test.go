@@ -1771,13 +1771,33 @@ func TestSelectionKeys_spaceTogglesSet(t *testing.T) {
 
 func TestSelectionKeys_selectAllAndClear(t *testing.T) {
 	m := newTestModel(t)
-	m = send(m, "a")
+	m = send(m, "s")
 	if m.sel.mode != SelSet || len(m.sel.set) != len(m.plan.Active()) {
-		t.Fatalf("a should select all %d active commits, got %d", len(m.plan.Active()), len(m.sel.set))
+		t.Fatalf("s should select all %d active commits, got %d", len(m.plan.Active()), len(m.sel.set))
 	}
 	m = send(m, "n")
 	if len(m.sel.set) != 0 {
 		t.Errorf("n should clear the set, got %d", len(m.sel.set))
+	}
+}
+
+// The 'a' key toggles the author column, which starts off, and the toggle is a
+// pure display flag — it never touches the selection.
+func TestAuthorToggle_keyTogglesColumnAndDefaultsOff(t *testing.T) {
+	m := newTestModel(t)
+	if m.showAuthor {
+		t.Fatal("author column should default to off")
+	}
+	m = send(m, "a")
+	if !m.showAuthor {
+		t.Error("first 'a' should turn the author column on")
+	}
+	if m.sel.mode == SelSet {
+		t.Error("'a' must not select commits (select-all moved to 's')")
+	}
+	m = send(m, "a")
+	if m.showAuthor {
+		t.Error("second 'a' should turn the author column off again")
 	}
 }
 
@@ -1799,7 +1819,7 @@ func TestSelectionKeys_visualRangeExtendsWithMovement(t *testing.T) {
 
 func TestSelectionKeys_escResetsSelection(t *testing.T) {
 	m := newTestModel(t)
-	m = send(m, "a") // Set mode with all selected
+	m = send(m, "s") // Set mode with all selected
 	m = send(m, "esc")
 	if m.sel.mode != SelActive { // Dates default is Active
 		t.Errorf("esc should reset to the workspace default (Active on Dates), got %v", m.sel.mode)

@@ -99,6 +99,10 @@ type Model struct {
 	// (true, the default) or renders a flat newest-first list (false). Toggled
 	// with the 'd' key.
 	groupByDate bool
+	// showAuthor controls whether each commit row shows an author column (the
+	// author name, or the email's username when the name is blank). Off by
+	// default; toggled with the 'a' key.
+	showAuthor bool
 	// sel is the commit-list selection (mode + range/set state). Its zero value
 	// is Single mode, so the list renders like a plain cursor list until a
 	// selection key (Task 3) or workspace default changes the mode.
@@ -493,6 +497,14 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		}
 		m.setStatus("Date grouping: "+state, statusOK)
 		return m, nil, true
+	case "a":
+		m.showAuthor = !m.showAuthor
+		state := "off"
+		if m.showAuthor {
+			state = "on"
+		}
+		m.setStatus("Author column: "+state, statusOK)
+		return m, nil, true
 	case ".":
 		m.mode = modeDetail
 		return m, m.markAndFetch(), true
@@ -544,7 +556,7 @@ func (m Model) listSelectionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		m.sel.toggle(m.commitAtCursor().Hash, false)
 		m.setStatus(fmt.Sprintf("%d commit(s) selected", len(m.sel.set)), statusOK)
 		return m, nil, true
-	case "a":
+	case "s":
 		var hashes []string
 		for _, c := range m.plan.Active() {
 			hashes = append(hashes, c.Hash)

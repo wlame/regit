@@ -59,6 +59,7 @@ var keymap = []keyBinding{
 
 	// Commit list (focused)
 	{Key: "d", Scope: scopeList, Desc: "toggle date grouping in the commit list", Bar: "[d]ates"},
+	{Key: "a", Scope: scopeList, Desc: "toggle the author column in the commit list", Bar: "[a]uthor"},
 	{Key: "↑/↓ or k/j", Scope: scopeList, Desc: "move the selection"},
 	{Key: "ctrl+d/u", Scope: scopeList, Desc: "half page down / up (pgdn/pgup move a full page)"},
 	{Key: "g / G", Scope: scopeList, Desc: "newest / oldest commit (home/end do the same)"},
@@ -66,7 +67,7 @@ var keymap = []keyBinding{
 
 	// Selection (commit list)
 	{Key: "space", Scope: scopeSelection, Desc: "toggle the cursor commit in the selection set", Bar: "[space]select"},
-	{Key: "a", Scope: scopeSelection, Desc: "select all active commits"},
+	{Key: "s", Scope: scopeSelection, Desc: "select all active commits"},
 	{Key: "n", Scope: scopeSelection, Desc: "clear the selection"},
 	{Key: "v", Scope: scopeSelection, Desc: "visual range — anchor, move to extend, v/enter to fix, esc to cancel"},
 	{Key: "esc", Scope: scopeSelection, Desc: "cancel the selection (back to the workspace default)"},

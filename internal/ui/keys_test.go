@@ -84,6 +84,22 @@ func TestKeybar_reflectsRetiredAndRenamedActions(t *testing.T) {
 	}
 }
 
+func TestKeymap_authorToggleAndRelocatedSelectAll(t *testing.T) {
+	if !strings.Contains(keybarHint(), "[a]uthor") {
+		t.Errorf("keybar should advertise the author toggle, got: %s", keybarHint())
+	}
+	help := helpText()
+	if !strings.Contains(help, "author column") {
+		t.Error("help should document the author column toggle")
+	}
+	// select-all moved off 'a' to 's'; its keymap row must now read 's'.
+	for _, b := range keymap {
+		if b.Scope == scopeSelection && strings.Contains(b.Desc, "select all active") && b.Key != "s" {
+			t.Errorf("select all should be bound to 's', got %q", b.Key)
+		}
+	}
+}
+
 func TestKeybarHint_strategyGone(t *testing.T) {
 	bar := keybarHint()
 	if strings.Contains(bar, "[s]trategy") {
