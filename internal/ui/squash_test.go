@@ -116,3 +116,29 @@ func TestSummarizeResult_appliesUnlessEdited(t *testing.T) {
 		t.Error("loading flag should clear once the summary lands")
 	}
 }
+
+func TestSquashState_editDateField(t *testing.T) {
+	st := wizardState()
+	st.dateBuf = []string{"2026-03-09 09:02"}
+	st.field = fldDate
+	st = editActiveField(st, "5", false)
+	if st.dateBuf[0] != "2026-03-09 09:025" {
+		t.Fatalf("append failed: %q", st.dateBuf[0])
+	}
+	st = editActiveField(st, "", true)
+	if st.dateBuf[0] != "2026-03-09 09:02" {
+		t.Errorf("backspace failed: %q", st.dateBuf[0])
+	}
+}
+
+func TestStageSquash_rejectsUnparseableDate(t *testing.T) {
+	commits := linearModelCommits("a", "b", "c")
+	m := modelWithSet(commits, "a", "b")
+	chains, _ := m.affectedChains()
+	chains[0] = model.DefaultSquashConfig(chains[0])
+	m.squashSt = squashState{chains: chains, dateBuf: []string{"not a date"}, loading: map[string]bool{}}
+	out, _ := m.stageSquash()
+	if mm, ok := out.(Model); ok && mm.mode == modePipeline {
+		t.Error("stageSquash must not advance to the pipeline on an unparseable date")
+	}
+}

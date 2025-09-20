@@ -114,6 +114,9 @@ const (
 // tab-to-next-field cycle.
 const squashFieldCount = 5
 
+// squashDateLayout is the editable display/parse format for a chain's date.
+const squashDateLayout = "2006-01-02 15:04"
+
 // squashState holds the live wizard state: one tab per chain, the focused field,
 // the inspect cursor, and which chains are still awaiting an LLM summary.
 type squashState struct {
@@ -122,6 +125,7 @@ type squashState struct {
 	field      squashField
 	listCursor int             // index into the ACTIVE chain's members (newest-first display)
 	loading    map[string]bool // chain last-hash -> summary in flight
+	dateBuf    []string        // editable date text per chain (indexed by tab); parsed on stage
 }
 
 // active returns the chain for the current tab.
@@ -145,6 +149,7 @@ func (s squashState) switchTab(delta int) squashState {
 // and clears its loading flag. (User edits before the summary lands are rare;
 // v1 lets the summary win, matching reword's buffer-overwrite behavior.)
 func (s squashState) applySummary(chainKey string, p squash.Proposal) squashState {
+	s.chains = append([]model.SquashChain(nil), s.chains...)
 	for i := range s.chains {
 		if s.chains[i].Last().Hash == chainKey {
 			s.chains[i].Subject = p.Subject
@@ -216,9 +221,13 @@ func renderSquashWizard(st squashState, width, height int, s styles) string {
 	fmt.Fprintf(&b, "Title    %s%s\n", focusMark(st.field, fldTitle), ch.Subject)
 	fmt.Fprintf(&b, "Message  %s%s\n", focusMark(st.field, fldBody), strings.ReplaceAll(ch.Body, "\n", " "))
 	fmt.Fprintf(&b, "Author   %s%s <%s>\n", focusMark(st.field, fldAuthor), ch.AuthorName, ch.AuthorEmail)
-	fmt.Fprintf(&b, "Date     %s%s\n", focusMark(st.field, fldDate), ch.AuthorDate.Format("2006-01-02 15:04"))
+	dateStr := ch.AuthorDate.Format(squashDateLayout)
+	if st.tab < len(st.dateBuf) {
+		dateStr = st.dateBuf[st.tab]
+	}
+	fmt.Fprintf(&b, "Date     %s%s\n", focusMark(st.field, fldDate), dateStr)
 
-	b.WriteString("\n[ ] chain · ↑/↓ inspect · tab field · type edit · A apply all · esc cancel")
+	b.WriteString("\n[/] chain · ↑/↓ inspect · tab field · type edit · A apply all · esc cancel")
 	return b.String()
 }
 
@@ -261,6 +270,10 @@ func (m Model) beginSquash() (tea.Model, tea.Cmd, bool) {
 		chains[i] = model.DefaultSquashConfig(chains[i])
 	}
 	st := squashState{chains: chains, tab: 0, field: fldTitle, loading: map[string]bool{}}
+	st.dateBuf = make([]string, len(chains))
+	for i := range chains {
+		st.dateBuf[i] = chains[i].AuthorDate.Format(squashDateLayout)
+	}
 
 	// Fire async summaries only if an LLM is configured. buildSquashEngine returns
 	// (nil, nil) for the no-LLM path, so the defaults above are the final values.
@@ -345,6 +358,10 @@ func editActiveField(st squashState, s string, del bool) squashState {
 		ch.Body = apply(ch.Body)
 	case fldAuthor:
 		ch.AuthorName = apply(ch.AuthorName)
+	case fldDate:
+		if st.tab < len(st.dateBuf) {
+			st.dateBuf[st.tab] = apply(st.dateBuf[st.tab])
+		}
 	}
 	return st
 }
@@ -352,7 +369,18 @@ func editActiveField(st squashState, s string, del bool) squashState {
 // stageSquash validates the plan and hands it to the apply pipeline (preview →
 // confirm → apply), reusing the same overlay split uses.
 func (m Model) stageSquash() (tea.Model, tea.Cmd) {
-	plan := model.SquashPlan{Chains: m.squashSt.chains}
+	chains := append([]model.SquashChain(nil), m.squashSt.chains...) // copy before mutating
+	for i := range chains {
+		if i < len(m.squashSt.dateBuf) {
+			parsed, err := time.ParseInLocation(squashDateLayout, strings.TrimSpace(m.squashSt.dateBuf[i]), chains[i].AuthorDate.Location())
+			if err != nil {
+				m.setStatus(fmt.Sprintf("Chain %d: invalid date (use YYYY-MM-DD HH:MM)", i+1), statusErr)
+				return m, nil
+			}
+			chains[i].AuthorDate = parsed
+		}
+	}
+	plan := model.SquashPlan{Chains: chains}
 	if err := plan.Validate(m.plan.Commits); err != nil {
 		m.setStatus("Invalid squash: "+err.Error(), statusErr)
 		return m, nil
