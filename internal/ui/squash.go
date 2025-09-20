@@ -267,7 +267,7 @@ func (m Model) beginSquash() (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 	for i := range chains {
-		chains[i] = model.DefaultSquashConfig(chains[i])
+		chains[i] = model.ClampChainDate(m.plan.Commits, model.DefaultSquashConfig(chains[i]))
 	}
 	st := squashState{chains: chains, tab: 0, field: fldTitle, loading: map[string]bool{}}
 	st.dateBuf = make([]string, len(chains))

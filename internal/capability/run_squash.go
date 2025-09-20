@@ -39,7 +39,7 @@ func parseSquashSpec(repo *gitio.Repo, commits []model.Commit, spec string) (map
 
 // runSquash collapses consecutive commit chains. Preview by default; --execute
 // applies (guarded). Uses an LLM summary when one is configured, else the no-LLM
-// defaults (first commit's message). Task 10 fills the LLM prefill block.
+// defaults (first commit's message).
 func runSquash(ctx *RunContext, a ParsedArgs) error {
 	repo := ctx.Repo
 	gitDir, err := repo.GitDir()
@@ -70,10 +70,12 @@ func runSquash(ctx *RunContext, a ParsedArgs) error {
 		return nil
 	}
 
-	// Always apply the identity+date defaults; the LLM (Task 10) overrides only the
-	// message when configured.
+	// Always apply the identity+date defaults; the LLM overrides only the
+	// message when configured. Clamp each chain's date into its valid window so
+	// non-monotonic history (e.g. after a redate) does not produce a date that
+	// Validate will immediately reject.
 	for i := range chains {
-		chains[i] = model.DefaultSquashConfig(chains[i])
+		chains[i] = model.ClampChainDate(commits, model.DefaultSquashConfig(chains[i]))
 	}
 	if err := prefillSquashMessages(ctx, a, gitDir, chains); err != nil {
 		return err

@@ -104,6 +104,25 @@ func ChainDateBounds(commits []Commit, c SquashChain) (lo, hi time.Time, hasLo, 
 	return lo, hi, hasLo, hasHi
 }
 
+// ClampChainDate constrains a chain's AuthorDate into its [lo, hi] window so the
+// default (the last member's date) stays valid even when the original history is
+// non-monotonic at the chain boundary (e.g. after a redate). When the window is
+// empty (lo > hi — a genuinely inconsistent history) it leaves the date unchanged
+// so Validate still surfaces a clear error.
+func ClampChainDate(commits []Commit, c SquashChain) SquashChain {
+	lo, hi, hasLo, hasHi := ChainDateBounds(commits, c)
+	if hasLo && hasHi && lo.After(hi) {
+		return c
+	}
+	if hasHi && c.AuthorDate.After(hi) {
+		c.AuthorDate = hi
+	}
+	if hasLo && c.AuthorDate.Before(lo) {
+		c.AuthorDate = lo
+	}
+	return c
+}
+
 // Validate checks the plan is internally consistent against the history: chains
 // are non-empty (>=2 members), their members are consecutive in commits, no two
 // chains overlap, and each chosen date sits within its window.

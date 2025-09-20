@@ -160,3 +160,22 @@ func TestValidate_rejectsOverlappingChains(t *testing.T) {
 		t.Error("expected overlapping chains to be rejected")
 	}
 }
+
+func TestClampChainDate_pullsDefaultIntoWindow(t *testing.T) {
+	d := func(day int) time.Time { return time.Date(2026, 3, day, 12, 0, 0, 0, time.UTC) }
+	// Non-monotonic: the chain's last member (day 20) is later than the next commit (day 9).
+	commits := []Commit{
+		datedCommit("p", "x", "x", d(1)),
+		datedCommit("a", "x", "x", d(2)),
+		datedCommit("b", "x", "x", d(20)),
+		datedCommit("n", "x", "x", d(9)),
+	}
+	ch := SquashChain{Members: []Commit{commits[1], commits[2]}, AuthorDate: d(20)}
+	clamped := ClampChainDate(commits, ch)
+	if !clamped.AuthorDate.Equal(d(9)) {
+		t.Errorf("date should clamp to upper bound d(9), got %s", clamped.AuthorDate)
+	}
+	if err := (SquashPlan{Chains: []SquashChain{clamped}}).Validate(commits); err != nil {
+		t.Errorf("clamped chain should validate, got %v", err)
+	}
+}
