@@ -21,7 +21,7 @@ Three independent features share a common safety/gitio core:
    applied with `--execute` — no interactive prompt).
 
 A complete, **registry-driven headless CLI** mirrors the TUI: every action is
-also a flat verb (`regit redate · split · squash · reword · retitle · drop-bodies · undo`),
+also a flat verb (`regit redate · split · squash · reword · retitle · drop-bodies · reauthor · undo`),
 all projected from one capability registry (see "The capability registry" below).
 
 ## Core domain types (`internal/model`)
@@ -69,7 +69,7 @@ the headless surface and the menu cannot drift (add a verb = a registry row + a
 `featureBindings` entry; the action surface grows down, never wide).
 `< / >` (or `[ / ]`) switch tabs; `tab` focuses the active workspace's widget. Dates is the
 rich calendar/strategy workspace; Restructure is a menu that re-invokes the
-existing split/reword/retitle/drop-bodies actions; History/Authorship/Search are
+existing split/reword/retitle/drop-bodies actions; Authorship is a menu that runs the change-author (reauthor) action; History/Search are
 disabled stub tabs awaiting future work.
 
 The Dates workspace holds per-strategy state (`m.strats`, selected by `m.stratIdx`):
@@ -96,6 +96,13 @@ in-sync trunk branch (main/master with everything already pushed) history starts
 fully editable instead of freezing all but the newest commit (base.go
 `startsUnlocked`); the apply-time pushed-commit confirmation is unchanged, so this
 is a convenience default, not a safety relaxation.
+
+**Authorship workspace:** the `Authorship` tab hosts the `reauthor` action —
+select commits in the list, open the tab, and run "Change author" to rewrite the
+author (and, via a checkbox checked by default, the committer) name/email. The
+field prefills from the oldest selected commit. It changes only commit headers,
+never file content (the rewrite reuses each original tree and verifies it).
+Headless: `regit reauthor --name=… --email=… --commits=A..B [--committer=false] [--execute]`.
 
 The commit list has a selection mode (selection.go) that gives each feature the
 selection it needs with a distinct visual language: Single (▸ cursor), Range (┃
