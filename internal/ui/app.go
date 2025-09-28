@@ -386,6 +386,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateReword(msg)
 	case modeSquash:
 		return m.updateSquash(msg)
+	case modeReauthor:
+		return m.updateReauthor(msg)
 	case modeDetail:
 		if s := msg.String(); s == "." || s == "esc" || s == "q" {
 			m.mode = modeMain
@@ -919,8 +921,8 @@ func (m Model) focusAfterList() focusArea {
 	switch m.workspace {
 	case WSDates:
 		return focusCalendar
-	case WSRestructure:
-		if len(featuresFor(WSRestructure)) > 0 {
+	case WSRestructure, WSAuthorship:
+		if len(featuresFor(m.workspace)) > 0 {
 			return focusWorkspace
 		}
 	}
@@ -1683,6 +1685,8 @@ func (m Model) View() string {
 		}
 	case modeSquash:
 		overlay = m.viewSquash()
+	case modeReauthor:
+		overlay = m.viewReauthor()
 	case modeDetail:
 		c := m.commitAtCursor()
 		stat, have := m.statCache[c.Hash]

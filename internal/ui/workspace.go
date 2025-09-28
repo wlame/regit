@@ -60,8 +60,8 @@ func (m Model) viewRightColumn() string {
 	switch m.workspace {
 	case WSDates:
 		return m.viewDatesWorkspace()
-	case WSRestructure:
-		return m.viewRestructureMenu()
+	case WSRestructure, WSAuthorship:
+		return m.viewFeatureMenu()
 	default:
 		return m.viewStubWorkspace()
 	}

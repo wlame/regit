@@ -13,16 +13,16 @@ import (
 // stays fixed. Each row re-invokes an existing action method via the feature's
 // Run, so the menu adds no new mutation path.
 
-// viewRestructureMenu renders the feature menu for the Restructure tab. The
-// highlighted row is shown only while the menu is focused, so the user can see
-// what tab they are on without the menu stealing visual focus from the list.
-func (m Model) viewRestructureMenu() string {
-	// Key the feature list off m.workspace (the same field updateWorkspaceMenu
-	// reads) so the renderer and the menu handler can never disagree about which
-	// features are shown — this method is only reached for WSRestructure today.
+// viewFeatureMenu renders the feature menu for any menu workspace (Restructure,
+// Authorship, etc.). The title uses the active workspace's name, so the renderer
+// works correctly for both tabs without hard-coding names. The squash special-case
+// (showing chain statistics in the title) fires only when the highlighted row's
+// name contains "squash", so it remains workspace-agnostic.
+func (m Model) viewFeatureMenu() string {
 	feats := featuresFor(m.workspace)
+	meta, _ := workspaceByID(m.workspace)
 	var b strings.Builder
-	title := fmt.Sprintf("RESTRUCTURE · %d commit(s)", len(m.affectedCommits()))
+	title := fmt.Sprintf("%s · %d commit(s)", strings.ToUpper(meta.Title), len(m.affectedCommits()))
 	if i := m.wsMenuCursor; m.focus == focusWorkspace && i >= 0 && i < len(feats) &&
 		strings.Contains(strings.ToLower(feats[i].Name), "squash") {
 		chains, ignored := m.affectedChains()
@@ -30,7 +30,7 @@ func (m Model) viewRestructureMenu() string {
 		for _, ch := range chains {
 			squashed += len(ch.Members)
 		}
-		title = fmt.Sprintf("RESTRUCTURE · %d commit(s) into %d commit(s)", squashed, len(chains))
+		title = fmt.Sprintf("%s · %d commit(s) into %d commit(s)", strings.ToUpper(meta.Title), squashed, len(chains))
 		if len(ignored) > 0 {
 			title += fmt.Sprintf(" · %d ignored", len(ignored))
 		}

@@ -147,3 +147,35 @@ func sendReauthor(m Model, keys ...string) Model {
 	}
 	return m
 }
+
+func TestAuthorshipWorkspace_enabledWithChangeAuthorRow(t *testing.T) {
+	feats := featuresFor(WSAuthorship)
+	if len(feats) == 0 {
+		t.Fatal("Authorship workspace should expose at least one feature")
+	}
+	found := false
+	for _, f := range feats {
+		if strings.Contains(strings.ToLower(f.Name), "author") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("Authorship menu should list a change-author feature, got %+v", feats)
+	}
+	meta, ok := workspaceByID(WSAuthorship)
+	if !ok || !meta.Enabled {
+		t.Error("Authorship tab should be enabled")
+	}
+}
+
+func TestModeReauthor_dispatchesToWizardUpdate(t *testing.T) {
+	commits := reauthorCommits("a", "b")
+	m := modelWithSet(commits, "b")
+	updated, _, _ := m.beginReauthor()
+	m = updated.(Model)
+	// Drive through the top-level Update → handleKey → updateReauthor path.
+	m = send(m, "esc")
+	if m.mode != modeMain {
+		t.Errorf("esc in the wizard should return to modeMain, got %v", m.mode)
+	}
+}

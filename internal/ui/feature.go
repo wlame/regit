@@ -53,7 +53,7 @@ var workspaces = []workspaceMeta{
 	{WSDates, "Dates", true},
 	{WSRestructure, "Restructure", true},
 	{WSHistory, "History", false},
-	{WSAuthorship, "Authorship", false},
+	{WSAuthorship, "Authorship", true},
 	{WSSearch, "Search", false},
 }
 
@@ -96,6 +96,10 @@ var featureBindings = map[string]featureBinding{
 	"drop-bodies": {Title: "Drop bodies", Run: func(m Model) (tea.Model, tea.Cmd) {
 		m.mode = modeDropBodies
 		return m, nil
+	}},
+	"reauthor": {Title: "Change author", Run: func(m Model) (tea.Model, tea.Cmd) {
+		model, cmd, _ := m.beginReauthor()
+		return model, cmd
 	}},
 }
 

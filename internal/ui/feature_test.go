@@ -23,12 +23,12 @@ func TestWorkspaces_v1EnablementMatrix(t *testing.T) {
 	for _, w := range workspaces {
 		enabled[w.ID] = w.Enabled
 	}
-	for _, id := range []WorkspaceID{WSDates, WSRestructure} {
+	for _, id := range []WorkspaceID{WSDates, WSRestructure, WSAuthorship} {
 		if !enabled[id] {
 			t.Errorf("%v should be enabled in v1", id)
 		}
 	}
-	for _, id := range []WorkspaceID{WSHistory, WSAuthorship, WSSearch} {
+	for _, id := range []WorkspaceID{WSHistory, WSSearch} {
 		if enabled[id] {
 			t.Errorf("%v should be a disabled stub in v1", id)
 		}
@@ -55,7 +55,7 @@ func TestFeaturesFor_datesAndStubs(t *testing.T) {
 	if got := featuresFor(WSDates); len(got) != 1 || got[0].Name != "Date/time spread" {
 		t.Errorf("Dates should host exactly the spread feature, got %v", got)
 	}
-	for _, id := range []WorkspaceID{WSHistory, WSAuthorship, WSSearch} {
+	for _, id := range []WorkspaceID{WSHistory, WSSearch} {
 		if got := featuresFor(id); len(got) != 0 {
 			t.Errorf("stub workspace %v should have no features yet, got %d", id, len(got))
 		}
