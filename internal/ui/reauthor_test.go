@@ -64,3 +64,86 @@ func TestReauthorChange_previewShowsOldToNew(t *testing.T) {
 		t.Error("title should be non-empty")
 	}
 }
+
+func TestBeginReauthor_prefillsFromOldestTarget(t *testing.T) {
+	commits := reauthorCommits("a", "b", "c") // root-first: a oldest
+	commits[0].AuthorName, commits[0].AuthorEmail = "oldest", "oldest@x"
+	m := modelWithSet(commits, "a", "c") // set spans oldest + newest
+	updated, _, ok := m.beginReauthor()
+	if !ok {
+		t.Fatal("beginReauthor should be handled")
+	}
+	m = updated.(Model)
+	if m.mode != modeReauthor {
+		t.Fatalf("mode = %v, want modeReauthor", m.mode)
+	}
+	if m.reauthorSt.nameBuf != "oldest" || m.reauthorSt.emailBuf != "oldest@x" {
+		t.Errorf("prefill = %q/%q, want oldest/oldest@x", m.reauthorSt.nameBuf, m.reauthorSt.emailBuf)
+	}
+	if !m.reauthorSt.committerToo {
+		t.Error("committer checkbox should default to checked")
+	}
+}
+
+func TestUpdateReauthor_editsFieldsAndTogglesCommitter(t *testing.T) {
+	commits := reauthorCommits("a", "b")
+	m := modelWithSet(commits, "b")
+	updated, _, _ := m.beginReauthor()
+	m = updated.(Model)
+	m.reauthorSt.nameBuf = "" // clear prefill to type fresh
+	m.reauthorSt.field = fldRName
+
+	m = sendReauthor(m, "x", "y")
+	if m.reauthorSt.nameBuf != "xy" {
+		t.Errorf("name buffer = %q, want xy", m.reauthorSt.nameBuf)
+	}
+	// Tab to committer field, space toggles it off.
+	m = sendReauthor(m, "tab", "tab") // name -> email -> committer
+	if m.reauthorSt.field != fldRCommitter {
+		t.Fatalf("field = %v, want fldRCommitter", m.reauthorSt.field)
+	}
+	m = sendReauthor(m, " ")
+	if m.reauthorSt.committerToo {
+		t.Error("space on the committer field should uncheck it")
+	}
+}
+
+func TestRenderReauthorWizard_showsFieldsAndCheckbox(t *testing.T) {
+	st := reauthorState{nameBuf: "wlame", emailBuf: "v@x", committerToo: true, field: fldRName,
+		targets: reauthorCommits("a")}
+	out := renderReauthorWizard(st, newStyles())
+	for _, want := range []string{"CHANGE AUTHOR", "wlame", "v@x", "committer"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("wizard missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestStageReauthor_entersPipelineWithChange(t *testing.T) {
+	commits := reauthorCommits("a", "b")
+	m := modelWithSet(commits, "b")
+	updated, _, _ := m.beginReauthor()
+	m = updated.(Model)
+	m.reauthorSt.nameBuf, m.reauthorSt.emailBuf = "wlame", "new@x"
+	out, _ := m.stageReauthor()
+	m = out.(Model)
+	if m.mode != modePipeline {
+		t.Fatalf("mode = %v, want modePipeline", m.mode)
+	}
+	if _, ok := m.pending.(reauthorChange); !ok {
+		t.Errorf("pending should be a reauthorChange, got %T", m.pending)
+	}
+	if m.pendingCmd == "" {
+		t.Error("pendingCmd (transparency footer) should be set")
+	}
+}
+
+// sendReauthor feeds keys straight to updateReauthor, so these tests do not
+// depend on the top-level mode dispatch (added in Task 6).
+func sendReauthor(m Model, keys ...string) Model {
+	for _, k := range keys {
+		updated, _ := m.updateReauthor(key(k))
+		m = updated.(Model)
+	}
+	return m
+}
