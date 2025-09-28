@@ -103,16 +103,15 @@ func (c squashChange) apply(mgr *safety.Manager, state model.RepoState, opts saf
 type squashField int
 
 const (
-	fldList squashField = iota // inspecting the chain's commit list
-	fldTitle
+	fldTitle squashField = iota
 	fldBody
 	fldAuthor
 	fldDate
 )
 
-// squashFieldCount is the number of cyclable wizard fields, used to wrap the
+// squashFieldCount is the number of cyclable RESULT fields, used to wrap the
 // tab-to-next-field cycle.
-const squashFieldCount = 5
+const squashFieldCount = 4
 
 // squashDateLayout is the editable display/parse format for a chain's date.
 const squashDateLayout = "2006-01-02 15:04"
@@ -132,13 +131,14 @@ type squashState struct {
 func (s squashState) active() model.SquashChain { return s.chains[s.tab] }
 
 // switchTab moves the tab by delta, wrapping, and resets per-tab cursors.
+// ← switches to the previous chain tab; → switches to the next.
 func (s squashState) switchTab(delta int) squashState {
 	n := len(s.chains)
 	if n == 0 {
 		return s
 	}
 	// The double-modulo keeps the result in [0, n) even for negative deltas, so
-	// "[" from tab 0 wraps to the last tab.
+	// ← from tab 0 wraps to the last tab.
 	s.tab = ((s.tab+delta)%n + n) % n
 	s.field = fldTitle
 	s.listCursor = 0
@@ -290,10 +290,11 @@ func (m Model) beginSquash() (tea.Model, tea.Cmd, bool) {
 	return m, tea.Batch(cmds...), true
 }
 
-// updateSquash handles keys while the wizard is open: "[" / "]" switch chain
-// tabs, tab cycles the focused field, ↑/↓ move the inspect cursor (only while the
-// list is focused), A stages the plan, and any other rune edits the active text
-// field.
+// updateSquash handles keys while the wizard is open: ↑/↓ move the commit cursor,
+// ←/→ switch chains, tab cycles the RESULT fields, enter/A apply, esc cancels, and
+// any other single rune (or backspace) edits the focused RESULT field. The commit
+// list is always navigable — there is no separate "list field" to focus — so the
+// arrow keys are used for movement and letter keys remain literal text input.
 func (m Model) updateSquash(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	st := m.squashSt
 	switch msg.String() {
@@ -301,36 +302,38 @@ func (m Model) updateSquash(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeMain
 		m.setStatus("Squash cancelled", statusWarn)
 		return m, nil
-	case "[":
+	case "left":
 		m.squashSt = st.switchTab(-1)
 		return m, nil
-	case "]":
+	case "right":
 		m.squashSt = st.switchTab(1)
+		return m, nil
+	case "up":
+		if st.listCursor > 0 {
+			st.listCursor--
+			m.squashSt = st
+		}
+		return m, nil
+	case "down":
+		if st.listCursor < len(st.active().Members)-1 {
+			st.listCursor++
+			m.squashSt = st
+		}
 		return m, nil
 	case "tab":
 		st.field = (st.field + 1) % squashFieldCount
 		m.squashSt = st
 		return m, nil
-	case "up", "k":
-		if st.field == fldList && st.listCursor > 0 {
-			st.listCursor--
-			m.squashSt = st
-		}
-		return m, nil
-	case "down", "j":
-		if st.field == fldList && st.listCursor < len(st.active().Members)-1 {
-			st.listCursor++
-			m.squashSt = st
-		}
-		return m, nil
-	case "A":
+	case "enter", "A":
 		return m.stageSquash()
 	case "backspace":
 		m.squashSt = editActiveField(st, "", true)
 		return m, nil
 	default:
-		// Single-rune keys edit the active text field; everything else is ignored.
-		if len(msg.String()) == 1 {
+		// Single typed rune edits the focused RESULT field; rune-safe so a
+		// multibyte character (accented name, CJK) is not dropped. Special keys
+		// (Type != KeyRunes) fall through and are ignored.
+		if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
 			m.squashSt = editActiveField(st, msg.String(), false)
 		}
 		return m, nil

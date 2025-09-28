@@ -207,7 +207,7 @@ func TestUpdateSquash_escReturnToMain(t *testing.T) {
 func TestUpdateSquash_tabCyclesField(t *testing.T) {
 	commits := linearModelCommits("a", "b", "c")
 	m := squashModelReady(commits, "a", "b")
-	// beginSquash starts at fldTitle (1). Tab squashFieldCount times → back to fldTitle.
+	// beginSquash starts at fldTitle. Tab squashFieldCount times → back to fldTitle.
 	for i := 0; i < squashFieldCount; i++ {
 		out, _ := m.updateSquash(key("tab"))
 		m = out.(Model)
@@ -217,27 +217,22 @@ func TestUpdateSquash_tabCyclesField(t *testing.T) {
 	}
 }
 
-// TestUpdateSquash_listCursorMovement verifies ↑/↓ move the inspect cursor
-// only when fldList is focused and within bounds.
+// TestUpdateSquash_listCursorMovement verifies ↑/↓ move the commit cursor
+// (always — there is no separate list field to focus).
 func TestUpdateSquash_listCursorMovement(t *testing.T) {
-	// 3-member chain from a,b,c (4 commits so c is not the last in the plan).
-	commits := linearModelCommits("a", "b", "c", "d")
+	commits := linearModelCommits("a", "b", "c")
 	m := squashModelReady(commits, "a", "b", "c")
-	m.squashSt.field = fldList // focus the list column
 
-	out, _ := m.updateSquash(key("j"))
+	out, _ := m.updateSquash(key("down"))
 	m = out.(Model)
 	if m.squashSt.listCursor != 1 {
-		t.Errorf("listCursor = %d after j, want 1", m.squashSt.listCursor)
+		t.Errorf("listCursor = %d after down, want 1", m.squashSt.listCursor)
 	}
-
-	out, _ = m.updateSquash(key("k"))
+	out, _ = m.updateSquash(key("up"))
 	m = out.(Model)
 	if m.squashSt.listCursor != 0 {
-		t.Errorf("listCursor = %d after k, want 0", m.squashSt.listCursor)
+		t.Errorf("listCursor = %d after up, want 0", m.squashSt.listCursor)
 	}
-
-	// up at the top must be a no-op
 	out, _ = m.updateSquash(key("up"))
 	m = out.(Model)
 	if m.squashSt.listCursor != 0 {
@@ -250,8 +245,7 @@ func TestUpdateSquash_listCursorMovement(t *testing.T) {
 func TestUpdateSquash_downAtBottomNoop(t *testing.T) {
 	commits := linearModelCommits("a", "b", "c")
 	m := squashModelReady(commits, "a", "b") // 2-member chain
-	m.squashSt.field = fldList
-	m.squashSt.listCursor = 1 // already at the last member
+	m.squashSt.listCursor = 1                // already at the last member
 
 	out, _ := m.updateSquash(key("down"))
 	mm := out.(Model)
@@ -260,25 +254,25 @@ func TestUpdateSquash_downAtBottomNoop(t *testing.T) {
 	}
 }
 
-// TestUpdateSquash_bracketSwitchesTabs verifies that "[" and "]" cycle through
+// TestUpdateSquash_arrowSwitchesTabs verifies that ← and → cycle through
 // chain tabs when more than one chain is selected.
-func TestUpdateSquash_bracketSwitchesTabs(t *testing.T) {
+func TestUpdateSquash_arrowSwitchesTabs(t *testing.T) {
 	commits := linearModelCommits("a", "b", "c", "d", "e")
 	m := squashModelReady(commits, "a", "b", "d", "e") // two chains: {a,b} and {d,e}
 	if len(m.squashSt.chains) != 2 {
 		t.Fatalf("expected 2 chains, got %d", len(m.squashSt.chains))
 	}
 
-	out, _ := m.updateSquash(key("]"))
+	out, _ := m.updateSquash(key("right"))
 	mm := out.(Model)
 	if mm.squashSt.tab != 1 {
-		t.Errorf("tab = %d after ], want 1", mm.squashSt.tab)
+		t.Errorf("tab = %d after right, want 1", mm.squashSt.tab)
 	}
 
-	out, _ = mm.updateSquash(key("["))
+	out, _ = mm.updateSquash(key("left"))
 	mm = out.(Model)
 	if mm.squashSt.tab != 0 {
-		t.Errorf("tab = %d after [, want 0", mm.squashSt.tab)
+		t.Errorf("tab = %d after left, want 0", mm.squashSt.tab)
 	}
 }
 
@@ -379,25 +373,6 @@ func TestViewSquash_rendersNonEmpty(t *testing.T) {
 	}
 	if !strings.Contains(got, "SQUASH") {
 		t.Error("viewSquash output should contain the wizard header 'SQUASH'")
-	}
-}
-
-// TestEditActiveField_listFieldIsNoOp verifies that fldList (the read-only
-// inspect pane) does not accept character input.
-func TestEditActiveField_listFieldIsNoOp(t *testing.T) {
-	commits := linearModelCommits("a", "b", "c")
-	chains, _ := model.DetectChains(commits, map[string]bool{"a": true, "b": true})
-	chains[0] = model.DefaultSquashConfig(chains[0])
-	st := squashState{chains: chains, tab: 0, field: fldList, loading: map[string]bool{}}
-	subjectBefore := st.chains[0].Subject
-
-	st2 := editActiveField(st, "Z", false)
-	if st2.chains[0].Subject != subjectBefore {
-		t.Errorf("fldList append changed subject: %q → %q", subjectBefore, st2.chains[0].Subject)
-	}
-	st3 := editActiveField(st, "", true)
-	if st3.chains[0].Subject != subjectBefore {
-		t.Errorf("fldList delete changed subject: %q → %q", subjectBefore, st3.chains[0].Subject)
 	}
 }
 
