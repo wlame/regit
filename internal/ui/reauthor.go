@@ -55,24 +55,33 @@ func (c reauthorChange) guard(state model.RepoState) safety.Guard {
 	return safety.CheckGuards(state, c.plan)
 }
 
-// preview lists each edited commit (newest-first) as old -> new author, plus a
-// committer line when the committer changes; unedited rows are dimmed.
+// preview lists each edited commit (newest-first) as old → new author; unedited
+// rows are dimmed. When the edit also changes the committer identity, a second
+// indented line is appended showing old → new committer.
 func (c reauthorChange) preview(st styles) previewModel {
 	lines := make([]string, 0, len(c.plan.Commits))
 	for i := len(c.plan.Commits) - 1; i >= 0; i-- {
 		commit := c.plan.Commits[i]
 		e, ok := c.plan.EditFor(commit.Hash)
-		text := fmt.Sprintf("%s  %-28s %s <%s>", short(commit.Hash),
-			truncate(commit.Subject, 28), commit.AuthorName, commit.AuthorEmail)
 		if !ok {
+			text := fmt.Sprintf("%s  %-28s %s <%s>", short(commit.Hash),
+				truncate(commit.Subject, 28), commit.AuthorName, commit.AuthorEmail)
 			lines = append(lines, st.dim.Render("  "+text))
 			continue
 		}
-		text = fmt.Sprintf("%s  %-28s %s <%s> → %s <%s>", short(commit.Hash),
+		authorLine := fmt.Sprintf("%s  %-28s %s <%s> → %s <%s>", short(commit.Hash),
 			truncate(commit.Subject, 28),
 			commit.AuthorName, commit.AuthorEmail,
 			e.EffectiveAuthorName(commit), e.EffectiveAuthorEmail(commit))
-		lines = append(lines, st.newDate.Render("  "+text))
+		lines = append(lines, st.newDate.Render("  "+authorLine))
+		if e.NewCommitterName != nil || e.NewCommitterEmail != nil {
+			committerLine := fmt.Sprintf("%s  %-28s %s <%s> → %s <%s>",
+				strings.Repeat(" ", len(short(commit.Hash))),
+				"(committer)",
+				commit.CommitterName, commit.CommitterEmail,
+				e.EffectiveCommitterName(commit), e.EffectiveCommitterEmail(commit))
+			lines = append(lines, st.newDate.Render("  "+committerLine))
+		}
 	}
 	return previewModel{title: c.title(), lines: lines}
 }
@@ -180,7 +189,7 @@ func (m Model) updateReauthor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.reauthorSt = st
 		return m, nil
 	default:
-		if len(msg.String()) == 1 {
+		if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
 			m.reauthorSt = appendToField(st, msg.String())
 		}
 		return m, nil

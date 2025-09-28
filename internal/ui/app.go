@@ -915,8 +915,8 @@ func (m Model) commitsInRange() []model.Commit {
 
 // focusAfterList returns the zone the focus moves to when tab is pressed on the
 // commit list. It depends on the active workspace: the Dates calendar, the
-// Restructure feature menu, or (for a stub workspace with no focusable widget)
-// the list itself, a no-op.
+// Restructure or Authorship feature menu, or (for a stub workspace with no
+// focusable widget) the list itself, a no-op.
 func (m Model) focusAfterList() focusArea {
 	switch m.workspace {
 	case WSDates:

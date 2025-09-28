@@ -7,11 +7,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// ws_restructure.go is the Restructure workspace: a vertical, scrollable menu of
-// history-editing features derived from the registry. Features grow DOWN as menu
-// rows, never as new tabs, so the action surface is unbounded while the tab bar
-// stays fixed. Each row re-invokes an existing action method via the feature's
-// Run, so the menu adds no new mutation path.
+// ws_restructure.go is the Restructure workspace and also hosts viewFeatureMenu,
+// the shared renderer used by both Restructure and Authorship. Features grow DOWN
+// as menu rows, never as new tabs, so the action surface is unbounded while the
+// tab bar stays fixed. Each row re-invokes an existing action method via the
+// feature's Run, so the menu adds no new mutation path.
 
 // viewFeatureMenu renders the feature menu for any menu workspace (Restructure,
 // Authorship, etc.). The title uses the active workspace's name, so the renderer

@@ -46,7 +46,10 @@ func TestReauthorChange_planEditsTargetsOnly(t *testing.T) {
 func TestReauthorChange_committerFalseLeavesCommitter(t *testing.T) {
 	commits := reauthorCommits("a", "b")
 	rc := newReauthorChange(commits, map[string]bool{"b": true}, "wlame", "new@x", false)
-	e, _ := rc.plan.EditFor("b")
+	e, ok := rc.plan.EditFor("b")
+	if !ok {
+		t.Fatal("commit b should have an edit")
+	}
 	if e.NewCommitterName != nil || e.NewCommitterEmail != nil {
 		t.Error("committer must be untouched when committer=false")
 	}
@@ -135,6 +138,37 @@ func TestStageReauthor_entersPipelineWithChange(t *testing.T) {
 	}
 	if m.pendingCmd == "" {
 		t.Error("pendingCmd (transparency footer) should be set")
+	}
+}
+
+func TestUpdateReauthor_keepsMultibyteRunes(t *testing.T) {
+	commits := reauthorCommits("a", "b")
+	m := modelWithSet(commits, "b")
+	updated, _, _ := m.beginReauthor()
+	m = updated.(Model)
+	m.reauthorSt.nameBuf = ""
+	m.reauthorSt.field = fldRName
+	m = sendReauthor(m, "é", "ü")
+	if m.reauthorSt.nameBuf != "éü" {
+		t.Errorf("multibyte runes should be retained, got %q", m.reauthorSt.nameBuf)
+	}
+}
+
+func TestReauthorChange_previewShowsCommitterLine(t *testing.T) {
+	commits := reauthorCommits("a", "b")
+	// committer=true means both author and committer lines should appear.
+	rc := newReauthorChange(commits, map[string]bool{"b": true}, "wlame", "new@x", true)
+	pm := rc.preview(newStyles())
+	joined := strings.Join(pm.lines, "\n")
+	if !strings.Contains(joined, "committer") {
+		t.Errorf("preview should show a committer line when committer=true and identity changed:\n%s", joined)
+	}
+	// committer=false: only the author line should appear, no committer line.
+	rcNoC := newReauthorChange(commits, map[string]bool{"b": true}, "wlame", "new@x", false)
+	pmNoC := rcNoC.preview(newStyles())
+	joinedNoC := strings.Join(pmNoC.lines, "\n")
+	if strings.Contains(joinedNoC, "committer") {
+		t.Errorf("preview should not show a committer line when committer=false:\n%s", joinedNoC)
 	}
 }
 
