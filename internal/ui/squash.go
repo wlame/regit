@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/wlame/regit/internal/capability"
 	"github.com/wlame/regit/internal/llm"
@@ -116,6 +117,10 @@ const squashFieldCount = 4
 // squashDateLayout is the editable display/parse format for a chain's date.
 const squashDateLayout = "2006-01-02 15:04"
 
+// squashNarrowWidth is the usable-width threshold (in columns) below which the
+// wizard renders as one stacked column instead of two side-by-side panes.
+const squashNarrowWidth = 72
+
 // squashState holds the live wizard state: one tab per chain, the focused field,
 // the inspect cursor, and which chains are still awaiting an LLM summary.
 type squashState struct {
@@ -160,74 +165,174 @@ func (s squashState) applySummary(chainKey string, p squash.Proposal) squashStat
 	return s
 }
 
-// renderSquashWizard renders the whole modal as a string (pure, testable). The
-// commit list and INSPECT pane show members NEWEST-FIRST to match the backbone.
+// renderSquashWizard renders the wizard modal body, honoring the terminal width
+// and height. Wide terminals get two panes (commit list | RESULT editor); narrow
+// terminals fall back to a single stacked column. The caller frames the result in
+// the modal style.
 func renderSquashWizard(st squashState, width, height int, s styles) string {
 	if len(st.chains) == 0 {
 		return "No chains to squash."
 	}
-	ch := st.active()
-	var b strings.Builder
+	usable := squashUsableWidth(width)
+	visible := squashVisibleRows(height)
 
-	// --- Title bar + tab strip ---
+	var body string
+	if usable < squashNarrowWidth {
+		body = squashStacked(st, usable, visible, s)
+	} else {
+		body = squashTwoColumn(st, usable, visible, s)
+	}
+
+	parts := []string{squashHeader(st), "", body, squashDetailLine(st), s.help.Render(squashFooter(len(st.chains) > 1))}
+	return strings.Join(parts, "\n")
+}
+
+// squashUsableWidth is the column budget for the wizard body, leaving room for the
+// modal border+padding and a small screen margin, and capped so very wide
+// terminals do not stretch the editor unreadably.
+func squashUsableWidth(termWidth int) int {
+	w := termWidth - 10
+	if w > 110 {
+		w = 110
+	}
+	if w < 40 {
+		w = 40
+	}
+	return w
+}
+
+// squashVisibleRows is how many commit rows the list shows before scrolling,
+// derived from the terminal height minus the wizard's fixed chrome.
+func squashVisibleRows(termHeight int) int {
+	v := termHeight - 12
+	if v < 3 {
+		v = 3
+	}
+	return v
+}
+
+// squashColumnWidths splits the usable width into the left (commit list) and right
+// (RESULT) content widths. Each bordered pane adds 4 columns (border 2 + padding 2)
+// and a 1-column gutter sits between them, so the two content widths sum to
+// usable-9.
+func squashColumnWidths(usable int) (left, right int) {
+	content := usable - 9
+	left = content * 2 / 5
+	if left < 24 {
+		left = 24
+	}
+	right = content - left
+	if right < 24 {
+		right = 24
+	}
+	return left, right
+}
+
+// squashHeader is the top line: the squash summary plus a chain indicator when
+// more than one chain is being squashed.
+func squashHeader(st squashState) string {
 	squashed := 0
 	for _, c := range st.chains {
 		squashed += len(c.Members)
 	}
-	fmt.Fprintf(&b, "SQUASH · %d commit(s) into %d commit(s)\n", squashed, len(st.chains))
-	b.WriteString("Chains: ")
-	for i, c := range st.chains {
-		marker := "  "
-		if i == st.tab {
-			marker = "▸ "
-		}
-		spin := ""
-		if st.loading[c.Last().Hash] {
-			spin = "⠋"
-		}
-		fmt.Fprintf(&b, "%s[%d]%s %s…%s ·%d  ", marker, i+1, spin, short(c.Last().Hash), short(c.First().Hash), len(c.Members))
+	h := fmt.Sprintf("SQUASH · %d → %d commit(s)", squashed, len(st.chains))
+	if len(st.chains) > 1 {
+		h += fmt.Sprintf("      chain ‹%d/%d›", st.tab+1, len(st.chains))
 	}
-	b.WriteString("\n\n")
+	return h
+}
 
-	// --- Two columns: left = commit list + INSPECT, right = result editor ---
-	fmt.Fprintf(&b, "COMMITS IN CHAIN %d  (%d → 1)\n", st.tab+1, len(ch.Members))
-	// Newest-first: iterate members in reverse (Members are root-first).
-	for j := len(ch.Members) - 1; j >= 0; j-- {
-		mem := ch.Members[j]
-		cursor := "  "
-		if (len(ch.Members) - 1 - j) == st.listCursor {
-			cursor = "▸ "
-		}
-		fmt.Fprintf(&b, "%s%s  %s\n      %s · %s\n", cursor, short(mem.Hash), truncate(mem.Subject, 40),
-			mem.AuthorName, mem.OrigAuthorDate.Format("2006-01-02 15:04"))
-	}
-
-	// INSPECT pane: the cursored member's full details.
+// squashDetailLine shows the cursored member's identity below the panes, replacing
+// the old INSPECT block.
+func squashDetailLine(st squashState) string {
+	ch := st.active()
 	insp := ch.Members[len(ch.Members)-1-st.listCursor]
-	b.WriteString("\nINSPECT · " + short(insp.Hash) + "\n")
-	b.WriteString(insp.Subject + "\n")
-	fmt.Fprintf(&b, "%s <%s>\n", insp.AuthorName, insp.AuthorEmail)
-	fmt.Fprintf(&b, "author %s\n", insp.OrigAuthorDate.Format("2006-01-02 15:04"))
-	if insp.Body != "" {
-		b.WriteString("\n" + insp.Body + "\n")
-	}
+	return fmt.Sprintf("%s · %s · %s", short(insp.Hash), insp.AuthorName,
+		insp.OrigAuthorDate.Format(squashDateLayout))
+}
 
-	// RESULT editor.
-	b.WriteString("\nRESULT")
-	if st.loading[ch.Last().Hash] {
-		b.WriteString("   (summarizing…)")
+// squashFooter is the always-visible key hint. The ←→ chain token only appears
+// when there is more than one chain to switch between.
+func squashFooter(multiChain bool) string {
+	if multiChain {
+		return "↑↓ commit · ←→ chain · tab field · type edit · enter apply · esc"
 	}
-	b.WriteString("\n")
-	fmt.Fprintf(&b, "Title    %s%s\n", focusMark(st.field, fldTitle), ch.Subject)
-	fmt.Fprintf(&b, "Message  %s%s\n", focusMark(st.field, fldBody), strings.ReplaceAll(ch.Body, "\n", " "))
-	fmt.Fprintf(&b, "Author   %s%s <%s>\n", focusMark(st.field, fldAuthor), ch.AuthorName, ch.AuthorEmail)
+	return "↑↓ commit · tab field · type edit · enter apply · esc"
+}
+
+// squashCommitLines returns the visible commit rows for the active chain, one line
+// each, newest-first, scrolled so the cursor stays in view and truncated to width.
+func squashCommitLines(st squashState, width, visible int, s styles) []string {
+	ch := st.active()
+	n := len(ch.Members)
+	offset := 0
+	if st.listCursor >= visible {
+		offset = st.listCursor - visible + 1
+	}
+	var lines []string
+	for d := offset; d < n && d < offset+visible; d++ {
+		mem := ch.Members[n-1-d] // display index d -> root-first index n-1-d
+		prefix := "  "
+		if d == st.listCursor {
+			prefix = "▸ "
+		}
+		row := fmt.Sprintf("%s%s  %s", prefix, short(mem.Hash), truncate(mem.Subject, max(1, width-12)))
+		if d == st.listCursor {
+			row = s.listCursor.Render(row)
+		}
+		lines = append(lines, row)
+	}
+	return lines
+}
+
+// squashResultLines returns the RESULT editor rows for the active chain, each with
+// a focus bar on the active field and truncated to width.
+func squashResultLines(st squashState, width int, s styles) []string {
+	ch := st.active()
 	dateStr := ch.AuthorDate.Format(squashDateLayout)
 	if st.tab < len(st.dateBuf) {
 		dateStr = st.dateBuf[st.tab]
 	}
-	fmt.Fprintf(&b, "Date     %s%s\n", focusMark(st.field, fldDate), dateStr)
+	field := func(label string, f squashField, val string) string {
+		return fmt.Sprintf("%-7s%s%s", label, focusMark(st.field, f), truncate(val, max(1, width-9)))
+	}
+	return []string{
+		field("Title", fldTitle, ch.Subject),
+		field("Message", fldBody, strings.ReplaceAll(ch.Body, "\n", " ")),
+		field("Author", fldAuthor, fmt.Sprintf("%s <%s>", ch.AuthorName, ch.AuthorEmail)),
+		field("Date", fldDate, dateStr),
+	}
+}
 
-	b.WriteString("\n[/] chain · ↑/↓ inspect · tab field · type edit · A apply all · esc cancel")
+// squashResultHeader is the RESULT pane title, with a summarizing note while the
+// active chain's LLM summary is in flight.
+func squashResultHeader(st squashState) string {
+	h := "RESULT"
+	if st.loading[st.active().Last().Hash] {
+		h += "  (summarizing…)"
+	}
+	return h
+}
+
+// squashTwoColumn renders the commit list and RESULT editor as two bordered panes
+// side by side.
+func squashTwoColumn(st squashState, usable, visible int, s styles) string {
+	lw, rw := squashColumnWidths(usable)
+	left := append([]string{fmt.Sprintf("COMMITS (%d → 1)", len(st.active().Members))},
+		squashCommitLines(st, lw, visible, s)...)
+	right := append([]string{squashResultHeader(st)}, squashResultLines(st, rw, s)...)
+	leftBox := s.pane.Width(lw).Render(strings.Join(left, "\n"))
+	rightBox := s.pane.Width(rw).Render(strings.Join(right, "\n"))
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftBox, " ", rightBox)
+}
+
+// squashStacked is the narrow-terminal fallback: the same sections in one column.
+func squashStacked(st squashState, usable, visible int, s styles) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "COMMITS (%d → 1)\n", len(st.active().Members))
+	b.WriteString(strings.Join(squashCommitLines(st, usable, visible, s), "\n"))
+	b.WriteString("\n\n" + squashResultHeader(st) + "\n")
+	b.WriteString(strings.Join(squashResultLines(st, usable, s), "\n"))
 	return b.String()
 }
 

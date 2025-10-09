@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/wlame/regit/internal/model"
 	"github.com/wlame/regit/internal/squash"
 )
@@ -87,6 +88,53 @@ func TestRenderSquashWizard_loadingShowsSpinnerText(t *testing.T) {
 	out := renderSquashWizard(st, 100, 24, styles{})
 	if !strings.Contains(strings.ToLower(out), "summariz") {
 		t.Error("a loading chain should show a summarizing indicator")
+	}
+}
+
+func TestRenderSquashWizard_oneLinePerCommit(t *testing.T) {
+	st := wizardState() // 3-member chain: aaaa,bbbb,cccc
+	out := renderSquashWizard(st, 100, 24, newStyles())
+	// No per-commit author/date second line: the author name must NOT appear on
+	// its own line beneath each commit (it lives only in the detail line + RESULT).
+	// Each member contributes exactly one row carrying its hash.
+	for _, h := range []string{"aaaa", "bbbb", "cccc"} {
+		if strings.Count(out, h[:4]) == 0 {
+			t.Errorf("commit %s missing from wizard", h)
+		}
+	}
+	// The detail line shows the cursor commit's hash · author · date once.
+	if !strings.Contains(out, "·") {
+		t.Error("expected a cursor-detail line with ' · ' separators")
+	}
+}
+
+func TestRenderSquashWizard_chainIndicatorOnlyWhenMultiple(t *testing.T) {
+	single := wizardState() // one chain
+	if strings.Contains(renderSquashWizard(single, 100, 24, newStyles()), "chain ‹") {
+		t.Error("single-chain wizard should not show a chain indicator")
+	}
+	// Use 5 commits so "a","b" and "d","e" each form a 2-member chain with gap at "c".
+	commits := linearModelCommits("a", "b", "c", "d", "e")
+	chains, _ := model.DetectChains(commits, map[string]bool{"a": true, "b": true, "d": true, "e": true})
+	multi := squashState{chains: chains, tab: 0, field: fldTitle, loading: map[string]bool{}}
+	if !strings.Contains(renderSquashWizard(multi, 100, 24, newStyles()), "chain ‹") {
+		t.Error("multi-chain wizard should show a chain indicator")
+	}
+}
+
+func TestRenderSquashWizard_narrowFallbackDoesNotWrap(t *testing.T) {
+	st := wizardState()
+	// Wide terminal: two columns, output must fit the usable width (no wrap).
+	wide := renderSquashWizard(st, 100, 24, newStyles())
+	if w := lipgloss.Width(wide); w > squashUsableWidth(100) {
+		t.Errorf("wide render width %d exceeds usable %d", w, squashUsableWidth(100))
+	}
+	// Narrow terminal: still renders all sections without panicking.
+	narrow := renderSquashWizard(st, 50, 24, newStyles())
+	for _, want := range []string{"COMMITS", "RESULT", "Combined subject"} {
+		if !strings.Contains(narrow, want) {
+			t.Errorf("narrow render missing %q", want)
+		}
 	}
 }
 

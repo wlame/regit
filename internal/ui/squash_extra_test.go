@@ -449,27 +449,6 @@ func TestStageSquash_validateFailureSetsError(t *testing.T) {
 	}
 }
 
-// TestRenderSquashWizard_bodyInInspectPane verifies that when the currently
-// inspected member has a non-empty body, the body appears in the INSPECT pane.
-func TestRenderSquashWizard_bodyInInspectPane(t *testing.T) {
-	commits := linearModelCommits("aaaa", "bbbb")
-	commits[0].Body = "detailed body text"
-	chains, _ := model.DetectChains(commits, map[string]bool{"aaaa": true, "bbbb": true})
-	chains[0] = model.DefaultSquashConfig(chains[0])
-	// listCursor=1 in a 2-member chain points to the oldest display entry (aaaa).
-	st := squashState{
-		chains:     chains,
-		tab:        0,
-		field:      fldTitle,
-		listCursor: 1,
-		loading:    map[string]bool{},
-	}
-	out := renderSquashWizard(st, 100, 40, styles{})
-	if !strings.Contains(out, "detailed body text") {
-		t.Errorf("INSPECT pane should include the member body; output:\n%s", out)
-	}
-}
-
 // TestBuildSquashEngine_withProviderAndRepo verifies that buildSquashEngine
 // constructs a non-nil Engine when an LLM provider is configured and a real
 // git repo is available. It exercises the provider/base-URL/key resolution
