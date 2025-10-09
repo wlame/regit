@@ -455,10 +455,7 @@ func editActiveField(st squashState, s string, del bool) squashState {
 	ch := &st.chains[st.tab]
 	apply := func(cur string) string {
 		if del {
-			if len(cur) > 0 {
-				return cur[:len(cur)-1]
-			}
-			return cur
+			return trimLastRune(cur) // rune-safe: never split a multibyte character
 		}
 		return cur + s
 	}
@@ -496,9 +493,19 @@ func (m Model) stageSquash() (tea.Model, tea.Cmd) {
 		m.setStatus("Invalid squash: "+err.Error(), statusErr)
 		return m, nil
 	}
+	change := squashChange{commits: m.plan.Commits, plan: plan}
+	// Run the pre-flight guard before opening the pipeline: a hard block (dirty
+	// tree, merge) reports its reason and never enters the overlay; a pushed-history
+	// change records NeedsConfirmation so updatePipeline runs the typed-confirm step.
+	guard := change.guard(m.state)
+	if guard.Blocked {
+		m.setStatus(guard.BlockReason, statusErr)
+		return m, nil
+	}
 	spec := chainsToSpec(plan.Chains)
 	m.pendingCmd = capability.Render("squash", capability.SquashArgMap(spec))
-	m.pending = squashChange{commits: m.plan.Commits, plan: plan}
+	m.pending = change
+	m.pendingGuard = guard
 	m.mode = modePipeline
 	m.pipelineApply = true
 	m.previewOffset = 0

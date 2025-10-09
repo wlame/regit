@@ -213,3 +213,37 @@ func TestModeReauthor_dispatchesToWizardUpdate(t *testing.T) {
 		t.Errorf("esc in the wizard should return to modeMain, got %v", m.mode)
 	}
 }
+
+// TestStageReauthor_dirtyTreeBlocksPipeline: a dirty tree must be caught by the
+// pre-flight guard so the wizard never enters the apply pipeline (H1).
+func TestStageReauthor_dirtyTreeBlocksPipeline(t *testing.T) {
+	m := modelWithSet(reauthorCommits("a", "b"), "b")
+	updated, _, _ := m.beginReauthor()
+	m = updated.(Model)
+	m.reauthorSt.nameBuf, m.reauthorSt.emailBuf = "wlame", "new@x"
+	m.state.IsDirty = true
+	out, _ := m.stageReauthor()
+	mm := out.(Model)
+	if mm.mode == modePipeline {
+		t.Error("a dirty tree must block reauthor, not enter the pipeline")
+	}
+}
+
+// TestStageReauthor_pushedHistorySetsConfirmGuard: editing a pushed commit must
+// set pendingGuard.NeedsConfirmation so the typed-confirm step runs (H1).
+func TestStageReauthor_pushedHistorySetsConfirmGuard(t *testing.T) {
+	commits := reauthorCommits("a", "b")
+	commits[1].IsPushed = true // the target "b" already exists upstream
+	m := modelWithSet(commits, "b")
+	updated, _, _ := m.beginReauthor()
+	m = updated.(Model)
+	m.reauthorSt.nameBuf, m.reauthorSt.emailBuf = "wlame", "new@x"
+	out, _ := m.stageReauthor()
+	mm := out.(Model)
+	if mm.mode != modePipeline {
+		t.Fatalf("clean pushed history should enter the pipeline, got mode %v", mm.mode)
+	}
+	if !mm.pendingGuard.NeedsConfirmation {
+		t.Error("editing a pushed commit must set pendingGuard.NeedsConfirmation")
+	}
+}

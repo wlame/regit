@@ -523,3 +523,43 @@ func TestTimeModelByName_fallbackForUnknown(t *testing.T) {
 		t.Error("fallback model must have a non-empty name")
 	}
 }
+
+// TestStageSquash_dirtyTreeBlocksPipeline: a dirty tree must be caught by the
+// pre-flight guard so the wizard never enters the apply pipeline (H1).
+func TestStageSquash_dirtyTreeBlocksPipeline(t *testing.T) {
+	m := squashModelReady(linearModelCommits("a", "b", "c"), "a", "b", "c")
+	m.state.IsDirty = true
+	out, _ := m.stageSquash()
+	mm := out.(Model)
+	if mm.mode == modePipeline {
+		t.Error("a dirty tree must block squash, not enter the pipeline")
+	}
+}
+
+// TestStageSquash_pushedHistorySetsConfirmGuard: pushed history must set
+// pendingGuard.NeedsConfirmation so updatePipeline runs the typed-confirm step (H1).
+func TestStageSquash_pushedHistorySetsConfirmGuard(t *testing.T) {
+	m := squashModelReady(linearModelCommits("a", "b", "c"), "a", "b", "c")
+	m.state = model.RepoState{Branch: "main", HasUpstream: true, UpstreamRef: "origin/main"}
+	out, _ := m.stageSquash()
+	mm := out.(Model)
+	if mm.mode != modePipeline {
+		t.Fatalf("clean pushed history should enter the pipeline, got mode %v", mm.mode)
+	}
+	if !mm.pendingGuard.NeedsConfirmation {
+		t.Error("pushed history must set pendingGuard.NeedsConfirmation")
+	}
+}
+
+// TestEditActiveField_backspaceRuneSafe: backspace must delete a whole rune, not
+// a single byte, so multibyte field content is not corrupted (M1).
+func TestEditActiveField_backspaceRuneSafe(t *testing.T) {
+	commits := linearModelCommits("a", "b")
+	chains, _ := model.DetectChains(commits, map[string]bool{"a": true, "b": true})
+	st := squashState{chains: chains, tab: 0, field: fldTitle, loading: map[string]bool{}}
+	st.chains[0].Subject = "café"
+	st2 := editActiveField(st, "", true)
+	if st2.chains[0].Subject != "caf" {
+		t.Errorf("rune-safe backspace should yield %q, got %q", "caf", st2.chains[0].Subject)
+	}
+}

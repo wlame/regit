@@ -236,6 +236,15 @@ func (m Model) stageReauthor() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Run the pre-flight guard before opening the pipeline: a hard block (dirty
+	// tree, out-of-order) reports its reason and never enters the overlay; pushed
+	// history records NeedsConfirmation so updatePipeline runs the typed-confirm step.
+	guard := change.guard(m.state)
+	if guard.Blocked {
+		m.setStatus(guard.BlockReason, statusErr)
+		return m, nil
+	}
+
 	hashes := make([]string, 0, len(st.targets))
 	for _, c := range st.targets {
 		hashes = append(hashes, short(c.Hash))
@@ -243,6 +252,7 @@ func (m Model) stageReauthor() (tea.Model, tea.Cmd) {
 	m.pendingCmd = capability.Render("reauthor",
 		capability.ReauthorArgMap(name, email, st.committerToo, strings.Join(hashes, ",")))
 	m.pending = change
+	m.pendingGuard = guard
 	m.mode = modePipeline
 	m.pipelineApply = true
 	m.previewOffset = 0
