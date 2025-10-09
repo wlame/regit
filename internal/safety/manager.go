@@ -193,6 +193,10 @@ func (m *Manager) Undo() (string, error) {
 		return "", err
 	}
 	last := m.undoStack[len(m.undoStack)-1]
+	if b := gitio.BackupRefBranch(last); b != "" && b != branch {
+		return "", fmt.Errorf("backup %s was taken on branch %s; you are on %s — check out %s to undo it",
+			last, b, branch, b)
+	}
 	target, err := m.repo.ResolveRef(last)
 	if err != nil {
 		return "", fmt.Errorf("resolve backup %s: %w", last, err)

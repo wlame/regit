@@ -245,8 +245,11 @@ var registry = []Command{
 			{Cmd: "regit undo --list", Why: "see available backups before restoring"},
 			{Cmd: "regit undo --execute", Why: "undo takes no --execute; it is exempt from dry-run", Bad: true},
 		},
-		Limitations: []string{"Exempt from dry-run: restores immediately. The replaced HEAD remains in the reflog."},
-		ExitCodes:   map[int]string{0: "ok", 1: "usage error", 3: "restore error"},
+		Limitations: []string{
+			"Exempt from dry-run: restores immediately. The replaced HEAD remains in the reflog.",
+			"Restores only backups taken on the current branch; legacy (pre-branch-qualified) backups need an explicit --to=<ref>.",
+		},
+		ExitCodes: map[int]string{0: "ok", 1: "usage error", 2: "guard blocked (backup from another branch)", 3: "restore error"},
 	},
 }
 

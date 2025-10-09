@@ -171,6 +171,28 @@ func TestManagerApply_noChangesErrors(t *testing.T) {
 	}
 }
 
+// TestManagerUndo_refusesCrossBranchRestore: a backup taken on main must not be
+// restorable while another branch is checked out (H4).
+func TestManagerUndo_refusesCrossBranchRestore(t *testing.T) {
+	repo := buildRepo(t)
+	mgr := NewManager(repo)
+	state, _ := repo.ReadState()
+	if _, err := mgr.Apply(spreadPlan(t, repo), state, ApplyOptions{UnixTimestamp: 7}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	// Switch to a new branch; the in-session undo stack still holds main's backup.
+	checkout := exec.Command("git", "checkout", "-q", "-b", "feature")
+	checkout.Dir = repo.Root()
+	if out, err := checkout.CombinedOutput(); err != nil {
+		t.Fatalf("checkout: %v\n%s", err, out)
+	}
+	if _, err := mgr.Undo(); err == nil {
+		t.Fatal("Undo on a different branch must refuse")
+	} else if !strings.Contains(err.Error(), "main") || !strings.Contains(err.Error(), "feature") {
+		t.Errorf("refusal should name both branches; got: %v", err)
+	}
+}
+
 // TestManagerApply_sameTimestampKeepsBothBackups: two applies sharing a unix
 // timestamp must produce two distinct backup refs — never overwrite (H2).
 func TestManagerApply_sameTimestampKeepsBothBackups(t *testing.T) {
