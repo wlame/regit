@@ -134,10 +134,15 @@ type Model struct {
 
 	// pending is the change staged for preview/apply (modePipeline); pendingGuard
 	// is its guard result computed when staged; pipelineApply distinguishes an
-	// apply (enter applies) from a read-only peek (enter closes).
-	pending       pendingChange
-	pendingGuard  safety.Guard
-	pipelineApply bool
+	// apply (enter applies) from a read-only peek (enter closes). pipelineOrigin
+	// is the mode to return to on esc/cancel — modeMain for a plan apply staged
+	// from the main view, or the wizard's mode (modeSquash, modeReauthor) when the
+	// pipeline was staged from a wizard whose typed edits (squashSt/reauthorSt)
+	// must survive the round trip. Its zero value is modeMain (the iota zero).
+	pending        pendingChange
+	pendingGuard   safety.Guard
+	pipelineApply  bool
+	pipelineOrigin mode
 
 	confirmInput textinput.Model
 	confirmGuard safety.Guard
@@ -410,6 +415,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pipelineApply = true
 		m.previewOffset = 0
 		m.mode = modePipeline
+		m.pipelineOrigin = modeMain // staged from main; esc returns here (set explicitly, defensively)
 		return m, nil
 	case spinner.TickMsg:
 		var cmd tea.Cmd
@@ -1282,9 +1288,13 @@ func (m Model) saveEditor() (tea.Model, tea.Cmd) {
 func (m Model) updatePipeline(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "q":
-		m.mode = modeMain
+		// Return to wherever the pipeline was staged from — the main view for a
+		// plan apply, or the wizard (squash/reauthor) that staged it, so typed
+		// edits still sitting in squashSt/reauthorSt aren't lost.
+		m.mode = m.pipelineOrigin
 		m.pending = nil
 		m.pendingCmds = nil
+		m.pipelineOrigin = modeMain
 		return m, nil
 	case "up", "k":
 		if m.previewOffset > 0 {
@@ -1351,6 +1361,7 @@ func (m Model) commitPending(confirmed bool) (tea.Model, tea.Cmd) {
 	}
 	title := m.pending.title()
 	m.pending = nil
+	m.pipelineOrigin = modeMain
 	if err := m.reload(); err != nil {
 		m.mode = modeMain
 		m.setStatus("Applied, but reload failed: "+err.Error(), statusWarn)
@@ -1407,6 +1418,7 @@ func (m Model) stagePlanApply(applyMode bool) (tea.Model, tea.Cmd) {
 	m.pipelineApply = applyMode
 	m.previewOffset = 0
 	m.mode = modePipeline
+	m.pipelineOrigin = modeMain // staged from main; esc returns here (set explicitly, defensively)
 	return m, nil
 }
 

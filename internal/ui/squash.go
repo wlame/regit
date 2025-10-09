@@ -520,6 +520,7 @@ func (m Model) stageSquash() (tea.Model, tea.Cmd) {
 	m.pendingCmds = append(m.pendingCmds, capability.Render("squash", capability.SquashArgMap(spec)))
 	m.pending = change
 	m.pendingGuard = guard
+	m.pipelineOrigin = modeSquash // esc returns to the wizard, preserving its typed edits
 	m.mode = modePipeline
 	m.pipelineApply = true
 	m.previewOffset = 0

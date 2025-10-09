@@ -263,6 +263,7 @@ func (m Model) stageReauthor() (tea.Model, tea.Cmd) {
 		capability.ReauthorArgMap(name, email, st.committerToo, strings.Join(hashes, ","))))
 	m.pending = change
 	m.pendingGuard = guard
+	m.pipelineOrigin = modeReauthor // esc returns to the wizard, preserving its typed edits
 	m.mode = modePipeline
 	m.pipelineApply = true
 	m.previewOffset = 0

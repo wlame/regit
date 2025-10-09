@@ -256,3 +256,41 @@ func TestStageSquash_invalidDateShowsInlineError(t *testing.T) {
 		t.Error("squashSt.errMsg should be set on an invalid date")
 	}
 }
+
+// TestPipelineEsc_returnsToSquashWizardPreservingEdits: cancelling the preview
+// staged from the squash wizard returns to the wizard with typed edits intact.
+func TestPipelineEsc_returnsToSquashWizardPreservingEdits(t *testing.T) {
+	commits := linearModelCommits("a", "b", "c")
+	m := modelWithSet(commits, "a", "b")
+	updated, _, _ := m.beginSquash()
+	m = updated.(Model)
+	m.squashSt.chains[m.squashSt.tab].Subject = "My edited subject"
+	out, _ := m.stageSquash()
+	m = out.(Model)
+	if m.mode != modePipeline {
+		t.Fatalf("stageSquash should enter the pipeline, got %v", m.mode)
+	}
+	back, _ := m.updatePipeline(key("esc"))
+	m = back.(Model)
+	if m.mode != modeSquash {
+		t.Fatalf("esc from a wizard-staged preview should return to modeSquash, got %v", m.mode)
+	}
+	if m.squashSt.chains[m.squashSt.tab].Subject != "My edited subject" {
+		t.Errorf("typed subject should be preserved, got %q", m.squashSt.chains[m.squashSt.tab].Subject)
+	}
+}
+
+// TestPipelineEsc_plainApplyReturnsToMain: a plan apply staged from main still
+// returns to main on esc.
+func TestPipelineEsc_plainApplyReturnsToMain(t *testing.T) {
+	m := newTestModelN(t, 3)
+	m = applyStrategyInPane(m) // stage a strategy edit
+	m = send(m, "A")           // enter modePipeline from main (pipelineOrigin stays modeMain)
+	if m.mode != modePipeline {
+		t.Fatalf("send 'A' should enter the pipeline, got %v", m.mode)
+	}
+	back, _ := m.updatePipeline(key("esc"))
+	if back.(Model).mode != modeMain {
+		t.Errorf("a plain plan apply should esc back to modeMain")
+	}
+}
