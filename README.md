@@ -293,6 +293,11 @@ and an `--allowedTools` list containing only the file-browsing tools
 set to the repository root. The commit diff is still gathered by `regit` and
 sent in the prompt in both modes. This mode requires `--agent`.
 
+Note that `Read`/`Grep`/`Glob` resolve paths relative to the repository but are
+not hard-confined to it (e.g. `../` traversal is not blocked at this layer) —
+treat any reword proposal produced from an untrusted diff with the same care
+you'd give any other LLM output. Hard path-scoping is deferred to M4.
+
 ### Cache
 
 Reword proposals are cached at `.git/regit/cache/reword/<commitHash>.json`.

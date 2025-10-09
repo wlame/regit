@@ -157,11 +157,14 @@ guards → LLM grouping → build intermediate trees → validate/repair loop �
 verify final tree == original tree → write cache. The `Engine.Propose` method
 returns a `SplitProposal` + per-group tree hashes without moving any ref.
 
-**`internal/reword`** — commit-rewording engine. `Engine.Generate` reads the
-commit's diff (or delegates to agent-scan mode), calls the backend, caches
-results under `.git/regit/cache/reword/`, and returns ranked `Variant` alternatives
-wrapped in a `Result`. `Result.ToEdit` converts the user's `Selection` (TitleIdx,
-BodyIdx, NoBody) into a `model.Edit` ready for `safety.Apply`.
+**`internal/reword`** — commit-rewording engine. `Engine.Generate` always gathers
+the commit's diff itself and sends it to the backend; `--agent-scan` only
+additionally lets the agent browse repository files read-only (`Read`/`Grep`/`Glob`,
+no shell) for extra context — it never replaces the diff regit sends. Results are
+cached under `.git/regit/cache/reword/` and returned as ranked `Variant`
+alternatives wrapped in a `Result`. `Result.ToEdit` converts the user's
+`Selection` (TitleIdx, BodyIdx, NoBody) into a `model.Edit` ready for
+`safety.Apply`.
 
 **`internal/llm`** — one interface (`Backend`) with two implementations:
 `HTTPBackend` (OpenAI-compatible `/v1/chat/completions`) and `AgentBackend`

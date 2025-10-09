@@ -176,16 +176,24 @@ no API key is needed.
 - Same retry contract as §4 (re-run the subprocess on validation failure).
 
 ### Read-only "scan" mode (optional, agent only)
-Let the agent inspect a target itself (read-only) instead of you sending the
-context. Verified Claude Code read-only, non-interactive flags:
+Let the agent additionally browse the target itself instead of relying solely on
+the context you send. Verified Claude Code read-only, non-interactive flags:
 ```
 claude -p --output-format json --bare \
   --permission-mode plan \
-  --allowedTools "Read,Bash(git show *),Bash(git diff *),Bash(git log *),Bash(grep *),Bash(find *)" \
+  --allowedTools "Read,Grep,Glob" \
   --json-schema '<inline>'
 ```
 - `--permission-mode plan` = read-only (no edits); the pre-approved `--allowedTools`
   list suppresses prompts so it stays non-interactive.
+- The allowlist is limited to pure file-browsing tools — **no shell access of any
+  kind**. An earlier version of this list allowed `Bash(git show *)`,
+  `Bash(git diff *)`, `Bash(git log *)`, `Bash(grep *)`, and `Bash(find *)`, but
+  even read-only-looking git subcommands accept `--output <file>` (an arbitrary
+  file write) and `find` allows `-exec` (arbitrary execution), so any `Bash(...)`
+  allowlist entry is a potential escape hatch regardless of which subcommand it
+  appears to restrict. Always send the diff/context yourself in the prompt; scan
+  mode only supplements it.
 - Run the subprocess with `cmd.Dir = <repo/work dir>` so its reads target the
   right place. Gate this behind an explicit `--<feature>-scan`/`--agent-scan` flag;
   require `--agent`. (No current equivalent docs for the `codex` CLI — let users
