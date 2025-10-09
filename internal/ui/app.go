@@ -61,6 +61,14 @@ const (
 	statusErr
 )
 
+// minTermWidth / minTermHeight are the smallest terminal the TUI renders in.
+// Below this even the compact list-only layout cannot fit a usable frame, so
+// View() shows a guard screen instead of a garbled one.
+const (
+	minTermWidth  = 60
+	minTermHeight = 16
+)
+
 // strategyState is one strategy's editable state: its param form plus its calendar
 // pins (Manual Pin reads quotas, Picked Days reads picked; other strategies leave
 // them empty). Holding state per strategy lets the carousel switch between them
@@ -1664,6 +1672,11 @@ func (m Model) markAndFetch() tea.Cmd {
 func (m Model) View() string {
 	if m.quitting {
 		return ""
+	}
+	if m.width > 0 && m.height > 0 && (m.width < minTermWidth || m.height < minTermHeight) {
+		msg := fmt.Sprintf("Terminal too small\nneed ≥ %d×%d (now %d×%d)\nresize to continue",
+			minTermWidth, minTermHeight, m.width, m.height)
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.st.statusWarn.Render(msg))
 	}
 	main := m.viewMain()
 

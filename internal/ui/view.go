@@ -24,7 +24,7 @@ func (m Model) viewMain() string {
 		body = lipgloss.JoinHorizontal(lipgloss.Top, list, right)
 	}
 	status := m.viewStatusBar()
-	keybar := m.st.keybar.Render(keybarHint())
+	keybar := m.st.keybar.Render(keybarHintWidth(m.width))
 	regions := []string{title, tabs, body, status}
 	if log := m.viewCommandLog(); log != "" {
 		regions = append(regions, log)

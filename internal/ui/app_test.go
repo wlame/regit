@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/wlame/regit/internal/config"
 	"github.com/wlame/regit/internal/gitio"
@@ -234,6 +235,115 @@ func TestView_mainRendersWithoutPanic(t *testing.T) {
 	}
 	if !strings.Contains(out, "COMMITS") {
 		t.Error("main view should contain the commit list header")
+	}
+}
+
+// TestKeybarHintWidth_neverExceedsWidthAndNeverWraps: the keybar fits the width
+// and drops trailing tokens with an ellipsis rather than wrapping.
+func TestKeybarHintWidth_neverExceedsWidthAndNeverWraps(t *testing.T) {
+	full := keybarHint()
+	for _, w := range []int{20, 40, 80, 400} {
+		got := keybarHintWidth(w)
+		if strings.Contains(got, "\n") {
+			t.Errorf("width %d: keybar wrapped:\n%s", w, got)
+		}
+		if lipgloss.Width(got) > w {
+			t.Errorf("width %d: keybar width %d exceeds %d: %q", w, lipgloss.Width(got), w, got)
+		}
+	}
+	if keybarHintWidth(400) != full {
+		t.Errorf("at ample width the keybar should be the full hint")
+	}
+	if !strings.Contains(keybarHintWidth(20), "…") {
+		t.Errorf("a truncated keybar should end with an ellipsis")
+	}
+}
+
+// TestKeybarHintWidth_nonPositiveWidthReturnsFull: width <= 0 has no meaningful
+// budget to truncate to, so keybarHintWidth treats it as "no limit" and returns
+// the full, untruncated hint rather than an empty string.
+func TestKeybarHintWidth_nonPositiveWidthReturnsFull(t *testing.T) {
+	full := keybarHint()
+	if got := keybarHintWidth(0); got != full {
+		t.Errorf("width 0 should return the full hint, got %q", got)
+	}
+	if got := keybarHintWidth(-5); got != full {
+		t.Errorf("negative width should return the full hint, got %q", got)
+	}
+}
+
+// TestKeybarHintWidth_firstTokenTooWideFallsBackToBareEllipsis covers the
+// branch where even the first token plus the " …" suffix overflows width: kept
+// stays empty and keybarHintWidth must fall back to a bare "…" instead of an
+// empty string or a token that overflows the budget.
+func TestKeybarHintWidth_firstTokenTooWideFallsBackToBareEllipsis(t *testing.T) {
+	const tiny = 2 // narrower than any single "[x]word" token plus " …"
+	got := keybarHintWidth(tiny)
+	if got == "" {
+		t.Fatal("even at a tiny width, keybarHintWidth should return something")
+	}
+	if lipgloss.Width(got) > tiny {
+		t.Errorf("width %d: keybar width %d exceeds %d: %q", tiny, lipgloss.Width(got), tiny, got)
+	}
+	if got != "…" {
+		t.Errorf("first-token-too-wide should fall back to a bare ellipsis, got %q", got)
+	}
+}
+
+// TestView_terminalSizeGate: below the minimum terminal size the whole view is
+// the too-small guard screen and nothing else — no title, list, or keybar
+// (truncated or not) leaks through. At/above the minimum the normal frame
+// renders instead.
+//
+// The discriminator is the title's "regit ·" marker (see viewTitle): it is
+// present in every normal render and absent from the guard screen. Comparing
+// against the full keybarHint() (as this test used to) would miss a wrongly
+// rendered *truncated* keybar leaking into the guard screen, since a truncated
+// keybar never equals the full hint; the title marker has no such blind spot.
+func TestView_terminalSizeGate(t *testing.T) {
+	const marker = "regit ·"
+
+	// Sanity-check the marker actually discriminates before trusting its
+	// absence to mean "guard screen": it must show up in a normal render.
+	base := newTestModel(t)
+	base.width, base.height = 120, 40
+	if normal := base.View(); !strings.Contains(normal, marker) {
+		t.Fatalf("sanity check: marker %q should be present in a normal render:\n%s", marker, normal)
+	}
+
+	for _, tc := range []struct {
+		name      string
+		w, h      int
+		wantGuard bool
+	}{
+		{"width and height too small", 50, 20, true},
+		{"height only too small", 120, 10, true},
+		{"width boundary just too small", 59, 20, true},
+		{"height boundary just too small", 120, 15, true},
+		{"boundary just big enough", 60, 16, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTestModel(t)
+			m.width, m.height = tc.w, tc.h
+			v := m.View()
+			hasMarker := strings.Contains(v, marker)
+
+			if tc.wantGuard {
+				if !strings.Contains(v, "too small") {
+					t.Errorf("expected a too-small guard, got:\n%s", v)
+				}
+				if hasMarker {
+					t.Errorf("guard screen must not render any of the main view (found marker %q):\n%s", marker, v)
+				}
+				return
+			}
+			if strings.Contains(v, "too small") {
+				t.Errorf("adequate terminal should not show the guard:\n%s", v)
+			}
+			if !hasMarker {
+				t.Errorf("adequate terminal should render the main view (marker %q missing):\n%s", marker, v)
+			}
+		})
 	}
 }
 

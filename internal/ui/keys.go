@@ -3,6 +3,8 @@ package ui
 import (
 	"fmt"
 	"strings"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // keys.go is the single source of truth for the keymap. The help overlay (the
@@ -132,4 +134,36 @@ func keybarHint() string {
 		}
 	}
 	return strings.Join(toks, " ")
+}
+
+// keybarHintWidth renders the keybar truncated to fit width: it keeps tokens in
+// table order until the next would overflow, then appends an ellipsis. It never
+// wraps, so callers can rely on a single-line keybar for their height budget.
+func keybarHintWidth(width int) string {
+	if width <= 0 {
+		return keybarHint()
+	}
+	var toks []string
+	for _, k := range keymap {
+		if k.Bar != "" {
+			toks = append(toks, k.Bar)
+		}
+	}
+	full := strings.Join(toks, " ")
+	if lipgloss.Width(full) <= width {
+		return full
+	}
+	const ell = " …"
+	var kept []string
+	for _, tok := range toks {
+		cand := strings.Join(append(kept, tok), " ")
+		if lipgloss.Width(cand+ell) > width {
+			break
+		}
+		kept = append(kept, tok)
+	}
+	if len(kept) == 0 {
+		return "…"
+	}
+	return strings.Join(kept, " ") + ell
 }
