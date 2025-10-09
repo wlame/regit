@@ -138,6 +138,18 @@ func TestRenderSquashWizard_narrowFallbackDoesNotWrap(t *testing.T) {
 	}
 }
 
+func TestRenderSquashWizard_narrowChromeDoesNotWrap(t *testing.T) {
+	commits := linearModelCommits("a", "b", "c", "d", "e")
+	chains, _ := model.DetectChains(commits, map[string]bool{"a": true, "b": true, "d": true, "e": true})
+	st := squashState{chains: chains, tab: 0, field: fldTitle, loading: map[string]bool{}}
+	// A narrow terminal: every rendered line (incl. header/detail/footer) must fit
+	// the usable budget so the modal never hard-wraps.
+	out := renderSquashWizard(st, 50, 24, newStyles())
+	if w := lipgloss.Width(out); w > squashUsableWidth(50) {
+		t.Errorf("narrow render width %d exceeds usable %d (chrome not bounded)", w, squashUsableWidth(50))
+	}
+}
+
 func TestSquashState_switchTabClampsAndCycles(t *testing.T) {
 	commits := linearModelCommits("a", "b", "c", "d", "e")
 	chains, _ := model.DetectChains(commits, map[string]bool{"a": true, "b": true, "d": true, "e": true})

@@ -183,7 +183,10 @@ func renderSquashWizard(st squashState, width, height int, s styles) string {
 		body = squashTwoColumn(st, usable, visible, s)
 	}
 
-	parts := []string{squashHeader(st), "", body, squashDetailLine(st), s.help.Render(squashFooter(len(st.chains) > 1))}
+	header := truncate(squashHeader(st), usable)
+	detail := truncate(squashDetailLine(st), usable)
+	footer := s.help.Render(truncate(squashFooter(len(st.chains) > 1), usable))
+	parts := []string{header, "", body, detail, footer}
 	return strings.Join(parts, "\n")
 }
 
@@ -287,7 +290,7 @@ func squashCommitLines(st squashState, width, visible int, s styles) []string {
 
 // squashResultLines returns the RESULT editor rows for the active chain, each with
 // a focus bar on the active field and truncated to width.
-func squashResultLines(st squashState, width int, s styles) []string {
+func squashResultLines(st squashState, width int) []string {
 	ch := st.active()
 	dateStr := ch.AuthorDate.Format(squashDateLayout)
 	if st.tab < len(st.dateBuf) {
@@ -320,7 +323,7 @@ func squashTwoColumn(st squashState, usable, visible int, s styles) string {
 	lw, rw := squashColumnWidths(usable)
 	left := append([]string{fmt.Sprintf("COMMITS (%d → 1)", len(st.active().Members))},
 		squashCommitLines(st, lw, visible, s)...)
-	right := append([]string{squashResultHeader(st)}, squashResultLines(st, rw, s)...)
+	right := append([]string{squashResultHeader(st)}, squashResultLines(st, rw)...)
 	leftBox := s.pane.Width(lw).Render(strings.Join(left, "\n"))
 	rightBox := s.pane.Width(rw).Render(strings.Join(right, "\n"))
 	return lipgloss.JoinHorizontal(lipgloss.Top, leftBox, " ", rightBox)
@@ -332,7 +335,7 @@ func squashStacked(st squashState, usable, visible int, s styles) string {
 	fmt.Fprintf(&b, "COMMITS (%d → 1)\n", len(st.active().Members))
 	b.WriteString(strings.Join(squashCommitLines(st, usable, visible, s), "\n"))
 	b.WriteString("\n\n" + squashResultHeader(st) + "\n")
-	b.WriteString(strings.Join(squashResultLines(st, usable, s), "\n"))
+	b.WriteString(strings.Join(squashResultLines(st, usable), "\n"))
 	return b.String()
 }
 
@@ -446,8 +449,8 @@ func (m Model) updateSquash(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // editActiveField appends a rune (or deletes one with del=true) to the focused
-// text field. The Date field is validated against its window on stage, not here;
-// the List field is not text, so neither is editable through this path.
+// text field. The Date field edits the per-tab date buffer; the other text fields
+// edit the chain in place.
 func editActiveField(st squashState, s string, del bool) squashState {
 	ch := &st.chains[st.tab]
 	apply := func(cur string) string {

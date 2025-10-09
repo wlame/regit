@@ -307,6 +307,17 @@ func TestUpdateSquash_backspaceDeletesFromTitle(t *testing.T) {
 	}
 }
 
+// TestUpdateSquash_enterStages verifies that pressing enter calls stageSquash
+// and, when the plan is valid, advances to modePipeline.
+func TestUpdateSquash_enterStages(t *testing.T) {
+	m := squashModelReady(linearModelCommits("a", "b", "c"), "a", "b", "c")
+	out, _ := m.updateSquash(key("enter"))
+	mm := out.(Model)
+	if mm.mode != modePipeline {
+		t.Errorf("enter should stage the squash (modePipeline), got mode %v", mm.mode)
+	}
+}
+
 // TestUpdateSquash_stageEnteredOnA verifies that pressing "A" calls
 // stageSquash and, when the plan is valid, advances to modePipeline.
 func TestUpdateSquash_stageEnteredOnA(t *testing.T) {
