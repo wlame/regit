@@ -356,7 +356,9 @@ func TestStageSquash_validPlanEntersPipeline(t *testing.T) {
 }
 
 // TestStageSquash_invalidDateSetsError verifies that a malformed date string
-// sets an error status and keeps the model out of the pipeline.
+// sets an inline wizard error and keeps the model out of the pipeline. The
+// error surfaces on squashSt.errMsg (rendered inside the wizard overlay)
+// rather than the main-view status bar, which is hidden under the modal.
 func TestStageSquash_invalidDateSetsError(t *testing.T) {
 	commits := linearModelCommits("a", "b")
 	m := modelWithSet(commits, "a", "b")
@@ -368,8 +370,8 @@ func TestStageSquash_invalidDateSetsError(t *testing.T) {
 	if mm.mode == modePipeline {
 		t.Error("stageSquash must not advance to pipeline when the date is invalid")
 	}
-	if mm.statusKind != statusErr {
-		t.Errorf("statusKind = %v, want statusErr", mm.statusKind)
+	if mm.squashSt.errMsg == "" {
+		t.Error("squashSt.errMsg should be set when the date is invalid")
 	}
 }
 
@@ -437,7 +439,9 @@ func TestSquashState_switchTab_emptyChains(t *testing.T) {
 }
 
 // TestStageSquash_validateFailureSetsError verifies that stageSquash reports
-// an error status and stays out of the pipeline when the plan fails validation.
+// an inline wizard error and stays out of the pipeline when the plan fails
+// validation. The error surfaces on squashSt.errMsg rather than the main-view
+// status bar, which is hidden under the modal.
 func TestStageSquash_validateFailureSetsError(t *testing.T) {
 	commits := linearModelCommits("a", "b", "c")
 	m := modelWithSet(commits, "a", "b")
@@ -456,8 +460,8 @@ func TestStageSquash_validateFailureSetsError(t *testing.T) {
 	if mm.mode == modePipeline {
 		t.Error("stageSquash should not advance to pipeline when plan validation fails")
 	}
-	if mm.statusKind != statusErr {
-		t.Errorf("statusKind = %v, want statusErr after validation failure", mm.statusKind)
+	if mm.squashSt.errMsg == "" {
+		t.Error("squashSt.errMsg should be set after validation failure")
 	}
 }
 

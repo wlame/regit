@@ -238,3 +238,21 @@ func TestStageSquash_rejectsUnparseableDate(t *testing.T) {
 		t.Error("stageSquash must not advance to the pipeline on an unparseable date")
 	}
 }
+
+// TestStageSquash_invalidDateShowsInlineError: a bad date in the wizard sets an
+// inline errMsg and keeps the wizard open (not a hidden status message).
+func TestStageSquash_invalidDateShowsInlineError(t *testing.T) {
+	commits := linearModelCommits("a", "b", "c") // reuse this file's fixture helper
+	m := modelWithSet(commits, "a", "b")
+	updated, _, _ := m.beginSquash()
+	m = updated.(Model)
+	m.squashSt.dateBuf[m.squashSt.tab] = "bogus"
+	out, _ := m.stageSquash()
+	m = out.(Model)
+	if m.mode == modePipeline {
+		t.Fatal("an invalid date must not enter the pipeline")
+	}
+	if m.squashSt.errMsg == "" {
+		t.Error("squashSt.errMsg should be set on an invalid date")
+	}
+}

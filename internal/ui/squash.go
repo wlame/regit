@@ -130,6 +130,7 @@ type squashState struct {
 	listCursor int             // index into the ACTIVE chain's members (newest-first display)
 	loading    map[string]bool // chain last-hash -> summary in flight
 	dateBuf    []string        // editable date text per chain (indexed by tab); parsed on stage
+	errMsg     string          // last stage failure (bad date, invalid plan), rendered inline
 }
 
 // active returns the chain for the current tab.
@@ -186,7 +187,13 @@ func renderSquashWizard(st squashState, width, height int, s styles) string {
 	header := truncate(squashHeader(st), usable)
 	detail := truncate(squashDetailLine(st), usable)
 	footer := s.help.Render(truncate(squashFooter(len(st.chains) > 1), usable))
-	parts := []string{header, "", body, detail, footer}
+	parts := []string{header, "", body, detail}
+	if st.errMsg != "" {
+		// Surface a stage failure (bad date, invalid plan) inline, right above the
+		// footer, instead of a status-bar line hidden under this modal.
+		parts = append(parts, s.statusErr.Render("⚠ "+truncate(st.errMsg, usable)))
+	}
+	parts = append(parts, footer)
 	return strings.Join(parts, "\n")
 }
 
@@ -453,6 +460,7 @@ func (m Model) updateSquash(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // text field. The Date field edits the per-tab date buffer; the other text fields
 // edit the chain in place.
 func editActiveField(st squashState, s string, del bool) squashState {
+	st.errMsg = "" // any edit invalidates the previous stage error
 	ch := &st.chains[st.tab]
 	apply := func(cur string) string {
 		if del {
@@ -483,7 +491,9 @@ func (m Model) stageSquash() (tea.Model, tea.Cmd) {
 		if i < len(m.squashSt.dateBuf) {
 			parsed, err := time.ParseInLocation(squashDateLayout, strings.TrimSpace(m.squashSt.dateBuf[i]), chains[i].AuthorDate.Location())
 			if err != nil {
-				m.setStatus(fmt.Sprintf("Chain %d: invalid date (use YYYY-MM-DD HH:MM)", i+1), statusErr)
+				// Stay in the wizard and show the error inline — a status-bar
+				// message would be invisible under this modal.
+				m.squashSt.errMsg = fmt.Sprintf("Chain %d: invalid date (use YYYY-MM-DD HH:MM)", i+1)
 				return m, nil
 			}
 			chains[i].AuthorDate = parsed
@@ -491,7 +501,7 @@ func (m Model) stageSquash() (tea.Model, tea.Cmd) {
 	}
 	plan := model.SquashPlan{Chains: chains}
 	if err := plan.Validate(m.plan.Commits); err != nil {
-		m.setStatus("Invalid squash: "+err.Error(), statusErr)
+		m.squashSt.errMsg = "Invalid squash: " + err.Error()
 		return m, nil
 	}
 	change := squashChange{commits: m.plan.Commits, plan: plan}

@@ -18,19 +18,31 @@ func sampleRewordResult() reword.Result {
 }
 
 func TestRenderRewordPicker_showsSelectedTitleAndBody(t *testing.T) {
-	view := renderRewordPicker(sampleRewordResult(), reword.Selection{TitleIdx: 0, BodyIdx: 0})
+	view := renderRewordPicker(sampleRewordResult(), reword.Selection{TitleIdx: 0, BodyIdx: 0}, "")
 	if !strings.Contains(view, "Add retry to the client") || !strings.Contains(view, "explain why") {
 		t.Fatalf("picker missing selected content:\n%s", view)
 	}
 }
 
 func TestRenderRewordPicker_noBody(t *testing.T) {
-	view := renderRewordPicker(sampleRewordResult(), reword.Selection{TitleIdx: 1, BodyIdx: 0, NoBody: true})
+	view := renderRewordPicker(sampleRewordResult(), reword.Selection{TitleIdx: 1, BodyIdx: 0, NoBody: true}, "")
 	if !strings.Contains(view, "Make the client resilient") {
 		t.Fatalf("missing title:\n%s", view)
 	}
 	if !strings.Contains(strings.ToLower(view), "no body") {
 		t.Fatalf("expected a 'no body' indicator:\n%s", view)
+	}
+}
+
+// TestRenderRewordPicker_showsGenerateError: a failed generation shows the error
+// in the picker instead of a perpetual "(generating…)".
+func TestRenderRewordPicker_showsGenerateError(t *testing.T) {
+	out := renderRewordPicker(reword.Result{}, reword.DefaultSelection(), "backend timeout")
+	if !strings.Contains(out, "backend timeout") {
+		t.Errorf("picker should show the generate error; got:\n%s", out)
+	}
+	if strings.Contains(out, "generating…") {
+		t.Errorf("picker should not show the loading text once an error is set:\n%s", out)
 	}
 }
 

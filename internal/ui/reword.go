@@ -25,6 +25,7 @@ type rewordState struct {
 	sel       reword.Selection
 	targets   []string // hashes to reword in order (Set selection, or just the cursor)
 	targetIdx int      // index into targets of the commit currently in the picker
+	errMsg    string   // last Generate failure, rendered inline instead of a perpetual spinner
 }
 
 // rewordResultMsg is the async message returned when Generate completes.
@@ -76,13 +77,20 @@ func (r *rewordState) toggleNoBody() {
 //
 //	  title variant i/N
 //	  ←/→ title · j/k body · b no-body · enter apply · esc cancel
-func renderRewordPicker(r reword.Result, sel reword.Selection) string {
+func renderRewordPicker(r reword.Result, sel reword.Selection, errMsg string) string {
 	var b strings.Builder
 
 	b.WriteString("Reword commit\n\n")
 
-	// Guard: show a loading indicator when the result has no variants yet.
+	// Guard: show a loading indicator when the result has no variants yet, or
+	// the generate error in its place once the call has failed — otherwise a
+	// failed generation leaves the user staring at "(generating…)" forever.
 	if len(r.Variants) == 0 {
+		if errMsg != "" {
+			b.WriteString("  ⚠ generation failed: " + errMsg + "\n\n")
+			b.WriteString("  esc close")
+			return b.String()
+		}
 		b.WriteString("  (generating…)\n\n")
 		b.WriteString("  esc cancel")
 		return b.String()
@@ -254,6 +262,7 @@ func (m Model) beginReword() (tea.Model, tea.Cmd, bool) {
 	c := m.commitByHash(targets[0])
 	m.rewordSt.commit = c
 	m.rewordSt.sel = reword.DefaultSelection()
+	m.rewordSt.errMsg = "" // clear any stale error from a previous reword on entry
 	m.mode = modeReword
 
 	var cmds []tea.Cmd

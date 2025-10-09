@@ -336,12 +336,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rewordSt.buffer[msg.hash] = msg.result
 		}
 		delete(m.rewordSt.inFlight, msg.hash)
-		// Clear the generating status if this is the commit being viewed.
+		// Record the outcome on the picker itself (not just the main-view status
+		// bar) so a failure is visible under the modal instead of hidden behind it.
 		if m.mode == modeReword && msg.hash == m.rewordSt.commit.Hash {
 			if msg.err != nil {
-				m.setStatus("Reword generate failed: "+msg.err.Error(), statusErr)
+				m.rewordSt.errMsg = msg.err.Error()
 			} else {
-				m.setStatus("", statusNone)
+				m.rewordSt.errMsg = ""
 			}
 		}
 		return m, nil
@@ -1136,6 +1137,7 @@ func (m Model) updateEditor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.saveEditor()
 		}
 	}
+	m.editor.errMsg = "" // any further edit invalidates a stale save error
 	cmd := m.editor.update(msg)
 	return m, cmd
 }
@@ -1144,7 +1146,9 @@ func (m Model) saveEditor() (tea.Model, tea.Cmd) {
 	c := m.commitByHash(m.editor.hash)
 	edit, err := m.editor.buildEdit(c, m.loc, m.cfg.LinkDates)
 	if err != nil {
-		m.setStatus(err.Error(), statusErr)
+		// Stay in the editor and show the error inline — a hidden status-bar
+		// message would be invisible under this modal.
+		m.editor.errMsg = err.Error()
 		return m, nil
 	}
 	m.plan.SetEdit(c.Hash, edit)
@@ -1680,9 +1684,9 @@ func (m Model) View() string {
 	case modeReword:
 		// Show the buffered result if available; otherwise a generating indicator.
 		if result, ok := m.rewordSt.buffer[m.rewordSt.commit.Hash]; ok {
-			overlay = m.st.modal.Render(renderRewordPicker(result, m.rewordSt.sel))
+			overlay = m.st.modal.Render(renderRewordPicker(result, m.rewordSt.sel, m.rewordSt.errMsg))
 		} else {
-			overlay = m.st.modal.Render(renderRewordPicker(reword.Result{}, m.rewordSt.sel))
+			overlay = m.st.modal.Render(renderRewordPicker(reword.Result{}, m.rewordSt.sel, m.rewordSt.errMsg))
 		}
 	case modeSquash:
 		overlay = m.viewSquash()

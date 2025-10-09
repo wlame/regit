@@ -22,6 +22,7 @@ type editorState struct {
 	body        textarea.Model
 	focusIdx    int // 0 title, 1 date, 2 body
 	bodyDropped bool
+	errMsg      string // last save failure (e.g. unparseable date), rendered inline
 }
 
 const editorDateLayout = "2006-01-02 15:04"
@@ -172,6 +173,9 @@ func (s editorState) view(c model.Commit, st styles) string {
 	}
 	b.WriteString(fmt.Sprintf("%s%-8s\n%s\n", cursor, bodyLabel, s.body.View()))
 
+	if s.errMsg != "" {
+		b.WriteString(st.statusErr.Render("⚠ "+s.errMsg) + "\n")
+	}
 	b.WriteString("\n" + st.help.Render("tab next · ctrl+d drop body · enter save · esc cancel"))
 	return st.modal.Render(b.String())
 }
