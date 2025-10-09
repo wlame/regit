@@ -181,9 +181,13 @@ type Model struct {
 	// logVisible controls whether the command-log footer panel is rendered.
 	// Toggled with 'L'.
 	logVisible bool
-	// pendingCmd is the CLI-equivalent command for the in-flight staged change,
-	// populated at stage time so it can be appended to commandLog on apply.
-	pendingCmd string
+	// pendingCmds holds the CLI-equivalent command(s) for the in-flight staged
+	// change(s), populated at stage time so they can be appended to commandLog on
+	// apply. A slice (not a single slot) because a compound apply can carry
+	// several distinct staged actions at once — e.g. a redate strategy staged
+	// alongside a bulk drop-bodies before one 'A' — and every one of them must
+	// survive to the log, not just whichever staged last.
+	pendingCmds []string
 
 	st       styles
 	quitting bool
@@ -245,8 +249,8 @@ func (m *Model) stageActive() {
 		return
 	}
 	a.form.errMsg = ""
-	m.pendingCmd = capability.Render("redate", capability.RedateArgMap(
-		a.form.strat.Name(), pickTimeModel(a.form).Name(), params, m.cfg.LinkDates))
+	m.pendingCmds = append(m.pendingCmds, capability.Render("redate", capability.RedateArgMap(
+		a.form.strat.Name(), pickTimeModel(a.form).Name(), params, m.cfg.LinkDates)))
 }
 
 // strategyStaged reports whether a strategy has staged a date distribution — an
@@ -401,7 +405,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.pending = sc
-		m.pendingCmd = capability.Render("split", capability.SplitArgMap(capability.Short(c.Hash)))
+		m.pendingCmds = append(m.pendingCmds, capability.Render("split", capability.SplitArgMap(capability.Short(c.Hash))))
 		m.pendingGuard = guard
 		m.pipelineApply = true
 		m.previewOffset = 0
@@ -851,7 +855,11 @@ func (m *Model) dropAllBodies() {
 		return
 	}
 	m.setStatus(fmt.Sprintf("Dropped the body of %d commit(s) — titles kept", dropped), statusOK)
-	m.pendingCmd = capability.Render("drop-bodies", capability.DropBodiesArgMap(""))
+	if spec, ok := m.selectionCommitSpec(); ok {
+		m.pendingCmds = append(m.pendingCmds, capability.Render("drop-bodies", capability.DropBodiesArgMap(spec)))
+	} else {
+		m.pendingCmds = append(m.pendingCmds, "# drop-bodies on the selected commits — set --commits=<range> to reproduce")
+	}
 }
 
 // updateDropBodies drives the drop-bodies confirmation popup: enter applies the
@@ -933,8 +941,16 @@ func (m Model) applyRetitle() (tea.Model, tea.Cmd) {
 	}
 	m.mode = modeMain
 	m.setStatus(fmt.Sprintf("Retitled %d commit(s)", changed), statusOK)
-	m.pendingCmd = capability.Render("retitle", capability.RetitleArgMap(
-		m.retitle.pattern.Value(), m.retitle.replace.Value(), ""))
+	if m.retitle.togglesOnly() {
+		// Only the capitalize/ensure-dot finishing toggles ran — no regex
+		// pattern — and --match is required, so there is no valid line to render.
+		m.pendingCmds = append(m.pendingCmds, "# retitle (capitalize/ensure-dot) — no headless equivalent yet")
+	} else if spec, ok := m.selectionCommitSpec(); ok {
+		m.pendingCmds = append(m.pendingCmds, capability.Render("retitle", capability.RetitleArgMap(
+			m.retitle.pattern.Value(), m.retitle.replace.Value(), spec)))
+	} else {
+		m.pendingCmds = append(m.pendingCmds, "# retitle on the selected commits — set --commits=<range> to reproduce")
+	}
 	return m, nil
 }
 
@@ -957,6 +973,30 @@ func (m Model) affectedCommits() []model.Commit {
 	default:
 		return m.plan.Active()
 	}
+}
+
+// selectionCommitSpec renders the current explicit selection as a headless
+// --commits= value. resolveTargets accepts only "", "A..B", or a single ref, so
+// only a contiguous, non-root run of the selection is expressible as a range;
+// anything else (non-contiguous set, or a run touching the root) is not.
+func (m Model) selectionCommitSpec() (spec string, expressible bool) {
+	if !((m.sel.mode == SelSet && len(m.sel.set) > 0) || m.sel.mode == SelRange) {
+		return "", true // whole active range → empty --commits is valid
+	}
+	affected := m.affectedCommits() // root-first
+	if len(affected) == 0 {
+		return "", true
+	}
+	// Map hashes to storage indices and require a consecutive run.
+	idx := make(map[string]int, len(m.plan.Commits))
+	for i, c := range m.plan.Commits {
+		idx[c.Hash] = i
+	}
+	lo, hi := idx[affected[0].Hash], idx[affected[len(affected)-1].Hash]
+	if hi-lo+1 != len(affected) || lo == 0 { // gap, or includes the root (no parent for ^)
+		return "", false
+	}
+	return short(affected[0].Hash) + "^.." + short(affected[len(affected)-1].Hash), true
 }
 
 // commitsInSet returns the selected (Set-mode) commits that are still editable,
@@ -1244,7 +1284,7 @@ func (m Model) updatePipeline(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "q":
 		m.mode = modeMain
 		m.pending = nil
-		m.pendingCmd = ""
+		m.pendingCmds = nil
 		return m, nil
 	case "up", "k":
 		if m.previewOffset > 0 {
@@ -1260,7 +1300,7 @@ func (m Model) updatePipeline(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !m.pipelineApply {
 			m.mode = modeMain
 			m.pending = nil
-			m.pendingCmd = ""
+			m.pendingCmds = nil
 			return m, nil
 		}
 		if m.pendingGuard.NeedsConfirmation {
@@ -1305,7 +1345,7 @@ func (m Model) commitPending(confirmed bool) (tea.Model, tea.Cmd) {
 	if err != nil {
 		m.mode = modeMain
 		m.pending = nil
-		m.pendingCmd = ""
+		m.pendingCmds = nil
 		m.setStatus(err.Error(), statusErr)
 		return m, nil
 	}
@@ -1318,13 +1358,20 @@ func (m Model) commitPending(confirmed bool) (tea.Model, tea.Cmd) {
 	}
 	m.mode = modeMain
 	m.setStatus(fmt.Sprintf("%s ✓ backup at %s — press u to undo", title, short(res.BackupRef)), statusOK)
-	if m.pendingCmd != "" {
-		m.commandLog = append(m.commandLog, m.pendingCmd)
-		appendCommandLog(m.repo, m.pendingCmd)
+	if len(m.pendingCmds) > 0 {
+		for _, line := range m.pendingCmds {
+			m.commandLog = append(m.commandLog, line)
+			// A "#"-prefixed line is an honest note (e.g. a non-expressible
+			// selection), not a runnable command — keep it in the in-memory
+			// panel but never write it to the on-disk command log.
+			if !strings.HasPrefix(line, "#") {
+				appendCommandLog(m.repo, line)
+			}
+		}
 		vline := res.Verification.String()
 		m.commandLog = append(m.commandLog, vline)
 		appendCommandLog(m.repo, vline)
-		m.pendingCmd = ""
+		m.pendingCmds = nil
 	}
 	return m, m.markAndFetch()
 }
@@ -1397,6 +1444,11 @@ func (m Model) doUndo() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.setStatus("Undid last apply — restored "+short(hash), statusOK)
+	// Log the undo itself, same as any other applied action, so the footer and
+	// the on-disk command log reflect the real history including reversals.
+	line := capability.Render("undo", map[string]string{})
+	m.commandLog = append(m.commandLog, line)
+	appendCommandLog(m.repo, line)
 	return m, m.markAndFetch()
 }
 

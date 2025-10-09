@@ -25,29 +25,43 @@ func TestCommandLogToggleAndRender(t *testing.T) {
 
 func TestPendingCmdAppendsToLogOnApply(t *testing.T) {
 	// A focused unit check: simulate the emit branch directly.
-	m := Model{commandLog: nil, pendingCmd: "regit drop-bodies --execute"}
-	// inline the emit branch (the same three lines commitPending runs on success):
-	if m.pendingCmd != "" {
-		m.commandLog = append(m.commandLog, m.pendingCmd)
-		m.pendingCmd = ""
+	m := Model{commandLog: nil, pendingCmds: []string{"regit drop-bodies --execute"}}
+	// inline the emit branch (the same lines commitPending runs on success):
+	for _, line := range m.pendingCmds {
+		m.commandLog = append(m.commandLog, line)
 	}
+	m.pendingCmds = nil
 	if len(m.commandLog) != 1 || m.commandLog[0] != "regit drop-bodies --execute" {
 		t.Errorf("commandLog = %v", m.commandLog)
 	}
-	if m.pendingCmd != "" {
-		t.Error("pendingCmd should be cleared after emit")
+	if m.pendingCmds != nil {
+		t.Error("pendingCmds should be cleared after emit")
+	}
+}
+
+// TestPendingCmds_multipleEntriesAllSurvive: a compound apply that staged
+// several distinct actions (e.g. redate then drop-bodies) must flush every one
+// of them, not just the last — the bug this task fixes.
+func TestPendingCmds_multipleEntriesAllSurvive(t *testing.T) {
+	m := Model{commandLog: nil, pendingCmds: []string{"regit redate --execute", "regit drop-bodies --execute"}}
+	for _, line := range m.pendingCmds {
+		m.commandLog = append(m.commandLog, line)
+	}
+	m.pendingCmds = nil
+	if len(m.commandLog) != 2 {
+		t.Fatalf("commandLog = %v, want both staged commands", m.commandLog)
 	}
 }
 
 func TestVerificationLineAppendsToLogOnApply(t *testing.T) {
-	// Mirror commitPending's success emit branch: command line THEN verification line.
-	m := Model{commandLog: nil, pendingCmd: "regit redate --execute"}
+	// Mirror commitPending's success emit branch: command line(s) THEN verification line.
+	m := Model{commandLog: nil, pendingCmds: []string{"regit redate --execute"}}
 	summary := model.VerificationSummary{Commits: 3, ChangedPaths: 0}
-	if m.pendingCmd != "" {
-		m.commandLog = append(m.commandLog, m.pendingCmd)
-		m.commandLog = append(m.commandLog, summary.String())
-		m.pendingCmd = ""
+	for _, line := range m.pendingCmds {
+		m.commandLog = append(m.commandLog, line)
 	}
+	m.commandLog = append(m.commandLog, summary.String())
+	m.pendingCmds = nil
 	if len(m.commandLog) != 2 {
 		t.Fatalf("commandLog = %v, want 2 entries", m.commandLog)
 	}

@@ -96,6 +96,14 @@ func (s retitleState) hasWork() bool {
 	return s.pattern.Value() != "" || s.capitalize || s.ensureDot
 }
 
+// togglesOnly reports whether the run used only the capitalize/ensure-dot
+// finishing toggles, with no regex pattern. RetitleArgMap has no flag for
+// those toggles — only match/replace/commits — so a run like this has no
+// headless CLI equivalent to log yet.
+func (s retitleState) togglesOnly() bool {
+	return s.pattern.Value() == "" && (s.capitalize || s.ensureDot)
+}
+
 // transform compiles the modal's settings into a title transformation. The
 // pattern is used VERBATIM — a trailing space in "feat: " is meaningful.
 func (s retitleState) transform() (func(string) string, error) {

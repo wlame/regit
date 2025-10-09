@@ -136,8 +136,8 @@ func TestStageReauthor_entersPipelineWithChange(t *testing.T) {
 	if _, ok := m.pending.(reauthorChange); !ok {
 		t.Errorf("pending should be a reauthorChange, got %T", m.pending)
 	}
-	if m.pendingCmd == "" {
-		t.Error("pendingCmd (transparency footer) should be set")
+	if len(m.pendingCmds) == 0 {
+		t.Error("pendingCmds (transparency footer) should be set")
 	}
 }
 

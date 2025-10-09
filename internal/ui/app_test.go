@@ -794,6 +794,34 @@ func TestRetitle_togglesCapitalizeAndEnsureDot(t *testing.T) {
 	}
 }
 
+// TestRetitle_togglesOnlyLogsNoteNotInvalidMatch verifies that a toggles-only
+// retitle (no regex pattern, so RetitleArgMap's required --match has nothing to
+// carry) logs an honest "#" note in the footer instead of an invalid line.
+func TestRetitle_togglesOnlyLogsNoteNotInvalidMatch(t *testing.T) {
+	m := newTestModelN(t, 3)
+	m = runRestructureFeature(t, m, "Retitle (regex)")
+	// Fixture titles already start with a capital letter, so the capitalize
+	// toggle alone would be a no-op; ensure-dot always changes them (none end
+	// with sentence punctuation), so use that toggle to prove real work happened.
+	m = send(m, "tab", "tab", "tab", " ") // pattern -> replace -> capitalize -> ensure-dot, toggle it
+	m = send(m, "enter")
+	if m.mode != modeMain {
+		t.Fatalf("a toggles-only retitle with real work should apply, got mode %v", m.mode)
+	}
+	found := false
+	for _, l := range m.pendingCmds {
+		if strings.Contains(l, "--match=") {
+			t.Errorf("toggles-only retitle must not log a --match flag, got %q", l)
+		}
+		if strings.HasPrefix(l, "#") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("toggles-only retitle should log an honest note, got %v", m.pendingCmds)
+	}
+}
+
 // The transform helpers behave sensibly at the edges.
 func TestRetitleTransform_edgeCases(t *testing.T) {
 	plain := retitleTransform(nil, "", false, true)
@@ -2307,6 +2335,106 @@ func TestDropBodies_honorsSelection(t *testing.T) {
 	}
 }
 
+// TestDropBodies_contiguousSelectionLogsCommitsRange verifies that a
+// contiguous, non-root Set selection renders a real --commits=<range> line
+// (not the whole-branch default), reproducing exactly what was affected.
+func TestDropBodies_contiguousSelectionLogsCommitsRange(t *testing.T) {
+	m := newTestModelN(t, 4) // display: 0=newest .. 3=oldest/root
+	m = send(m, " ")         // select display 0
+	m = send(m, "down", " ") // select display 1 too -> {display0, display1} contiguous, non-root
+	m = runRestructureFeature(t, m, "Drop bodies")
+	m = send(m, "enter")
+	found := false
+	for _, l := range m.pendingCmds {
+		if strings.Contains(l, "drop-bodies") && strings.Contains(l, "--commits=") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("contiguous selection should log a --commits=<range> line, got %v", m.pendingCmds)
+	}
+}
+
+// TestDropBodies_nonContiguousSelectionLogsHonestNote verifies that a
+// non-contiguous selection cannot be expressed as one --commits= range (the
+// headless CLI takes only "", "A..B", or a single ref), so the footer gets an
+// honest "#" note instead of a wrong whole-branch command.
+func TestDropBodies_nonContiguousSelectionLogsHonestNote(t *testing.T) {
+	m := newTestModelN(t, 4)         // display: 0=newest .. 3=oldest/root
+	m = send(m, " ")                 // select display 0
+	m = send(m, "down", "down", " ") // skip display 1, select display 2 -> a gap
+	m = runRestructureFeature(t, m, "Drop bodies")
+	m = send(m, "enter")
+	found := false
+	for _, l := range m.pendingCmds {
+		if strings.HasPrefix(l, "#") && strings.Contains(l, "drop-bodies") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("non-contiguous selection should log an honest note, got %v", m.pendingCmds)
+	}
+}
+
+// TestCommitPending_honestNoteNotWrittenToOnDiskLog drives a non-contiguous
+// drop-bodies selection through the real apply path (commitPending) instead of
+// stopping at staging, then checks both directions of the "#"-note rule: the
+// honest note must land in the in-memory footer panel (m.commandLog) but must
+// never reach the on-disk .git/regit/command.log file. Tests that only inspect
+// pendingCmds (like TestDropBodies_nonContiguousSelectionLogsHonestNote above)
+// would not notice a regression that drops or inverts the
+// `if !strings.HasPrefix(line, "#")` guard inside commitPending.
+func TestCommitPending_honestNoteNotWrittenToOnDiskLog(t *testing.T) {
+	m := newTestModelN(t, 4)         // display: 0=newest .. 3=oldest/root
+	m = send(m, " ")                 // select display 0
+	m = send(m, "down", "down", " ") // skip display 1, select display 2 -> a gap
+	m = runRestructureFeature(t, m, "Drop bodies")
+	m = send(m, "enter") // confirm the popup -> stages DropBody edits + the "#" note
+	staged := false
+	for _, l := range m.pendingCmds {
+		if strings.HasPrefix(l, "#") && strings.Contains(l, "drop-bodies") {
+			staged = true
+		}
+	}
+	if !staged {
+		t.Fatalf("setup: expected the honest note staged in pendingCmds, got %v", m.pendingCmds)
+	}
+
+	m = send(m, "A")     // stage the plan for apply -> modePipeline
+	m = send(m, "enter") // apply through the real commitPending, flushing pendingCmds
+	if m.statusKind == statusErr {
+		t.Fatalf("apply errored: %s", m.statusMsg)
+	}
+
+	inMemory := false
+	for _, l := range m.commandLog {
+		if strings.HasPrefix(l, "#") && strings.Contains(l, "drop-bodies") {
+			inMemory = true
+		}
+	}
+	if !inMemory {
+		t.Errorf("the honest note should be in the in-memory command log after apply, got %v", m.commandLog)
+	}
+
+	gitDir, err := m.repo.GitDir()
+	if err != nil {
+		t.Fatalf("GitDir: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(gitDir, "regit", "command.log"))
+	if err != nil {
+		t.Fatalf("reading on-disk command log: %v", err)
+	}
+	onDisk := string(raw)
+	if strings.Contains(onDisk, "# drop-bodies") {
+		t.Errorf("the honest note must never be written to the on-disk command log, got:\n%s", onDisk)
+	}
+	// Confirm the flush actually wrote real lines to the file, so the note's
+	// absence is a deliberate exclusion and not just an empty/untouched file.
+	if !strings.Contains(onDisk, "verified") {
+		t.Errorf("on-disk log should still contain the real verification line, got:\n%s", onDisk)
+	}
+}
+
 // mkBranch creates a git branch in the model's repo so a picker test can target
 // a branch other than the current one.
 func mkBranch(t *testing.T, m Model, name string) {
@@ -2505,7 +2633,7 @@ func TestCalendarPane_showsConflictCountNotOldViolation(t *testing.T) {
 }
 
 // TestPipelineCancel_clearsPendingCmd guards that esc/q in the pipeline overlay
-// wipes pendingCmd so a future unrelated apply cannot log a stale command.
+// wipes pendingCmds so a future unrelated apply cannot log a stale command.
 func TestPipelineCancel_clearsPendingCmd(t *testing.T) {
 	m := newTestModel(t)
 	m = applyStrategyInPane(m) // stage edits (tab tab enter) so p works
@@ -2514,12 +2642,54 @@ func TestPipelineCancel_clearsPendingCmd(t *testing.T) {
 		t.Fatalf("p should open the pipeline overlay, got %v", m.mode)
 	}
 	// Inject a stale command as if a previous operation set it.
-	m.pendingCmd = "regit split x"
-	m = send(m, "esc") // cancel — should clear both pending and pendingCmd
+	m.pendingCmds = []string{"regit split x"}
+	m = send(m, "esc") // cancel — should clear both pending and pendingCmds
 	if m.mode != modeMain {
 		t.Fatalf("esc should return to main mode, got %v", m.mode)
 	}
-	if m.pendingCmd != "" {
-		t.Errorf("esc in pipeline overlay should clear pendingCmd, got %q", m.pendingCmd)
+	if len(m.pendingCmds) != 0 {
+		t.Errorf("esc in pipeline overlay should clear pendingCmds, got %v", m.pendingCmds)
+	}
+}
+
+// TestFooter_undoIsLogged: an undo appends a `regit undo` line to the command log.
+func TestFooter_undoIsLogged(t *testing.T) {
+	m := newTestModelN(t, 3)
+	// Stage + apply a strategy so a backup exists to undo. Real idiom: stage with
+	// applyStrategyInPane(m), then drive send(m,"A") → send(m,"enter") to apply
+	// through commitPending (creates the backup ref). See TestDetail_refetchesAfterApply
+	// (app_test.go) for the exact apply sequence to copy.
+	m = applyStrategyInPane(m)
+	m = send(m, "A")     // stage → modePipeline
+	m = send(m, "enter") // apply through commitPending
+	before := len(m.commandLog)
+	updated, _ := m.doUndo()
+	m = updated.(Model)
+	found := false
+	for _, l := range m.commandLog[before:] {
+		if strings.Contains(l, "regit undo") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("undo should append a `regit undo` line; log tail: %v", m.commandLog[before:])
+	}
+}
+
+// TestSelectionCommitSpec_rangeVsNonContiguous: a contiguous non-root selection
+// yields a range; a non-contiguous one is not expressible.
+func TestSelectionCommitSpec_rangeVsNonContiguous(t *testing.T) {
+	// Root-first hashes a,b,c,d,e (storage indices 0..4). modelWithSet selects a
+	// Set of the named hashes; b,c,d is a contiguous non-root run (indices 1..3).
+	commits := linearModelCommits("a", "b", "c", "d", "e")
+	m := modelWithSet(commits, "b", "c", "d")
+	spec, ok := m.selectionCommitSpec()
+	if !ok || !strings.Contains(spec, "..") {
+		t.Errorf("contiguous non-root selection should be an expressible range, got %q ok=%v", spec, ok)
+	}
+	// Non-contiguous {b,d} (indices 1,3) → not expressible as one range.
+	m2 := modelWithSet(commits, "b", "d")
+	if _, ok := m2.selectionCommitSpec(); ok {
+		t.Error("a non-contiguous selection must not be expressible as one range")
 	}
 }

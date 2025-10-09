@@ -347,8 +347,8 @@ func TestStageSquash_validPlanEntersPipeline(t *testing.T) {
 	if mm.pending == nil {
 		t.Error("pending change should be set after a successful stageSquash")
 	}
-	if mm.pendingCmd == "" {
-		t.Error("pendingCmd should be set after a successful stageSquash")
+	if len(mm.pendingCmds) == 0 {
+		t.Error("pendingCmds should be set after a successful stageSquash")
 	}
 	if !mm.pipelineApply {
 		t.Error("pipelineApply should be true after stageSquash")

@@ -259,8 +259,8 @@ func (m Model) stageReauthor() (tea.Model, tea.Cmd) {
 	for _, c := range st.targets {
 		hashes = append(hashes, short(c.Hash))
 	}
-	m.pendingCmd = capability.Render("reauthor",
-		capability.ReauthorArgMap(name, email, st.committerToo, strings.Join(hashes, ",")))
+	m.pendingCmds = append(m.pendingCmds, capability.Render("reauthor",
+		capability.ReauthorArgMap(name, email, st.committerToo, strings.Join(hashes, ","))))
 	m.pending = change
 	m.pendingGuard = guard
 	m.mode = modePipeline

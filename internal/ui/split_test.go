@@ -108,8 +108,8 @@ func TestSplitResultMsg_forActiveCommitStagesPipeline(t *testing.T) {
 	if m.mode != modePipeline {
 		t.Fatalf("a result for the active split should enter modePipeline, got %v", m.mode)
 	}
-	if m.pendingCmd == "" {
-		t.Error("pendingCmd (transparency footer) should be set once the split is staged")
+	if len(m.pendingCmds) == 0 {
+		t.Error("pendingCmds (transparency footer) should be set once the split is staged")
 	}
 }
 
@@ -174,8 +174,8 @@ func TestSplitResultMsg_sameHashRestartDropsStale(t *testing.T) {
 	if m.mode != modePipeline {
 		t.Fatalf("the current seq-2 result must be accepted into modePipeline, got %v", m.mode)
 	}
-	if m.pendingCmd == "" {
-		t.Error("pendingCmd (transparency footer) should be set once the seq-2 split is staged")
+	if len(m.pendingCmds) == 0 {
+		t.Error("pendingCmds (transparency footer) should be set once the seq-2 split is staged")
 	}
 }
 

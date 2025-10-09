@@ -517,7 +517,7 @@ func (m Model) stageSquash() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	spec := chainsToSpec(plan.Chains)
-	m.pendingCmd = capability.Render("squash", capability.SquashArgMap(spec))
+	m.pendingCmds = append(m.pendingCmds, capability.Render("squash", capability.SquashArgMap(spec)))
 	m.pending = change
 	m.pendingGuard = guard
 	m.mode = modePipeline
