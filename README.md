@@ -257,8 +257,8 @@ regit reword [<commit-ish>...]     # commits to reword (default: HEAD)
   --prompt="focus on the why"      # short user guidance passed to the LLM
   --context=readme,filestates      # comma-separated context keys to include in prompt
   --context-lines=30               # git diff -U context depth (0 = config default, default: 30)
-  --agent-scan                     # agent inspects the commit itself via git show
-                                   # (read-only sandbox; requires --agent)
+  --agent-scan                     # agent may also browse repo files read-only
+                                   # (Read/Grep/Glob; no exec; requires --agent)
   --execute                        # apply the reword (default: dry-run preview)
   --force                          # allow rewriting already-pushed commits
   --no-cache                       # ignore cached proposals (force a fresh LLM call)
@@ -286,19 +286,20 @@ By default `regit` gathers the commit's diff itself and sends it to the agent as
 context — **the agent has no access to the repository**. This is the safest mode
 and works with any backend.
 
-With `--agent-scan` the agent is instead given read-only access to the repository
-so it can run `git show` and other inspection commands itself. The subprocess is
-launched with `--permission-mode plan` and a restricted `--allowedTools` list
-(git read commands only), with its working directory set to the repository root.
-This mode requires `--agent`.
+With `--agent-scan` the agent may additionally browse repository files
+read-only for context. The subprocess is launched with `--permission-mode plan`
+and an `--allowedTools` list containing only the file-browsing tools
+(`Read,Grep,Glob`) — no shell access of any kind — with its working directory
+set to the repository root. The commit diff is still gathered by `regit` and
+sent in the prompt in both modes. This mode requires `--agent`.
 
 ### Cache
 
 Reword proposals are cached at `.git/regit/cache/reword/<commitHash>.json`.
-The cache key incorporates the diff hash (or commit hash in agent-scan mode),
-backend name, context keys, user hint, and variant count, so any input change
-produces a cache miss. Use `--no-cache` to force a fresh LLM call without
-clearing the cache, or `--clear-cache` to wipe the entire cache directory.
+The cache key incorporates the diff hash, backend name, context keys, user
+hint, and variant count, so any input change produces a cache miss. Use
+`--no-cache` to force a fresh LLM call without clearing the cache, or
+`--clear-cache` to wipe the entire cache directory.
 
 ### Background prefetch pipeline
 

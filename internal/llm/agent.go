@@ -21,8 +21,9 @@ const SchemaPlaceholder = "{schema}"
 // message text) validated.
 //
 // When dir is non-empty, the subprocess is run with that working directory.
-// This is required for agent-scan mode so that `git show` inside the agent
-// targets the correct repository, especially when --repo points elsewhere.
+// This is required for agent-scan mode so that the agent's Read/Grep/Glob
+// tool calls resolve against the correct repository, especially when --repo
+// points elsewhere.
 type AgentBackend struct {
 	command string
 	args    []string
@@ -30,11 +31,13 @@ type AgentBackend struct {
 }
 
 // ScanDefaultArgs are the read-only headless args used when --agent-scan is
-// active and the user has not supplied --agent-args. They instruct Claude Code
-// to run in plan (read-only) permission mode with a curated tool allowlist, so
-// the agent can call git show / diff / log and grep but cannot modify files.
-// The --bare flag skips CLAUDE.md / hooks / plugins / MCP for deterministic
-// output. {schema} is substituted with the actual JSON schema at call time.
+// active and the user has not supplied --agent-args. The agent gets ONLY the
+// file-browsing tools (Read/Grep/Glob) — no Bash: even "read-only" git verbs
+// accept --output=<path> (arbitrary file write) and find allows -exec, so any
+// exec surface is an injection risk. The commit diff is supplied in the prompt
+// by the caller; --permission-mode plan stays as defense-in-depth. The --bare
+// flag skips CLAUDE.md / hooks / plugins / MCP for deterministic output.
+// {schema} is substituted with the actual JSON schema at call time.
 //
 // ScanDefaultArgs should be treated as read-only; Generate copies the args
 // before substituting {schema}, so the original slice is never modified.
@@ -43,7 +46,7 @@ var ScanDefaultArgs = []string{
 	"--output-format", "json",
 	"--bare",
 	"--permission-mode", "plan",
-	"--allowedTools", "Read,Bash(git show *),Bash(git diff *),Bash(git log *),Bash(grep *),Bash(find *)",
+	"--allowedTools", "Read,Grep,Glob",
 	"--json-schema", SchemaPlaceholder,
 }
 
@@ -62,7 +65,7 @@ func NewAgentBackend(command string, args []string) *AgentBackend {
 
 // NewAgentBackendInDir builds an agent backend that runs its subprocess with
 // cwd set to dir. This is required for agent-scan mode so that the agent's
-// `git show` commands target the correct repository when --repo is set.
+// Read/Grep/Glob tool calls target the correct repository when --repo is set.
 // When dir is empty it behaves identically to NewAgentBackend.
 func NewAgentBackendInDir(command string, args []string, dir string) *AgentBackend {
 	b := NewAgentBackend(command, args)
@@ -107,8 +110,8 @@ func (b *AgentBackend) Generate(ctx context.Context, system, user string, schema
 		prompt := system + "\n\n" + user + "\n\nReturn ONLY the JSON object."
 		cmd := exec.CommandContext(ctx, b.command, runtimeArgs...)
 		if b.dir != "" {
-			// Set the subprocess working directory so `git show` and similar
-			// commands target the correct repository (used in agent-scan mode).
+			// Set the subprocess working directory so the agent's Read/Grep/Glob
+			// tool calls target the correct repository (used in agent-scan mode).
 			cmd.Dir = b.dir
 		}
 		cmd.Stdin = bytes.NewReader([]byte(prompt))

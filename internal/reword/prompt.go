@@ -64,31 +64,16 @@ func BuildMessages(req Request) (system, user string) {
 }
 
 // BuildScanMessages renders the system + user prompt for agent-scan mode.
-// Unlike BuildMessages, it does NOT embed a diff; instead, the system prompt
-// instructs the agent to inspect the commit read-only (e.g. via `git show`)
-// and the user prompt carries only the commit hash, repo name, optional hint,
-// and the number of variants requested. The agent is responsible for fetching
-// the diff itself — regit never sends it.
-func BuildScanMessages(commitHash, repoName, userHint string, variants int) (system, user string) {
-	n := max1(variants)
-	system = fmt.Sprintf(
-		"You write high-quality git commit messages. Read the commit %s using `git show %s` "+
-			"(read-only; do NOT modify any files). "+
-			"Based on what you find, propose %d alternative commit messages, ranked most-relevant first. "+
-			"Each has a concise one-line title (imperative mood) and an optional body explaining the why. "+
-			"Return ONLY JSON matching the schema; no prose.",
-		commitHash, commitHash, n,
-	)
-	var b strings.Builder
-	if repoName != "" {
-		fmt.Fprintf(&b, "Repository: %s\n", repoName)
-	}
-	fmt.Fprintf(&b, "Commit hash: %s\n", commitHash)
-	if userHint != "" {
-		fmt.Fprintf(&b, "Additional user guidance: %s\n", userHint)
-	}
-	fmt.Fprintf(&b, "\nPropose %d ranked variants.\n", n)
-	return system, b.String()
+// The diff is embedded exactly like BuildMessages (regit gathers it itself —
+// the agent has no git access); scan mode ADDS permission to browse repository
+// files read-only with the Read/Grep/Glob tools for extra context.
+func BuildScanMessages(req Request, commitHash string) (system, user string) {
+	system, user = BuildMessages(req)
+	system += " You may additionally inspect files in the repository with the " +
+		"Read, Grep, and Glob tools (read-only) to gather context. Do NOT attempt " +
+		"to modify anything."
+	user = fmt.Sprintf("Commit hash: %s\n", commitHash) + user
+	return system, user
 }
 
 func max1(n int) int {

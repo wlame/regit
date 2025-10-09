@@ -29,8 +29,8 @@ type Options struct {
 	Context []string
 	// UserHint is free-text guidance the user typed (e.g. "focus on the why").
 	UserHint string
-	// AgentScan, when true, skips diff gathering and uses BuildScanMessages so
-	// the agent inspects the commit read-only (via git show) itself.
+	// AgentScan, when true, uses BuildScanMessages so the agent may browse repo
+	// files read-only; the diff is still gathered and sent by regit.
 	AgentScan bool
 	// Now is the wall-clock time used for cache entry timestamps. Callers must
 	// supply this; the engine never calls time.Now() itself.
@@ -58,16 +58,16 @@ func NewEngine(repo *gitio.Repo, backend llm.Backend, cache *Cache) *Engine {
 // Generate returns ranked reword variants for a single commit c.
 //
 // parentTree is the tree hash of c's parent (pass EmptyTree for a root commit).
-// In agent-scan mode (opts.AgentScan == true), parentTree is not used: the
-// agent inspects the commit itself via git show, so no diff is gathered here.
+// It is used to gather the diff in both normal and agent-scan mode.
 //
 // readme is the project README contents to include in the prompt; the caller
 // reads it once (via ReadREADME) and passes the same string for every commit.
-// In scan mode readme is ignored (the agent fetches its own context).
+// It is used in both modes.
 //
 // Cache semantics: if a prior result was stored under the same commit hash and
-// fingerprint (diff-or-hash + backend + context + hint + variants), it is
-// returned immediately without a backend call.
+// fingerprint (diff hash + backend + context + hint + variants), it is
+// returned immediately without a backend call. The cache key no longer
+// differs between normal and agent-scan mode.
 func (e *Engine) Generate(ctx context.Context, c model.Commit, parentTree, readme string, opts Options) (Result, error) {
 	// Sort context to make the cache key order-invariant.
 	sortedCtx := make([]string, len(opts.Context))
@@ -77,43 +77,9 @@ func (e *Engine) Generate(ctx context.Context, c model.Commit, parentTree, readm
 
 	var system, user string
 
-	if opts.AgentScan {
-		// Agent-scan mode: skip DiffText — the agent will call `git show` itself.
-		// Use the commit hash as the fingerprint source so the cache is keyed by
-		// commit identity rather than a diff hash.
-		fp := Fingerprint(c.Hash, e.backend.Name(), contextKey, opts.UserHint, opts.Variants)
-
-		if r, ok := e.cache.Get(c.Hash, fp); ok {
-			return r, nil
-		}
-
-		system, user = BuildScanMessages(c.Hash, filepath.Base(e.repo.Root()), opts.UserHint, opts.Variants)
-
-		raw, err := e.backend.Generate(ctx, system, user, SchemaJSON(), func(raw string) error {
-			_, perr := ParseVariants(raw)
-			return perr
-		})
-		if err != nil {
-			return Result{}, fmt.Errorf("reword: backend generate: %w", err)
-		}
-
-		r, err := ParseVariants(raw)
-		if err != nil {
-			return Result{}, fmt.Errorf("reword: parse variants: %w", err)
-		}
-		r.CommitHash = c.Hash
-
-		_ = e.cache.Put(CacheEntry{
-			CommitHash:  c.Hash,
-			Fingerprint: fp,
-			Result:      r,
-			CreatedAt:   opts.Now,
-		})
-
-		return r, nil
-	}
-
-	// Normal mode: gather the wide-context diff for this commit.
+	// Both modes gather the wide-context diff; agent-scan only changes the
+	// prompt (adding read-only file-browsing permission). Cache keys are
+	// therefore identical across modes.
 	diff, err := e.repo.DiffText(parentTree, c.TreeHash, opts.ContextLines)
 	if err != nil {
 		return Result{}, fmt.Errorf("reword: diff %s: %w", c.Hash, err)
@@ -137,7 +103,11 @@ func (e *Engine) Generate(ctx context.Context, c model.Commit, parentTree, readm
 		UserHint:   opts.UserHint,
 		Variants:   opts.Variants,
 	}
-	system, user = BuildMessages(req)
+	if opts.AgentScan {
+		system, user = BuildScanMessages(req, c.Hash)
+	} else {
+		system, user = BuildMessages(req)
+	}
 
 	raw, err := e.backend.Generate(ctx, system, user, SchemaJSON(), func(raw string) error {
 		_, perr := ParseVariants(raw)

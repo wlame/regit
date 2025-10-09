@@ -304,12 +304,23 @@ func TestScanDefaultArgs_isReadOnly(t *testing.T) {
 		t.Errorf("ScanDefaultArgs missing '--allowedTools'; got %v", args)
 	}
 
-	// Must NOT contain write-capable tool names or the --dangerously flag.
-	forbidden := []string{"Write", "Edit", "--dangerously"}
+	// Must NOT contain any exec-capable or write-capable tool. Bash was removed
+	// entirely (H1): even "read-only" git verbs accept --output=<path> (arbitrary
+	// file write) and find allows -exec (arbitrary execution).
+	forbidden := []string{"Write", "Edit", "--dangerously", "Bash", "find"}
 	joined := strings.Join(args, " ")
 	for _, f := range forbidden {
 		if strings.Contains(joined, f) {
 			t.Errorf("ScanDefaultArgs contains forbidden token %q; got %v", f, args)
+		}
+	}
+
+	// The allowlist must be exactly the read-only browsing tools.
+	for i, arg := range args {
+		if arg == "--allowedTools" && i+1 < len(args) {
+			if args[i+1] != "Read,Grep,Glob" {
+				t.Errorf("allowedTools = %q, want %q", args[i+1], "Read,Grep,Glob")
+			}
 		}
 	}
 }

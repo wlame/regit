@@ -29,8 +29,9 @@ type BackendOptions struct {
 func BuildBackend(cfg config.Config, o BackendOptions) (llm.Backend, error) {
 	if o.Agent != "" {
 		if o.AgentScan {
-			// Agent-scan mode: the agent inspects the repo read-only.
-			// Use caller-supplied args or the canonical read-only scan defaults.
+			// Agent-scan mode: the agent may browse the repo read-only
+			// (Read/Grep/Glob; no exec). The diff is still gathered by regit
+			// and sent in the prompt. Caller-supplied args override the defaults.
 			args := llm.ScanDefaultArgs
 			if o.AgentArgs != "" {
 				args = strings.Fields(o.AgentArgs)

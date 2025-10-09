@@ -52,7 +52,7 @@ var registry = []Command{
 			{Name: "llm", Type: ParamString, Help: "provider/model, e.g. ollama/qwen2.5-coder"},
 			{Name: "agent", Type: ParamString, Help: "agent CLI to drive instead of HTTP"},
 			{Name: "agent-args", Type: ParamString, Help: "replace default agent args"},
-			{Name: "agent-scan", Type: ParamBool, Default: "false", Help: "agent inspects the commit read-only (requires --agent)"},
+			{Name: "agent-scan", Type: ParamBool, Default: "false", Help: "agent may browse repo files read-only for extra context (requires --agent)"},
 			{Name: "llm-base-url", Type: ParamString, Help: "override the OpenAI-compatible endpoint"},
 			{Name: "prompt", Type: ParamString, Help: "short guidance passed to the LLM"},
 			{Name: "context", Type: ParamStringList, Help: "context keys to include, e.g. readme,filestates"},
