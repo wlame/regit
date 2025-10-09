@@ -138,3 +138,30 @@ func TestRejectUnknownFlag(t *testing.T) {
 		})
 	}
 }
+
+// TestUnknownCommand verifies a verb-shaped but unregistered leading token is
+// reported (so it errors instead of silently launching the TUI — H3), while a
+// known verb, a leading flag, or no args are not (TUI / flag handling proceeds).
+func TestUnknownCommand(t *testing.T) {
+	cases := []struct {
+		name       string
+		args       []string
+		wantVerb   string
+		wantReject bool
+	}{
+		{"typo verb", []string{"redat"}, "redat", true},
+		{"typo verb with flags", []string{"redat", "--execute"}, "redat", true},
+		{"known verb", []string{"split", "HEAD"}, "", false},
+		{"another known verb", []string{"reauthor"}, "", false},
+		{"leading flag", []string{"--help"}, "", false},
+		{"no args", nil, "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			verb, reject := unknownCommand(tc.args)
+			if reject != tc.wantReject || verb != tc.wantVerb {
+				t.Errorf("unknownCommand(%v) = (%q, %v), want (%q, %v)", tc.args, verb, reject, tc.wantVerb, tc.wantReject)
+			}
+		})
+	}
+}

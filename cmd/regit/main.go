@@ -105,6 +105,21 @@ func rejectUnknownFlag(args []string) error {
 	return nil
 }
 
+// unknownCommand reports the leading verb to reject when it looks like a
+// subcommand (a non-flag first token) but is not a registered verb — so a typo
+// like `regit redat` errors instead of silently launching the TUI. reject is
+// false when there is no leading verb token (a flag, or no args), leaving the
+// TUI / flag handling to proceed.
+func unknownCommand(args []string) (verb string, reject bool) {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return "", false
+	}
+	if _, known := capability.Lookup(args[0]); known {
+		return "", false
+	}
+	return args[0], true
+}
+
 func run() error {
 	// Handle `regit --version` before anything else.
 	if wantsVersion(os.Args[1:]) {
@@ -153,6 +168,12 @@ func run() error {
 	if wantsHelp(args) {
 		fmt.Print(capability.HelpTerse())
 		return nil
+	}
+
+	// A verb-shaped first token that is not a registered command is a typo;
+	// reject it rather than silently launching the TUI.
+	if verb, reject := unknownCommand(args); reject {
+		return fmt.Errorf("unknown command %q (try regit --help)", verb)
 	}
 
 	// Unknown top-level flag: reject clearly rather than silently launching
