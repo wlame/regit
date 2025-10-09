@@ -63,6 +63,17 @@ func (r *Repo) ReadState() (model.RepoState, error) {
 	return st, nil
 }
 
+// IsDirty reports whether the working tree has uncommitted changes (including
+// untracked files), via one `git status --porcelain` call. Used by safety to
+// re-check dirtiness at apply time instead of trusting a stale snapshot.
+func (r *Repo) IsDirty() (bool, error) {
+	status, err := r.git("status", "--porcelain")
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(status) != "", nil
+}
+
 // ReadCommits returns the first-parent linear history of the current branch in
 // root-first order (oldest commit at index 0), which is the order the rewrite
 // engine replays. Commits already present on the upstream are flagged IsPushed.

@@ -43,6 +43,9 @@ func (m *Manager) ApplySquash(commits []model.Commit, plan model.SquashPlan, sta
 	if err != nil {
 		return ApplyResult{}, err
 	}
+	if err := m.preflight(branch, oldHead, opts); err != nil {
+		return ApplyResult{}, err
+	}
 
 	// --- Backup ---
 	backupRef, err := m.repo.CreateBackupRef(branch, opts.UnixTimestamp, oldHead)

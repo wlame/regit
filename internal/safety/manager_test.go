@@ -66,7 +66,7 @@ func TestManagerApply_movesBranchAndBacksUp(t *testing.T) {
 	state, _ := repo.ReadState()
 
 	oldHead, _ := repo.ResolveRef("HEAD")
-	res, err := mgr.Apply(plan, state, ApplyOptions{UnixTimestamp: 1717689600})
+	res, err := mgr.Apply(plan, state, ApplyOptions{UnixTimestamp: 1717689600, ExpectedHead: oldHead})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestManagerUndo_restoresOriginalHead(t *testing.T) {
 	state, _ := repo.ReadState()
 	oldHead, _ := repo.ResolveRef("HEAD")
 
-	if _, err := mgr.Apply(spreadPlan(t, repo), state, ApplyOptions{UnixTimestamp: 1}); err != nil {
+	if _, err := mgr.Apply(spreadPlan(t, repo), state, ApplyOptions{UnixTimestamp: 1, ExpectedHead: oldHead}); err != nil {
 		t.Fatal(err)
 	}
 	if !mgr.CanUndo() {
@@ -128,8 +128,36 @@ func TestManagerApply_blocksDirtyTree(t *testing.T) {
 	// Dirty the tree.
 	os.WriteFile(filepath.Join(repo.Root(), "one.txt"), []byte("changed\n"), 0o644)
 	state, _ := repo.ReadState()
-	if _, err := mgr.Apply(plan, state, ApplyOptions{UnixTimestamp: 1}); err == nil {
+	if _, err := mgr.Apply(plan, state, ApplyOptions{UnixTimestamp: 1, ExpectedHead: state.HeadHash}); err == nil {
 		t.Error("apply should be blocked on dirty tree")
+	}
+}
+
+// TestManagerApply_freshDirtyCheckCatchesStaleSnapshot: the tree is dirtied
+// AFTER the state snapshot was taken (snapshot says clean), so only preflight's
+// live IsDirty recheck can block — proving the apply never trusts stale state.
+func TestManagerApply_freshDirtyCheckCatchesStaleSnapshot(t *testing.T) {
+	repo := buildRepo(t)
+	mgr := NewManager(repo)
+	plan := spreadPlan(t, repo)
+	state, _ := repo.ReadState()
+	if state.IsDirty {
+		t.Fatal("precondition: snapshot must be clean")
+	}
+	// Dirty the tree AFTER the snapshot: the stale state.IsDirty guard cannot fire.
+	if err := os.WriteFile(filepath.Join(repo.Root(), "dirty.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := mgr.Apply(plan, state, ApplyOptions{UnixTimestamp: 11, ExpectedHead: state.HeadHash})
+	if err == nil {
+		t.Fatal("apply must refuse when the live tree is dirty despite a clean snapshot")
+	}
+	if !strings.Contains(err.Error(), "uncommitted changes") {
+		t.Errorf("want the dirty-tree message, got: %v", err)
+	}
+	refs, _ := repo.ListBackupRefs()
+	if len(refs) != 0 {
+		t.Errorf("refused apply must not create a backup ref, found %v", refs)
 	}
 }
 
@@ -141,13 +169,14 @@ func TestManagerApply_pushedRequiresConfirmation(t *testing.T) {
 	for i := range plan.Commits {
 		plan.Commits[i].IsPushed = true
 	}
-	state := model.RepoState{Branch: "main"} // clean tree
+	head, _ := repo.ResolveRef("HEAD")
+	state := model.RepoState{Branch: "main", HeadHash: head} // clean tree
 
-	if _, err := mgr.Apply(plan, state, ApplyOptions{UnixTimestamp: 1, Confirmed: false}); err == nil {
+	if _, err := mgr.Apply(plan, state, ApplyOptions{UnixTimestamp: 1, Confirmed: false, ExpectedHead: head}); err == nil {
 		t.Error("pushed commits should require confirmation")
 	}
 	// With confirmation it should go through.
-	if _, err := mgr.Apply(plan, state, ApplyOptions{UnixTimestamp: 2, Confirmed: true}); err != nil {
+	if _, err := mgr.Apply(plan, state, ApplyOptions{UnixTimestamp: 2, Confirmed: true, ExpectedHead: head}); err != nil {
 		t.Errorf("confirmed apply should succeed: %v", err)
 	}
 }
@@ -166,7 +195,7 @@ func TestManagerApply_noChangesErrors(t *testing.T) {
 	commits, _ := repo.ReadCommits()
 	empty := model.NewPlan(commits) // no edits
 	state, _ := repo.ReadState()
-	if _, err := mgr.Apply(empty, state, ApplyOptions{UnixTimestamp: 1}); err == nil {
+	if _, err := mgr.Apply(empty, state, ApplyOptions{UnixTimestamp: 1, ExpectedHead: state.HeadHash}); err == nil {
 		t.Error("apply with no edits should error")
 	}
 }
@@ -177,7 +206,7 @@ func TestManagerUndo_refusesCrossBranchRestore(t *testing.T) {
 	repo := buildRepo(t)
 	mgr := NewManager(repo)
 	state, _ := repo.ReadState()
-	if _, err := mgr.Apply(spreadPlan(t, repo), state, ApplyOptions{UnixTimestamp: 7}); err != nil {
+	if _, err := mgr.Apply(spreadPlan(t, repo), state, ApplyOptions{UnixTimestamp: 7, ExpectedHead: state.HeadHash}); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 	// Switch to a new branch; the in-session undo stack still holds main's backup.
@@ -201,12 +230,12 @@ func TestManagerApply_sameTimestampKeepsBothBackups(t *testing.T) {
 	state, _ := repo.ReadState()
 	firstHead, _ := repo.ResolveRef("HEAD")
 
-	res1, err := mgr.Apply(spreadPlan(t, repo), state, ApplyOptions{UnixTimestamp: 42})
+	res1, err := mgr.Apply(spreadPlan(t, repo), state, ApplyOptions{UnixTimestamp: 42, ExpectedHead: state.HeadHash})
 	if err != nil {
 		t.Fatalf("first apply: %v", err)
 	}
 	state, _ = repo.ReadState() // head moved; re-snapshot
-	res2, err := mgr.Apply(spreadPlan(t, repo), state, ApplyOptions{UnixTimestamp: 42})
+	res2, err := mgr.Apply(spreadPlan(t, repo), state, ApplyOptions{UnixTimestamp: 42, ExpectedHead: state.HeadHash})
 	if err != nil {
 		t.Fatalf("second apply: %v", err)
 	}
@@ -216,4 +245,62 @@ func TestManagerApply_sameTimestampKeepsBothBackups(t *testing.T) {
 	if got, _ := repo.ResolveRef(res1.BackupRef); got != firstHead {
 		t.Errorf("first backup %s now points at %s, want original %s (overwritten!)", res1.BackupRef, got, firstHead)
 	}
+}
+
+// TestManagerApply_refusesWhenHeadMoved: a commit made after the plan snapshot
+// must abort the apply before any backup ref is created (H3).
+func TestManagerApply_refusesWhenHeadMoved(t *testing.T) {
+	repo := buildRepo(t)
+	mgr := NewManager(repo)
+	plan := spreadPlan(t, repo)
+	state, _ := repo.ReadState() // snapshot the plan was computed from
+
+	// Simulate another process committing to the branch. Shell out like buildRepo.
+	appendCommit(t, repo) // helper below
+
+	_, err := mgr.Apply(plan, state, ApplyOptions{UnixTimestamp: 9, ExpectedHead: state.HeadHash})
+	if err == nil {
+		t.Fatal("apply with a moved head must refuse")
+	}
+	if !strings.Contains(err.Error(), "moved since the plan was created") {
+		t.Errorf("want the branch-moved message, got: %v", err)
+	}
+	refs, _ := repo.ListBackupRefs()
+	if len(refs) != 0 {
+		t.Errorf("refused apply must not create a backup ref, found %v", refs)
+	}
+}
+
+// TestManagerApply_requiresExpectedHead: an empty anchor is a programming error
+// so no call site can silently skip the check.
+func TestManagerApply_requiresExpectedHead(t *testing.T) {
+	repo := buildRepo(t)
+	mgr := NewManager(repo)
+	state, _ := repo.ReadState()
+	_, err := mgr.Apply(spreadPlan(t, repo), state, ApplyOptions{UnixTimestamp: 9})
+	if err == nil || !strings.Contains(err.Error(), "ExpectedHead") {
+		t.Fatalf("empty ExpectedHead must error mentioning ExpectedHead, got %v", err)
+	}
+}
+
+// appendCommit adds one commit to the repo out-of-band (simulating a concurrent
+// writer). Same shell-out style as buildRepo: tests may build fixtures with raw git.
+func appendCommit(t *testing.T, repo *gitio.Repo) {
+	t.Helper()
+	dir := repo.Root()
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "extra.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "extra.txt")
+	run("commit", "-q", "-m", "concurrent")
 }

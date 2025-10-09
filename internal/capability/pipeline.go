@@ -59,14 +59,21 @@ func applyOrPreview(ctx *RunContext, plan *model.Plan, a ParsedArgs, preview fun
 	if guard.NeedsConfirmation && !a.Bool("force") {
 		return guardErr("%s — re-run with --force to rewrite them", guard.ConfirmReason)
 	}
+	if len(plan.Commits) == 0 {
+		return runtimeErr("nothing to apply: empty plan")
+	}
 
 	mgr := safety.NewManager(ctx.Repo)
 	res, err := mgr.Apply(plan, state, safety.ApplyOptions{
 		Sign:          gitio.DropSignatures,
 		UnixTimestamp: ctx.Now.Unix(),
 		Confirmed:     a.Bool("force"), // satisfies the pushed-history confirmation
+		ExpectedHead:  plan.Commits[len(plan.Commits)-1].Hash,
 	})
 	if err != nil {
+		if errors.Is(err, safety.ErrHeadMoved) {
+			return guardErr("%v", err)
+		}
 		return runtimeErr("%v", err)
 	}
 	fmt.Fprintf(ctx.Stdout, "\nApplied. New HEAD %s (backup %s)\n", Short(res.NewHead), res.BackupRef)

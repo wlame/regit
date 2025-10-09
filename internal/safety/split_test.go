@@ -159,7 +159,7 @@ func TestApplySplit_refusesMergeCommit(t *testing.T) {
 		{Tree: "dummy2", Subject: "b"},
 	}
 
-	_, err = mgr.ApplySplit(mergeCommit, "parent", subs, nil, state, ApplyOptions{UnixTimestamp: 1})
+	_, err = mgr.ApplySplit(mergeCommit, "parent", subs, nil, state, ApplyOptions{UnixTimestamp: 1, ExpectedHead: oldHead})
 	if err == nil {
 		t.Fatal("expected an error for merge commit, got nil")
 	}
@@ -204,7 +204,7 @@ func TestApplySplit_movesBranchAndIsUndoable(t *testing.T) {
 
 	res, err := mgr.ApplySplit(
 		childCommit, parentHash, subs, tail, state,
-		ApplyOptions{UnixTimestamp: 9999},
+		ApplyOptions{UnixTimestamp: 9999, ExpectedHead: oldHead},
 	)
 	if err != nil {
 		t.Fatalf("ApplySplit: %v", err)
@@ -290,7 +290,7 @@ func TestApplySplit_refusesWrongLastTree(t *testing.T) {
 	subs := buildSubCommits(t, repo, parentTreeHash, childCommit)
 	subs[len(subs)-1].Tree = parentTreeHash // deliberate corruption
 
-	_, err = mgr.ApplySplit(childCommit, parentHash, subs, tail, state, ApplyOptions{UnixTimestamp: 2})
+	_, err = mgr.ApplySplit(childCommit, parentHash, subs, tail, state, ApplyOptions{UnixTimestamp: 2, ExpectedHead: oldHead})
 	if err == nil {
 		t.Fatal("expected error when last sub-commit tree != original commit tree")
 	}

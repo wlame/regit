@@ -1,6 +1,7 @@
 package safety
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/wlame/regit/internal/gitio"
@@ -27,6 +28,31 @@ func NewManager(repo *gitio.Repo) *Manager {
 	return &Manager{repo: repo}
 }
 
+// ErrHeadMoved marks the H3 refusal: the branch advanced past the plan's base
+// head. Headless callers map it to exit code 2 (guard-blocked) via errors.Is.
+var ErrHeadMoved = errors.New("branch moved since the plan was created")
+
+// preflight re-checks live repo state at apply time: a fresh dirty-tree read
+// (the caller's snapshot may be stale) and the ExpectedHead anchor against the
+// just-resolved oldHead. Returns an error when the apply must not proceed.
+func (m *Manager) preflight(branch, oldHead string, opts ApplyOptions) error {
+	dirty, err := m.repo.IsDirty()
+	if err != nil {
+		return fmt.Errorf("re-check working tree: %w", err)
+	}
+	if dirty {
+		return fmt.Errorf("rewrite blocked: working tree has uncommitted changes; commit or stash them first")
+	}
+	if opts.ExpectedHead == "" {
+		return fmt.Errorf("programming error: apply without ExpectedHead")
+	}
+	if oldHead != opts.ExpectedHead {
+		return fmt.Errorf("%w: branch %s (plan base %s, now %s); reload and re-stage",
+			ErrHeadMoved, branch, shortHash(opts.ExpectedHead), shortHash(oldHead))
+	}
+	return nil
+}
+
 // ApplyOptions parameterizes a single apply.
 type ApplyOptions struct {
 	Sign gitio.SignMode
@@ -36,6 +62,12 @@ type ApplyOptions struct {
 	// Confirmed records that the user typed the confirmation word when the guard
 	// required it (pushed commits).
 	Confirmed bool
+	// ExpectedHead is the commit the plan/proposal was computed from (the head
+	// of the snapshot the caller read). Mandatory: Apply refuses when it is
+	// empty, and aborts — before creating any ref — when the branch has moved
+	// away from it (H3). This anchors the compare-and-swap to the user's
+	// intent, not to whatever the branch happens to be at apply time.
+	ExpectedHead string
 }
 
 // ApplyResult reports what happened on success.
@@ -67,6 +99,9 @@ func (m *Manager) Apply(plan *model.Plan, state model.RepoState, opts ApplyOptio
 	}
 	oldHead, err := m.repo.ResolveRef("HEAD")
 	if err != nil {
+		return ApplyResult{}, err
+	}
+	if err := m.preflight(branch, oldHead, opts); err != nil {
 		return ApplyResult{}, err
 	}
 
@@ -132,6 +167,9 @@ func (m *Manager) ApplySplit(commit model.Commit, parentHash string, subs []giti
 	}
 	oldHead, err := m.repo.ResolveRef("HEAD")
 	if err != nil {
+		return ApplyResult{}, err
+	}
+	if err := m.preflight(branch, oldHead, opts); err != nil {
 		return ApplyResult{}, err
 	}
 

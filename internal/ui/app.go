@@ -1219,6 +1219,7 @@ func (m Model) commitPending(confirmed bool) (tea.Model, tea.Cmd) {
 		Sign:          gitio.DropSignatures,
 		UnixTimestamp: time.Now().Unix(),
 		Confirmed:     confirmed,
+		ExpectedHead:  m.state.HeadHash,
 	}
 	res, err := m.pending.apply(m.mgr, m.state, opts)
 	if err != nil {

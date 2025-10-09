@@ -3,6 +3,7 @@ package capability
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -109,8 +110,12 @@ func runSquash(ctx *RunContext, a ParsedArgs) error {
 		Sign:          gitio.DropSignatures,
 		UnixTimestamp: ctx.Now.Unix(),
 		Confirmed:     a.Bool("force"),
+		ExpectedHead:  commits[len(commits)-1].Hash,
 	})
 	if err != nil {
+		if errors.Is(err, safety.ErrHeadMoved) {
+			return guardErr("%v", err)
+		}
 		return runtimeErr("%v", err)
 	}
 	squashed := 0

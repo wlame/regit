@@ -65,7 +65,7 @@ func TestManagerApply_populatesVerificationSummary(t *testing.T) {
 	mgr := NewManager(repo)
 	plan := spreadPlan(t, repo)
 	state, _ := repo.ReadState()
-	res, err := mgr.Apply(plan, state, ApplyOptions{UnixTimestamp: 1})
+	res, err := mgr.Apply(plan, state, ApplyOptions{UnixTimestamp: 1, ExpectedHead: state.HeadHash})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}

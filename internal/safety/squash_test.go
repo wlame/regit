@@ -67,7 +67,7 @@ func TestApplySquash_appliesAndVerifies(t *testing.T) {
 	plan := model.SquashPlan{Chains: []model.SquashChain{ch}}
 
 	mgr := NewManager(repo)
-	res, err := mgr.ApplySquash(commits, plan, state, ApplyOptions{Sign: gitio.DropSignatures, UnixTimestamp: 1717689600})
+	res, err := mgr.ApplySquash(commits, plan, state, ApplyOptions{Sign: gitio.DropSignatures, UnixTimestamp: 1717689600, ExpectedHead: state.HeadHash})
 	if err != nil {
 		t.Fatalf("ApplySquash: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestApplySquash_blocksMergeMember(t *testing.T) {
 	plan := model.SquashPlan{Chains: []model.SquashChain{{
 		Members: []model.Commit{commits[0], commits[1]}, AuthorDate: time.Time{},
 	}}}
-	if _, err := NewManager(repo).ApplySquash(commits, plan, state, ApplyOptions{UnixTimestamp: 1}); err == nil {
+	if _, err := NewManager(repo).ApplySquash(commits, plan, state, ApplyOptions{UnixTimestamp: 1, ExpectedHead: state.HeadHash}); err == nil {
 		t.Error("squashing across a merge commit must be blocked")
 	}
 }
@@ -99,11 +99,12 @@ func TestApplySquash_blocksMergeMember(t *testing.T) {
 func TestApplySquash_blocksDirtyTree(t *testing.T) {
 	repo := newLinearRepo(t, 3)
 	commits, _ := repo.ReadCommits()
-	state := model.RepoState{IsDirty: true, Branch: "main"}
+	head, _ := repo.ResolveRef("HEAD")
+	state := model.RepoState{IsDirty: true, Branch: "main", HeadHash: head}
 	plan := model.SquashPlan{Chains: []model.SquashChain{{
 		Members: []model.Commit{commits[0], commits[1]}, AuthorDate: commits[1].OrigAuthorDate,
 	}}}
-	if _, err := NewManager(repo).ApplySquash(commits, plan, state, ApplyOptions{UnixTimestamp: 1}); err == nil {
+	if _, err := NewManager(repo).ApplySquash(commits, plan, state, ApplyOptions{UnixTimestamp: 1, ExpectedHead: head}); err == nil {
 		t.Error("a dirty tree must block the squash")
 	}
 }
