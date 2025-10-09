@@ -304,6 +304,10 @@ func (m Model) beginReword() (tea.Model, tea.Cmd, bool) {
 		}
 	}
 
+	// Keep the shared spinner ticking whenever the picker may show a generating
+	// state (harmless when the result is already buffered — the tick just runs
+	// with no visible effect since the picker renders the result instead).
+	cmds = append(cmds, m.spinner.Tick)
 	return m, tea.Batch(cmds...), true
 }
 

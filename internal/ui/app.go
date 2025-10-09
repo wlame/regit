@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -41,6 +42,7 @@ const (
 	modePicker
 	modeSquash   // the tabbed squash wizard (one tab per chain)
 	modeReauthor // the change-author wizard (single modal)
+	modeSplitGen // an async split Propose call is in flight (spinner overlay)
 )
 
 type focusArea int
@@ -143,6 +145,23 @@ type Model struct {
 	rewordSt   rewordState
 	squashSt   squashState
 	reauthorSt reauthorState
+
+	// spinner is the single shared throbber rendered by every async-generating
+	// overlay (split proposal, reword variants, squash summaries) so there is one
+	// ticking animation instead of one per feature.
+	spinner spinner.Model
+	// splitGenHash is the hash of the commit a split is being proposed for
+	// (modeSplitGen). Used for the overlay label and the commit lookup once a
+	// result is accepted — no longer for the stale-result guard itself, since a
+	// second split on the same commit (abort, then immediately restart) shares
+	// this hash with the abandoned first attempt.
+	splitGenHash string
+	// splitGenSeq is a per-invocation generation token, incremented by beginSplit
+	// before every dispatch. A splitResultMsg is only accepted if its seq still
+	// matches, so a result from an abandoned generation — even one sharing the
+	// same commit hash as the current generation — is dropped instead of being
+	// silently accepted over the real in-flight request.
+	splitGenSeq int
 
 	// Lazily-fetched, hash-keyed commit file stats for the detail panel. A stat
 	// is requested via a tea.Cmd when the cursor settles on a commit and cached
@@ -264,6 +283,8 @@ func New(repo *gitio.Repo, mgr *safety.Manager, cfg config.Config, state model.R
 		st:           newStyles(),
 		groupByDate:  true,
 	}
+	sp := spinner.New(spinner.WithSpinner(spinner.Dot))
+	m.spinner = sp
 
 	// Auto-detect the base branch and freeze the shared-history cone, then start
 	// the cursor on the newest editable commit and seed the calendar there.
@@ -354,6 +375,42 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case splitResultMsg:
+		// Ignore a result for an abandoned generation (user pressed esc, or moved
+		// on, or restarted the split — possibly on the same commit hash). The seq
+		// token, not the hash, identifies the specific in-flight request.
+		if m.mode != modeSplitGen || msg.seq != m.splitGenSeq {
+			return m, nil
+		}
+		if msg.state.errMsg != "" {
+			m.mode = modeMain
+			m.setStatus(msg.state.errMsg, statusErr)
+			return m, nil
+		}
+		c := m.commitByHash(msg.hash)
+		sc, ok := m.buildSplitChange(c, msg.state)
+		if !ok {
+			m.mode = modeMain
+			m.setStatus("Split commit not found in plan — history may have changed", statusErr)
+			return m, nil
+		}
+		guard := sc.guard(m.state)
+		if guard.Blocked {
+			m.mode = modeMain
+			m.setStatus(guard.BlockReason, statusErr)
+			return m, nil
+		}
+		m.pending = sc
+		m.pendingCmd = capability.Render("split", capability.SplitArgMap(capability.Short(c.Hash)))
+		m.pendingGuard = guard
+		m.pipelineApply = true
+		m.previewOffset = 0
+		m.mode = modePipeline
+		return m, nil
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
 	case summarizeSquashResultMsg:
 		if msg.err == nil {
 			m.squashSt = m.squashSt.applySummary(msg.chainKey, msg.prop)
@@ -397,6 +454,17 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateSquash(msg)
 	case modeReauthor:
 		return m.updateReauthor(msg)
+	case modeSplitGen:
+		// The only action while a split is generating is to abandon it; a late
+		// splitResultMsg for this generation is then dropped by the mode+seq guard
+		// in Update, even if the user immediately restarts a split on the same
+		// commit (same hash, new seq).
+		if msg.String() == "esc" {
+			m.mode = modeMain
+			m.splitGenHash = ""
+			m.setStatus("Split cancelled", statusWarn)
+		}
+		return m, nil
 	case modeDetail:
 		if s := msg.String(); s == "." || s == "esc" || s == "q" {
 			m.mode = modeMain
@@ -1485,9 +1553,10 @@ func (m Model) buildSplitChange(c model.Commit, st splitState) (splitChange, boo
 	}, true
 }
 
-// beginSplit is called when the user presses [S]. It runs Engine.Propose on the
-// selected commit (blocking for v1) and stages the result as a splitChange in the
-// shared modePipeline overlay so the user can review the groups, then apply or cancel.
+// beginSplit is called when the user presses [S]. It resolves the split inputs on
+// the UI thread, then fires Engine.Propose asynchronously (generateSplitCmd) and
+// enters modeSplitGen so the TUI stays responsive for the full LLM latency. The
+// result lands later as a splitResultMsg, handled in Update.
 func (m Model) beginSplit() (tea.Model, tea.Cmd, bool) {
 	if len(m.plan.Commits) == 0 {
 		m.setStatus("No commit selected", statusWarn)
@@ -1498,32 +1567,17 @@ func (m Model) beginSplit() (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 	c := m.commitAtCursor()
-	m.setStatus(fmt.Sprintf("Proposing split for %s — thinking…", short(c.Hash)), statusNone)
-
-	// v1: blocking call. The TUI is unresponsive while the LLM responds.
-	// A future version can wrap this in a tea.Cmd goroutine for async behavior.
-	st := runSplitOnCommit(&m, c)
-	if st.errMsg != "" {
-		m.setStatus(st.errMsg, statusErr)
+	in, err := buildSplitInputs(&m, c)
+	if err != nil {
+		m.setStatus("split: "+err.Error(), statusErr)
 		return m, nil, true
 	}
-	sc, ok := m.buildSplitChange(c, st)
-	if !ok {
-		m.setStatus("Split commit not found in plan — history may have changed", statusErr)
-		return m, nil, true
-	}
-	guard := sc.guard(m.state)
-	if guard.Blocked {
-		m.setStatus(guard.BlockReason, statusErr)
-		return m, nil, true
-	}
-	m.pending = sc
-	m.pendingCmd = capability.Render("split", capability.SplitArgMap(capability.Short(c.Hash)))
-	m.pendingGuard = guard
-	m.pipelineApply = true
-	m.previewOffset = 0
-	m.mode = modePipeline
-	return m, nil, true
+	m.splitGenSeq++
+	seq := m.splitGenSeq
+	m.splitGenHash = c.Hash
+	m.mode = modeSplitGen
+	m.setStatus("", statusNone)
+	return m, tea.Batch(m.spinner.Tick, generateSplitCmd(in, seq)), true
 }
 
 // --- Picker ----------------------------------------------------------------
@@ -1695,16 +1749,23 @@ func (m Model) View() string {
 	case modeDropBodies:
 		overlay = m.viewDropBodies()
 	case modeReword:
-		// Show the buffered result if available; otherwise a generating indicator.
-		if result, ok := m.rewordSt.buffer[m.rewordSt.commit.Hash]; ok {
+		// Show the buffered result if available; otherwise a generating indicator
+		// (the shared spinner) or the failure once the call has errored.
+		result, ok := m.rewordSt.buffer[m.rewordSt.commit.Hash]
+		switch {
+		case ok:
 			overlay = m.st.modal.Render(renderRewordPicker(result, m.rewordSt.sel, m.rewordSt.errMsg))
-		} else {
+		case m.rewordSt.errMsg == "":
+			overlay = m.st.modal.Render(m.spinner.View() + " generating reword variants…\n\nesc cancel")
+		default:
 			overlay = m.st.modal.Render(renderRewordPicker(reword.Result{}, m.rewordSt.sel, m.rewordSt.errMsg))
 		}
 	case modeSquash:
 		overlay = m.viewSquash()
 	case modeReauthor:
 		overlay = m.viewReauthor()
+	case modeSplitGen:
+		overlay = m.st.modal.Render(m.spinner.View() + " proposing a split for " + short(m.splitGenHash) + "…\n\nesc cancel")
 	case modeDetail:
 		c := m.commitAtCursor()
 		stat, have := m.statCache[c.Hash]

@@ -402,6 +402,9 @@ func (m Model) beginSquash() (tea.Model, tea.Cmd, bool) {
 	}
 	m.squashSt = st
 	m.mode = modeSquash
+	// Keep the shared spinner ticking while a chain's summary is loading; harmless
+	// when nothing is in flight (the no-LLM path).
+	cmds = append(cmds, m.spinner.Tick)
 	return m, tea.Batch(cmds...), true
 }
 
@@ -533,9 +536,16 @@ func chainsToSpec(chains []model.SquashChain) string {
 	return strings.Join(parts, ",")
 }
 
-// viewSquash renders the wizard overlay.
+// viewSquash renders the wizard overlay. renderSquashWizard is a pure function
+// (used directly in tests without a spinner), so the shared spinner is spliced
+// in here as a post-processing step: when the active chain's summary is still
+// loading, its static "(summarizing…)" header is swapped for the ticking frame.
 func (m Model) viewSquash() string {
-	return m.st.modal.Render(renderSquashWizard(m.squashSt, m.width, m.height, m.st))
+	body := renderSquashWizard(m.squashSt, m.width, m.height, m.st)
+	if len(m.squashSt.chains) > 0 && m.squashSt.loading[m.squashSt.active().Last().Hash] {
+		body = strings.ReplaceAll(body, "(summarizing…)", m.spinner.View()+" summarizing…")
+	}
+	return m.st.modal.Render(body)
 }
 
 // buildSquashEngine builds a squash.Engine from the TUI config, or returns

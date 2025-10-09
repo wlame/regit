@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/wlame/regit/internal/llm"
 	"github.com/wlame/regit/internal/model"
 	"github.com/wlame/regit/internal/split"
@@ -86,51 +88,68 @@ func resolveSplitAPIKey(provider string) string {
 	return ""
 }
 
-// runSplitOnCommit runs the split engine on the given commit and returns a
-// filled splitState. Blocking is acceptable for v1; the TUI shows a
-// "thinking…" status message while this runs.
-func runSplitOnCommit(m *Model, commit model.Commit) splitState {
+// splitInputs is everything generateSplitCmd needs to run Propose off-thread —
+// resolved on the UI thread first so the command closes over no *Model.
+type splitInputs struct {
+	eng        *split.Engine
+	commit     model.Commit
+	parentTree string
+	opts       split.Options
+}
+
+// buildSplitInputs resolves the engine, parent tree, and options for a split on
+// the UI thread. Returns an error the caller surfaces as a status message.
+func buildSplitInputs(m *Model, commit model.Commit) (splitInputs, error) {
 	eng, err := buildSplitEngine(m)
 	if err != nil {
-		return splitState{errMsg: "build engine: " + err.Error()}
+		return splitInputs{}, err
 	}
-
-	// Resolve the parent tree hash (empty tree for root commits).
 	var parentTree string
 	if len(commit.ParentHashes) == 0 {
 		parentTree, err = m.repo.EmptyTree()
-		if err != nil {
-			return splitState{errMsg: "resolve empty tree: " + err.Error()}
-		}
 	} else {
 		parentTree, err = m.repo.ResolveRef(commit.ParentHashes[0] + "^{tree}")
-		if err != nil {
-			return splitState{errMsg: "resolve parent tree: " + err.Error()}
-		}
 	}
-
+	if err != nil {
+		return splitInputs{}, err
+	}
 	cfg := m.cfg
 	opts := split.Options{
-		MaxCommits:     cfg.Split.MaxCommits,
-		LinesPerCommit: cfg.Split.LinesPerCommit,
-		MinSplitLines:  cfg.Split.MinSplitLines,
-		RepairAttempts: cfg.Split.RepairAttempts,
-		WIPPrefix:      cfg.Split.WIPPrefix,
-		ContextKey:     strings.Join(cfg.Split.Context, ","),
-		Now:            time.Now(),
+		MaxCommits: cfg.Split.MaxCommits, LinesPerCommit: cfg.Split.LinesPerCommit,
+		MinSplitLines: cfg.Split.MinSplitLines, RepairAttempts: cfg.Split.RepairAttempts,
+		WIPPrefix: cfg.Split.WIPPrefix, ContextKey: strings.Join(cfg.Split.Context, ","),
+		Now: time.Now(),
 	}
+	return splitInputs{eng: eng, commit: commit, parentTree: parentTree, opts: opts}, nil
+}
 
-	prop, trees, err := eng.Propose(context.Background(), commit, parentTree, "", opts)
-	if err != nil {
-		return splitState{errMsg: "propose: " + err.Error()}
-	}
-	if !prop.ShouldSplit || len(prop.Groups) < 2 {
-		reason := prop.Reason
-		if reason == "" {
-			reason = "commit is not worth splitting"
+// splitResultMsg carries the finished proposal back onto the Bubble Tea bus.
+// seq is the generation token beginSplit assigned this call; Update only
+// accepts a result whose seq still matches the model's current splitGenSeq,
+// so a result from an abandoned generation is dropped even if it shares hash
+// with the generation that replaced it (abort, then immediately restart).
+type splitResultMsg struct {
+	hash  string
+	seq   int
+	state splitState
+}
+
+// generateSplitCmd runs Engine.Propose off the UI thread (mirrors generateRewordCmd).
+// seq is stamped onto every returned splitResultMsg so Update can discriminate
+// this specific generation from any other in-flight or abandoned one.
+func generateSplitCmd(in splitInputs, seq int) tea.Cmd {
+	return func() tea.Msg {
+		prop, trees, err := in.eng.Propose(context.Background(), in.commit, in.parentTree, "", in.opts)
+		if err != nil {
+			return splitResultMsg{hash: in.commit.Hash, seq: seq, state: splitState{errMsg: "propose: " + err.Error()}}
 		}
-		return splitState{errMsg: fmt.Sprintf("not splitting %s: %s", short(commit.Hash), reason)}
+		if !prop.ShouldSplit || len(prop.Groups) < 2 {
+			reason := prop.Reason
+			if reason == "" {
+				reason = "commit is not worth splitting"
+			}
+			return splitResultMsg{hash: in.commit.Hash, seq: seq, state: splitState{errMsg: fmt.Sprintf("not splitting %s: %s", short(in.commit.Hash), reason)}}
+		}
+		return splitResultMsg{hash: in.commit.Hash, seq: seq, state: splitState{proposal: prop, trees: trees}}
 	}
-
-	return splitState{proposal: prop, trees: trees}
 }
