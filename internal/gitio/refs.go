@@ -72,6 +72,12 @@ func (r *Repo) CreateBackupRef(branch string, unixTS int64, head string) (string
 		} else if _, exists := r.ResolveRef(ref); exists != nil {
 			// The ref does NOT exist yet the guarded create failed → a real
 			// error (permissions, bad name), not a collision. Surface it.
+			//
+			// Tradeoff: if another process deleted this exact ref in the tiny
+			// window between the failed create above and this re-resolve, we'd
+			// misreport a collision as a real error. Harmless (the caller sees
+			// an error and can retry) and bounded to a single-process CLI where
+			// no other process is racing us to create backup refs.
 			return "", fmt.Errorf("create backup ref %s: %w", ref, err)
 		}
 		// Ref already exists (same-second apply): try the next sequence number.

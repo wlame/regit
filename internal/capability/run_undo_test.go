@@ -160,6 +160,39 @@ func TestRunUndo_toOtherBranchRefuses(t *testing.T) {
 	}
 }
 
+// TestUndoList_rendersBranchAndLegacyMarker: --list must render the branch
+// column for a new-style backup (the current branch name) and the
+// "(legacy)" marker for a flat ref that predates branch qualification.
+func TestUndoList_rendersBranchAndLegacyMarker(t *testing.T) {
+	_, repo := newTestRepo(t, 2)
+	state, err := repo.ReadState()
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	head, err := repo.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.CreateBackupRef(state.Branch, 1717689600, head); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.UpdateRef("refs/regit/backup/123", head, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	ctx := &RunContext{Repo: repo, Cfg: config.Default(), Stdout: &out, Stderr: &out, Now: time.Unix(1000, 0)}
+	if err := runUndo(ctx, newParsedArgs(map[string]any{"list": true}, nil)); err != nil {
+		t.Fatalf("undo --list: %v", err)
+	}
+	if !strings.Contains(out.String(), state.Branch) {
+		t.Errorf("expected the current branch name %q in --list output:\n%s", state.Branch, out.String())
+	}
+	if !strings.Contains(out.String(), "(legacy)") {
+		t.Errorf("expected a '(legacy)' marker for the flat ref in --list output:\n%s", out.String())
+	}
+}
+
 // TestRunUndo_legacyRefNeedsExplicitTo: legacy flat refs are never picked
 // implicitly and warn when restored explicitly.
 func TestRunUndo_legacyRefNeedsExplicitTo(t *testing.T) {

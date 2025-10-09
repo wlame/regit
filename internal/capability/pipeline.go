@@ -36,6 +36,18 @@ func ExitCode(err error) int {
 	return 1
 }
 
+// applyGuardErr maps a safety-apply error to the right exit code: a plan that
+// no longer matches the branch head (H3) is a guard block (exit 2), anything
+// else is a runtime failure (exit 3). Wraps with %w (not %v) so the sentinel
+// survives the CodedError wrapping — callers (and tests) can still
+// errors.Is(err, safety.ErrHeadMoved) on the value applyOrPreview returns.
+func applyGuardErr(err error) error {
+	if errors.Is(err, safety.ErrHeadMoved) {
+		return guardErr("%w", err)
+	}
+	return runtimeErr("%w", err)
+}
+
 // applyOrPreview is the universal pipeline for plan-based mutating verbs:
 // preview by default; --execute applies; --execute --force is required to rewrite
 // already-pushed commits; dirty tree / out-of-order always block. A backup ref is
@@ -71,10 +83,7 @@ func applyOrPreview(ctx *RunContext, plan *model.Plan, a ParsedArgs, preview fun
 		ExpectedHead:  plan.Commits[len(plan.Commits)-1].Hash,
 	})
 	if err != nil {
-		if errors.Is(err, safety.ErrHeadMoved) {
-			return guardErr("%v", err)
-		}
-		return runtimeErr("%v", err)
+		return applyGuardErr(err)
 	}
 	fmt.Fprintf(ctx.Stdout, "\nApplied. New HEAD %s (backup %s)\n", Short(res.NewHead), res.BackupRef)
 	fmt.Fprintln(ctx.Stdout, res.Verification.String())

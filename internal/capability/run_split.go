@@ -2,7 +2,6 @@ package capability
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -119,10 +118,7 @@ func runSplit(ctx *RunContext, a ParsedArgs) error {
 		ExpectedHead:  commits[len(commits)-1].Hash,
 	})
 	if err != nil {
-		if errors.Is(err, safety.ErrHeadMoved) {
-			return guardErr("%v", err)
-		}
-		return runtimeErr("%v", err)
+		return applyGuardErr(err)
 	}
 	fmt.Fprintf(ctx.Stdout, "\nSplit into %d commits. New HEAD %s (backup %s)\n", len(subs), Short(res.NewHead), res.BackupRef)
 	fmt.Fprintln(ctx.Stdout, res.Verification.String())

@@ -3,7 +3,6 @@ package capability
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -113,10 +112,7 @@ func runSquash(ctx *RunContext, a ParsedArgs) error {
 		ExpectedHead:  commits[len(commits)-1].Hash,
 	})
 	if err != nil {
-		if errors.Is(err, safety.ErrHeadMoved) {
-			return guardErr("%v", err)
-		}
-		return runtimeErr("%v", err)
+		return applyGuardErr(err)
 	}
 	squashed := 0
 	for _, ch := range plan.Chains {

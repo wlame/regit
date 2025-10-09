@@ -474,6 +474,62 @@ func TestListBackupRefs_parsesBranchAndTimestamp(t *testing.T) {
 	}
 }
 
+// TestListBackupRefs_sameTimestampOrdersByNameDescending: two backups on the
+// same branch at the SAME unix second collide on seq and produce "-0"/"-1".
+// ListBackupRefs must return both, and — since their Timestamps are equal —
+// the sort's tiebreak (Name descending) must decide the order: "...-1" sorts
+// after "...-0" lexically, so it is returned FIRST.
+func TestListBackupRefs_sameTimestampOrdersByNameDescending(t *testing.T) {
+	repo := newRefsTestRepo(t)
+	head, err := repo.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref0, err := repo.CreateBackupRef("main", 1717689600, head)
+	if err != nil {
+		t.Fatalf("first CreateBackupRef: %v", err)
+	}
+	ref1, err := repo.CreateBackupRef("main", 1717689600, head)
+	if err != nil {
+		t.Fatalf("second CreateBackupRef: %v", err)
+	}
+	if ref0 == ref1 {
+		t.Fatalf("collision not avoided: both = %s", ref0)
+	}
+
+	refs, err := repo.ListBackupRefs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refs) != 2 {
+		t.Fatalf("want 2 refs, got %d: %+v", len(refs), refs)
+	}
+	if refs[0].Timestamp != refs[1].Timestamp {
+		t.Fatalf("both refs should share a timestamp, got %d and %d", refs[0].Timestamp, refs[1].Timestamp)
+	}
+	// Name-descending tiebreak: "...-1" > "...-0", so ref1 comes first.
+	if refs[0].Name != ref1 || refs[1].Name != ref0 {
+		t.Errorf("expected same-timestamp order [%s, %s] (Name descending), got [%s, %s]",
+			ref1, ref0, refs[0].Name, refs[1].Name)
+	}
+}
+
+// TestCreateBackupRef_invalidBranchNameSurfacesError: a branch name containing
+// ".." is an illegal git ref component. The guarded create fails, the
+// re-resolve also fails (the ref was never created), so refs.go's
+// disambiguation must classify this as a real error rather than retry it as a
+// same-second collision.
+func TestCreateBackupRef_invalidBranchNameSurfacesError(t *testing.T) {
+	repo := newRefsTestRepo(t)
+	head, err := repo.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.CreateBackupRef("bad..name", 1717689600, head); err == nil {
+		t.Fatal("expected an error for an invalid ref name, got nil")
+	}
+}
+
 func TestGitDir_returnsAbsolutePath(t *testing.T) {
 	repo, dir := testRepo(t)
 	gitDir, err := repo.GitDir()
