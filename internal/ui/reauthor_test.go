@@ -247,3 +247,61 @@ func TestStageReauthor_pushedHistorySetsConfirmGuard(t *testing.T) {
 		t.Error("editing a pushed commit must set pendingGuard.NeedsConfirmation")
 	}
 }
+
+// TestUpdateReauthor_typingCapitalA_isText: "A" typed into name/email is text
+// (P0 — typing "Alice" must not stage the wizard).
+func TestUpdateReauthor_typingCapitalA_isText(t *testing.T) {
+	m := modelWithSet(reauthorCommits("a", "b"), "b")
+	updated, _, _ := m.beginReauthor()
+	m = updated.(Model)
+	m.reauthorSt.nameBuf = ""
+	m.reauthorSt.field = fldRName
+	m = sendReauthor(m, "A", "l", "i", "c", "e")
+	if m.mode != modeMain && m.mode != modeReauthor {
+		t.Fatalf("typing must not leave the wizard; mode %v", m.mode)
+	}
+	if m.mode != modeReauthor {
+		t.Fatalf("typing 'A' staged the wizard (mode %v)", m.mode)
+	}
+	if m.reauthorSt.nameBuf != "Alice" {
+		t.Errorf("nameBuf = %q, want Alice", m.reauthorSt.nameBuf)
+	}
+}
+
+// TestUpdateReauthor_enterStages_andAOnCheckboxStages: enter applies from any
+// field; A applies only from the (non-text) committer checkbox.
+func TestUpdateReauthor_enterStages_andAOnCheckboxStages(t *testing.T) {
+	m := modelWithSet(reauthorCommits("a", "b"), "b")
+	updated, _, _ := m.beginReauthor()
+	m = updated.(Model)
+	m.reauthorSt.nameBuf, m.reauthorSt.emailBuf = "wlame", "new@x"
+	m.reauthorSt.field = fldRName
+	m = sendReauthor(m, "enter")
+	if m.mode != modePipeline {
+		t.Fatalf("enter should stage from a text field, got mode %v", m.mode)
+	}
+
+	// Fresh wizard: A on the checkbox field stages.
+	m2 := modelWithSet(reauthorCommits("a", "b"), "b")
+	updated2, _, _ := m2.beginReauthor()
+	m2 = updated2.(Model)
+	m2.reauthorSt.nameBuf, m2.reauthorSt.emailBuf = "wlame", "new@x"
+	m2.reauthorSt.field = fldRCommitter
+	m2 = sendReauthor(m2, "A")
+	if m2.mode != modePipeline {
+		t.Fatalf("A on the checkbox should stage, got mode %v", m2.mode)
+	}
+}
+
+// TestRenderReauthorWizard_footerMatchesFocus: the footer advertises [A]pply
+// only where A actually applies.
+func TestRenderReauthorWizard_footerMatchesFocus(t *testing.T) {
+	st := reauthorState{field: fldRName, targets: reauthorCommits("a")}
+	if out := renderReauthorWizard(st, newStyles()); strings.Contains(out, "[A]pply") {
+		t.Errorf("text-field footer must not advertise [A]pply:\n%s", out)
+	}
+	st.field = fldRCommitter
+	if out := renderReauthorWizard(st, newStyles()); !strings.Contains(out, "[A]pply") {
+		t.Errorf("checkbox footer should advertise [A]pply:\n%s", out)
+	}
+}

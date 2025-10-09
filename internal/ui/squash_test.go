@@ -204,6 +204,29 @@ func TestRestructureMenu_includesSquash(t *testing.T) {
 	}
 }
 
+// TestUpdateSquash_typingCapitalA_editsFieldNotApply: "A" in a text field is
+// text; only enter applies (P0 — typing "Add tests" must not stage the wizard).
+func TestUpdateSquash_typingCapitalA_editsFieldNotApply(t *testing.T) {
+	commits := linearModelCommits("a", "b", "c") // this file's fixture helper
+	m := modelWithSet(commits, "a", "b")
+	updated, _, ok := m.beginSquash()
+	if !ok {
+		t.Fatal("beginSquash should be handled")
+	}
+	m = updated.(Model)
+	m.squashSt.chains[m.squashSt.tab].Subject = "" // clear to observe typed text
+	m.squashSt.field = fldTitle
+
+	out, _ := m.updateSquash(key("A"))
+	m = out.(Model)
+	if m.mode != modeSquash {
+		t.Fatalf("typing A must stay in the wizard, got mode %v", m.mode)
+	}
+	if got := m.squashSt.chains[m.squashSt.tab].Subject; got != "A" {
+		t.Errorf("Subject = %q, want %q (A must be literal text)", got, "A")
+	}
+}
+
 func TestStageSquash_rejectsUnparseableDate(t *testing.T) {
 	commits := linearModelCommits("a", "b", "c")
 	m := modelWithSet(commits, "a", "b")

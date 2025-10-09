@@ -155,7 +155,8 @@ func (m Model) beginReauthor() (tea.Model, tea.Cmd, bool) {
 
 // updateReauthor handles keys while the wizard is open: tab cycles fields, runes
 // edit the focused text buffer, space toggles the committer checkbox (only on its
-// field), A stages the change, esc cancels.
+// field), enter stages the change from any field, A stages only from the
+// committer checkbox, esc cancels.
 func (m Model) updateReauthor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	st := m.reauthorSt
 	switch msg.String() {
@@ -167,8 +168,17 @@ func (m Model) updateReauthor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		st.field = (st.field + 1) % reauthorFieldCount
 		m.reauthorSt = st
 		return m, nil
-	case "A":
+	case "enter":
 		return m.stageReauthor()
+	case "A":
+		// A is the apply key ONLY on the non-text checkbox field; in the name
+		// and email fields it is a literal letter (P0: typing "Alice" must not
+		// apply the wizard).
+		if st.field == fldRCommitter {
+			return m.stageReauthor()
+		}
+		m.reauthorSt = appendToField(st, "A")
+		return m, nil
 	case "backspace":
 		switch st.field {
 		case fldRName:
@@ -270,7 +280,13 @@ func renderReauthorWizard(st reauthorState, s styles) string {
 		check = "[x]"
 	}
 	fmt.Fprintf(&b, "%s%s also update committer\n", focusBar(st.field, fldRCommitter), check)
-	b.WriteString("\n" + s.help.Render("[tab] field · [space] toggle committer · [A]pply · [esc] cancel"))
+	// The footer is context-sensitive: A only applies from the checkbox field,
+	// so [A]pply is advertised only there (P0 — elsewhere A is literal text).
+	hint := "[tab] field · [enter] apply · [esc] cancel"
+	if st.field == fldRCommitter {
+		hint = "[tab] field · [space] toggle committer · [A]pply / [enter] apply · [esc] cancel"
+	}
+	b.WriteString("\n" + s.help.Render(hint))
 	return b.String()
 }
 

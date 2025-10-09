@@ -318,16 +318,17 @@ func TestUpdateSquash_enterStages(t *testing.T) {
 	}
 }
 
-// TestUpdateSquash_stageEnteredOnA verifies that pressing "A" calls
-// stageSquash and, when the plan is valid, advances to modePipeline.
-func TestUpdateSquash_stageEnteredOnA(t *testing.T) {
+// TestUpdateSquash_stageEnteredOnEnter verifies that pressing "enter" calls
+// stageSquash and, when the plan is valid, advances to modePipeline. "A" no
+// longer applies here (P0 — it must stay literal text in the RESULT fields).
+func TestUpdateSquash_stageEnteredOnEnter(t *testing.T) {
 	commits := linearModelCommits("a", "b", "c")
 	m := squashModelReady(commits, "a", "b")
 
-	out, _ := m.updateSquash(key("A"))
+	out, _ := m.updateSquash(key("enter"))
 	mm := out.(Model)
 	if mm.mode != modePipeline {
-		t.Errorf("mode = %v after 'A', want modePipeline", mm.mode)
+		t.Errorf("mode = %v after 'enter', want modePipeline", mm.mode)
 	}
 }
 

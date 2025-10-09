@@ -399,10 +399,11 @@ func (m Model) beginSquash() (tea.Model, tea.Cmd, bool) {
 }
 
 // updateSquash handles keys while the wizard is open: ↑/↓ move the commit cursor,
-// ←/→ switch chains, tab cycles the RESULT fields, enter/A apply, esc cancels, and
+// ←/→ switch chains, tab cycles the RESULT fields, enter applies, esc cancels, and
 // any other single rune (or backspace) edits the focused RESULT field. The commit
 // list is always navigable — there is no separate "list field" to focus — so the
-// arrow keys are used for movement and letter keys remain literal text input.
+// arrow keys are used for movement, and letter keys — including A — are literal
+// text input (P0: typing "Add tests" must not stage the wizard).
 func (m Model) updateSquash(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	st := m.squashSt
 	switch msg.String() {
@@ -432,7 +433,7 @@ func (m Model) updateSquash(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		st.field = (st.field + 1) % squashFieldCount
 		m.squashSt = st
 		return m, nil
-	case "enter", "A":
+	case "enter":
 		return m.stageSquash()
 	case "backspace":
 		m.squashSt = editActiveField(st, "", true)
