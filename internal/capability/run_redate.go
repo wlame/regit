@@ -99,8 +99,8 @@ func redateParams(ctx *RunContext, a ParsedArgs) (strategy.Params, error) {
 		}
 	}
 	p.JitterMin = ctx.Cfg.JitterMinutes
-	if j := a.Int("jitter-min"); j > 0 {
-		p.JitterMin = j
+	if a.Has("jitter-min") { // an explicit 0 disables jitter; only omission keeps the config default
+		p.JitterMin = a.Int("jitter-min")
 	}
 	if ls := firstNonEmpty(a.String("lunch-start"), ctx.Cfg.LunchStart); ls != "" {
 		p.LunchStart, _ = clockToMin(ls)

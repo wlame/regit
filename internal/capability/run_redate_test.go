@@ -41,16 +41,25 @@ func TestRedateManualPinRequiresPin(t *testing.T) {
 // TestRedateParams_jitterZeroCannotOverrideConfig documents that --jitter-min=0 is
 // treated as absent and cannot zero a configured jitter (a.Int 0 == unset; a zero
 // jitter is a no-op anyway).
-func TestRedateParams_jitterZeroCannotOverrideConfig(t *testing.T) {
+func TestRedateParams_jitterZeroDisablesJitter(t *testing.T) {
 	cfg := config.Default()
 	cfg.JitterMinutes = 15
 	ctx := &RunContext{Cfg: cfg, Now: time.Unix(1000, 0)}
+	// An explicit --jitter-min=0 disables jitter, overriding the config default.
 	p, err := redateParams(ctx, newParsedArgs(map[string]any{"jitter-min": 0}, nil))
 	if err != nil {
 		t.Fatalf("redateParams: %v", err)
 	}
-	if p.JitterMin != 15 {
-		t.Errorf("JitterMin = %d, want 15 (--jitter-min=0 must not override config)", p.JitterMin)
+	if p.JitterMin != 0 {
+		t.Errorf("JitterMin = %d, want 0 (--jitter-min=0 disables jitter)", p.JitterMin)
+	}
+	// Omitting --jitter-min still falls back to the config default.
+	p2, err := redateParams(ctx, newParsedArgs(map[string]any{}, nil))
+	if err != nil {
+		t.Fatalf("redateParams: %v", err)
+	}
+	if p2.JitterMin != 15 {
+		t.Errorf("omitted jitter-min: JitterMin = %d, want config default 15", p2.JitterMin)
 	}
 }
 
