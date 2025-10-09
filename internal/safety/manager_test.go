@@ -170,3 +170,28 @@ func TestManagerApply_noChangesErrors(t *testing.T) {
 		t.Error("apply with no edits should error")
 	}
 }
+
+// TestManagerApply_sameTimestampKeepsBothBackups: two applies sharing a unix
+// timestamp must produce two distinct backup refs — never overwrite (H2).
+func TestManagerApply_sameTimestampKeepsBothBackups(t *testing.T) {
+	repo := buildRepo(t)
+	mgr := NewManager(repo)
+	state, _ := repo.ReadState()
+	firstHead, _ := repo.ResolveRef("HEAD")
+
+	res1, err := mgr.Apply(spreadPlan(t, repo), state, ApplyOptions{UnixTimestamp: 42})
+	if err != nil {
+		t.Fatalf("first apply: %v", err)
+	}
+	state, _ = repo.ReadState() // head moved; re-snapshot
+	res2, err := mgr.Apply(spreadPlan(t, repo), state, ApplyOptions{UnixTimestamp: 42})
+	if err != nil {
+		t.Fatalf("second apply: %v", err)
+	}
+	if res1.BackupRef == res2.BackupRef {
+		t.Fatalf("backup collision: both applies used %s", res1.BackupRef)
+	}
+	if got, _ := repo.ResolveRef(res1.BackupRef); got != firstHead {
+		t.Errorf("first backup %s now points at %s, want original %s (overwritten!)", res1.BackupRef, got, firstHead)
+	}
+}

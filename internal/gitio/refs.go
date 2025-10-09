@@ -3,6 +3,7 @@ package gitio
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -12,8 +13,10 @@ const BackupRefPrefix = "refs/regit/backup/"
 
 // BackupRef is one saved snapshot of a branch tip created before a rewrite.
 type BackupRef struct {
-	Name string // full ref name, e.g. refs/regit/backup/1717689600
-	Hash string // commit the ref points at
+	Name      string // full ref name, e.g. refs/regit/backup/main/1717689600-0
+	Hash      string // commit the ref points at
+	Branch    string // branch the backup was taken on; "" for legacy flat refs
+	Timestamp int64  // unix seconds embedded in the name; 0 if unparsable
 }
 
 // ResolveRef returns the commit hash a ref or revision points to.
@@ -39,8 +42,69 @@ func (r *Repo) DeleteRef(ref string) error {
 	return err
 }
 
-// ListBackupRefs returns every regit backup ref, newest first (refs are named
-// with a unix timestamp suffix, so lexical descending order is chronological).
+// BackupRefName renders the branch-qualified, sequence-suffixed backup ref name.
+// Branch names may contain '/'; the final path segment is always "<ts>-<seq>",
+// so parsing splits on the LAST '/'. Legacy refs (a bare "<ts>") predate this
+// scheme and parse with Branch "".
+func BackupRefName(branch string, unixTS int64, seq int) string {
+	return fmt.Sprintf("%s%s/%d-%d", BackupRefPrefix, branch, unixTS, seq)
+}
+
+// zeroOID returns the all-zeros object ID sized to match hash (works for both
+// SHA-1 and SHA-256 repos). git update-ref treats it as "ref must not exist".
+func zeroOID(hash string) string {
+	return strings.Repeat("0", len(hash))
+}
+
+// maxBackupSeq bounds the collision-retry loop; hitting it means something is
+// mass-creating refs and deserves a hard error rather than an infinite loop.
+const maxBackupSeq = 100
+
+// CreateBackupRef creates refs/regit/backup/<branch>/<ts>-<seq> pointing at
+// head, bumping <seq> until an unused name is found. Creation uses a
+// must-not-exist compare-and-swap (all-zeros old value), so an existing backup
+// can never be silently overwritten (H2).
+func (r *Repo) CreateBackupRef(branch string, unixTS int64, head string) (string, error) {
+	for seq := 0; seq < maxBackupSeq; seq++ {
+		ref := BackupRefName(branch, unixTS, seq)
+		if err := r.UpdateRef(ref, head, zeroOID(head)); err == nil {
+			return ref, nil
+		} else if _, exists := r.ResolveRef(ref); exists != nil {
+			// The ref does NOT exist yet the guarded create failed → a real
+			// error (permissions, bad name), not a collision. Surface it.
+			return "", fmt.Errorf("create backup ref %s: %w", ref, err)
+		}
+		// Ref already exists (same-second apply): try the next sequence number.
+	}
+	return "", fmt.Errorf("create backup ref: %d refs already exist for %s at %d", maxBackupSeq, branch, unixTS)
+}
+
+// BackupRefBranch extracts the branch a backup ref was taken on, or "" for
+// legacy flat refs that predate branch qualification.
+func BackupRefBranch(name string) string {
+	rest := strings.TrimPrefix(name, BackupRefPrefix)
+	if i := strings.LastIndexByte(rest, '/'); i >= 0 {
+		return rest[:i]
+	}
+	return ""
+}
+
+// backupRefTimestamp parses the unix timestamp out of the final "<ts>-<seq>"
+// (or legacy bare "<ts>") segment; 0 when unparsable.
+func backupRefTimestamp(name string) int64 {
+	rest := strings.TrimPrefix(name, BackupRefPrefix)
+	if i := strings.LastIndexByte(rest, '/'); i >= 0 {
+		rest = rest[i+1:]
+	}
+	if i := strings.IndexByte(rest, '-'); i >= 0 {
+		rest = rest[:i]
+	}
+	ts, _ := strconv.ParseInt(rest, 10, 64)
+	return ts
+}
+
+// ListBackupRefs returns every regit backup ref, newest first (by embedded
+// timestamp, then name as tiebreak so ordering stays deterministic).
 func (r *Repo) ListBackupRefs() ([]BackupRef, error) {
 	out, err := r.gitRaw("for-each-ref", "--format=%(refname) %(objectname)", BackupRefPrefix)
 	if err != nil {
@@ -55,9 +119,19 @@ func (r *Repo) ListBackupRefs() ([]BackupRef, error) {
 		if len(parts) != 2 {
 			continue
 		}
-		refs = append(refs, BackupRef{Name: parts[0], Hash: parts[1]})
+		refs = append(refs, BackupRef{
+			Name:      parts[0],
+			Hash:      parts[1],
+			Branch:    BackupRefBranch(parts[0]),
+			Timestamp: backupRefTimestamp(parts[0]),
+		})
 	}
-	sort.Slice(refs, func(i, j int) bool { return refs[i].Name > refs[j].Name })
+	sort.Slice(refs, func(i, j int) bool {
+		if refs[i].Timestamp != refs[j].Timestamp {
+			return refs[i].Timestamp > refs[j].Timestamp
+		}
+		return refs[i].Name > refs[j].Name
+	})
 	return refs, nil
 }
 

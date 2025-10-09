@@ -2,7 +2,6 @@ package safety
 
 import (
 	"fmt"
-	"strconv"
 
 	"github.com/wlame/regit/internal/gitio"
 	"github.com/wlame/regit/internal/model"
@@ -46,9 +45,9 @@ func (m *Manager) ApplySquash(commits []model.Commit, plan model.SquashPlan, sta
 	}
 
 	// --- Backup ---
-	backupRef := gitio.BackupRefPrefix + strconv.FormatInt(opts.UnixTimestamp, 10)
-	if err := m.repo.UpdateRef(backupRef, oldHead, ""); err != nil {
-		return ApplyResult{}, fmt.Errorf("create backup ref: %w", err)
+	backupRef, err := m.repo.CreateBackupRef(branch, opts.UnixTimestamp, oldHead)
+	if err != nil {
+		return ApplyResult{}, err
 	}
 
 	// --- Replay ---

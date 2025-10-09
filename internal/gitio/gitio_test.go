@@ -390,6 +390,90 @@ func TestOpen_failsOutsideRepo(t *testing.T) {
 	}
 }
 
+// newRefsTestRepo builds a one-commit repo on main for backup-ref tests.
+func newRefsTestRepo(t *testing.T) *Repo {
+	t.Helper()
+	dir := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-q", "-b", "main")
+	run("config", "commit.gpgsign", "false")
+	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "f.txt")
+	run("commit", "-q", "-m", "one")
+	repo, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return repo
+}
+
+// TestCreateBackupRef_collisionBumpsSeq: two backups in the same second must
+// both survive — the second gets a bumped -<seq> suffix (H2).
+func TestCreateBackupRef_collisionBumpsSeq(t *testing.T) {
+	repo := newRefsTestRepo(t) // helper per note above; returns *Repo with 1 commit on main
+	head, err := repo.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref1, err := repo.CreateBackupRef("main", 1717689600, head)
+	if err != nil {
+		t.Fatalf("first CreateBackupRef: %v", err)
+	}
+	ref2, err := repo.CreateBackupRef("main", 1717689600, head)
+	if err != nil {
+		t.Fatalf("second CreateBackupRef: %v", err)
+	}
+	if ref1 == ref2 {
+		t.Fatalf("collision not avoided: both = %s", ref1)
+	}
+	if ref1 != "refs/regit/backup/main/1717689600-0" || ref2 != "refs/regit/backup/main/1717689600-1" {
+		t.Errorf("unexpected names: %s, %s", ref1, ref2)
+	}
+	for _, ref := range []string{ref1, ref2} {
+		if got, err := repo.ResolveRef(ref); err != nil || got != head {
+			t.Errorf("%s resolves to %q (err %v), want %s", ref, got, err, head)
+		}
+	}
+}
+
+// TestListBackupRefs_parsesBranchAndTimestamp: new-style refs carry Branch and
+// Timestamp (branch names may contain '/'); legacy flat refs parse as Branch "".
+func TestListBackupRefs_parsesBranchAndTimestamp(t *testing.T) {
+	repo := newRefsTestRepo(t)
+	head, _ := repo.ResolveRef("HEAD")
+	if _, err := repo.CreateBackupRef("fix/audit-quick-wins", 1717689601, head); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.UpdateRef("refs/regit/backup/1717689600", head, ""); err != nil { // legacy shape
+		t.Fatal(err)
+	}
+	refs, err := repo.ListBackupRefs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refs) != 2 {
+		t.Fatalf("want 2 refs, got %d: %+v", len(refs), refs)
+	}
+	// Sorted by Timestamp desc: the new-style ref (…601) first.
+	if refs[0].Branch != "fix/audit-quick-wins" || refs[0].Timestamp != 1717689601 {
+		t.Errorf("refs[0] = %+v, want branch fix/audit-quick-wins ts 1717689601", refs[0])
+	}
+	if refs[1].Branch != "" || refs[1].Timestamp != 1717689600 {
+		t.Errorf("refs[1] = %+v, want legacy (branch \"\") ts 1717689600", refs[1])
+	}
+}
+
 func TestGitDir_returnsAbsolutePath(t *testing.T) {
 	repo, dir := testRepo(t)
 	gitDir, err := repo.GitDir()
