@@ -49,6 +49,13 @@ Per-feature flags layer on top (e.g. `--variants=N`, `--max-commits=N`,
 `--context=readme,filestates`, `--test-cmd=...`). Keep the model/transport flags
 identical across features.
 
+> **regit divergence:** regit's mutating verbs preview by default and apply with
+> `--execute` (plus `--force` for already-pushed history) instead of the
+> `--dry-run`/`--yes` pair shown here. The old flags survive as deprecated
+> aliases (`--yes` → `--execute`; `--dry-run` is a no-op), translated by
+> `internal/capability/deprecate.go`. Everything else in this spec applies to
+> regit unchanged.
+
 ### Provider → base-URL defaults
 So the common case needs no `--llm-base-url`:
 
