@@ -119,3 +119,24 @@ func TestHelpText_documentsPreviewThenApply(t *testing.T) {
 		}
 	}
 }
+
+func TestDocSections_projectsEveryKeymapRowOnceInScopeOrder(t *testing.T) {
+	secs := DocSections()
+	if len(secs) != len(scopeOrder) {
+		t.Fatalf("got %d sections, want %d (one per scope)", len(secs), len(scopeOrder))
+	}
+	total := 0
+	for i, sec := range secs {
+		if want := scopeTitles[scopeOrder[i]]; sec.Title != want {
+			t.Errorf("section %d title = %q, want %q", i, sec.Title, want)
+		}
+		total += len(sec.Bindings)
+	}
+	if total != len(keymap) {
+		t.Errorf("sections carry %d bindings, want %d (every keymap row exactly once)", total, len(keymap))
+	}
+	first := secs[0].Bindings[0]
+	if first.Key != "?" || first.Bar != "[?]help" {
+		t.Errorf("first global binding = %+v, want the '?' row with bar token intact", first)
+	}
+}

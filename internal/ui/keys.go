@@ -167,3 +167,34 @@ func keybarHintWidth(width int) string {
 	}
 	return strings.Join(kept, " ") + ell
 }
+
+// DocBinding is one keymap row exposed for documentation rendering. It is a
+// read-only copy: consumers (internal/docs, which generates the README keys
+// table) can render the keymap but cannot reach or mutate the table itself.
+type DocBinding struct {
+	Key  string // the key chord as shown to the user, e.g. "e / enter"
+	Desc string // one-line action description
+	Bar  string // keybar token ("[e]dit"), "" when the row is help-only
+}
+
+// DocSection groups one scope's bindings under its help-overlay title.
+type DocSection struct {
+	Title    string
+	Bindings []DocBinding
+}
+
+// DocSections projects the keymap in scope order — the same grouping the '?'
+// overlay renders — so generated documentation mirrors the in-app help.
+func DocSections() []DocSection {
+	var out []DocSection
+	for _, sc := range scopeOrder {
+		sec := DocSection{Title: scopeTitles[sc]}
+		for _, k := range keymap {
+			if k.Scope == sc {
+				sec.Bindings = append(sec.Bindings, DocBinding{Key: k.Key, Desc: k.Desc, Bar: k.Bar})
+			}
+		}
+		out = append(out, sec)
+	}
+	return out
+}

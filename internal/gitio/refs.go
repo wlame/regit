@@ -42,6 +42,12 @@ func (r *Repo) DeleteRef(ref string) error {
 	return err
 }
 
+// BackupRefDocPattern is the human-readable shape of the names BackupRefName
+// produces. The README safety table shows it and the docs drift test asserts
+// it appears there; keep it in lockstep with BackupRefName directly below
+// (TestBackupRefDocPattern_rendersLikeBackupRefName enforces the pairing).
+const BackupRefDocPattern = "refs/regit/backup/<branch>/<ts>-<seq>"
+
 // BackupRefName renders the branch-qualified, sequence-suffixed backup ref name.
 // Branch names may contain '/'; the final path segment is always "<ts>-<seq>",
 // so parsing splits on the LAST '/'. Legacy refs (a bare "<ts>") predate this
