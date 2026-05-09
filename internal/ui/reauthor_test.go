@@ -133,11 +133,12 @@ func TestStageReauthor_entersPipelineWithChange(t *testing.T) {
 	if m.mode != modePipeline {
 		t.Fatalf("mode = %v, want modePipeline", m.mode)
 	}
-	if _, ok := m.pending.(reauthorChange); !ok {
-		t.Errorf("pending should be a reauthorChange, got %T", m.pending)
+	rc, ok := m.pending.(reauthorChange)
+	if !ok {
+		t.Fatalf("pending should be a reauthorChange, got %T", m.pending)
 	}
-	if len(m.pendingCmds) == 0 {
-		t.Error("pendingCmds (transparency footer) should be set")
+	if len(rc.commandLines()) == 0 {
+		t.Error("the staged reauthorChange should carry a non-empty commandLines() (transparency footer)")
 	}
 }
 

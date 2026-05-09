@@ -809,7 +809,7 @@ func TestRetitle_togglesOnlyLogsNoteNotInvalidMatch(t *testing.T) {
 		t.Fatalf("a toggles-only retitle with real work should apply, got mode %v", m.mode)
 	}
 	found := false
-	for _, l := range m.pendingCmds {
+	for _, l := range m.planCmds {
 		if strings.Contains(l, "--match=") {
 			t.Errorf("toggles-only retitle must not log a --match flag, got %q", l)
 		}
@@ -818,7 +818,7 @@ func TestRetitle_togglesOnlyLogsNoteNotInvalidMatch(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("toggles-only retitle should log an honest note, got %v", m.pendingCmds)
+		t.Errorf("toggles-only retitle should log an honest note, got %v", m.planCmds)
 	}
 }
 
@@ -2345,13 +2345,13 @@ func TestDropBodies_contiguousSelectionLogsCommitsRange(t *testing.T) {
 	m = runRestructureFeature(t, m, "Drop bodies")
 	m = send(m, "enter")
 	found := false
-	for _, l := range m.pendingCmds {
+	for _, l := range m.planCmds {
 		if strings.Contains(l, "drop-bodies") && strings.Contains(l, "--commits=") {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("contiguous selection should log a --commits=<range> line, got %v", m.pendingCmds)
+		t.Errorf("contiguous selection should log a --commits=<range> line, got %v", m.planCmds)
 	}
 }
 
@@ -2366,13 +2366,13 @@ func TestDropBodies_nonContiguousSelectionLogsHonestNote(t *testing.T) {
 	m = runRestructureFeature(t, m, "Drop bodies")
 	m = send(m, "enter")
 	found := false
-	for _, l := range m.pendingCmds {
+	for _, l := range m.planCmds {
 		if strings.HasPrefix(l, "#") && strings.Contains(l, "drop-bodies") {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("non-contiguous selection should log an honest note, got %v", m.pendingCmds)
+		t.Errorf("non-contiguous selection should log an honest note, got %v", m.planCmds)
 	}
 }
 
@@ -2381,7 +2381,7 @@ func TestDropBodies_nonContiguousSelectionLogsHonestNote(t *testing.T) {
 // stopping at staging, then checks both directions of the "#"-note rule: the
 // honest note must land in the in-memory footer panel (m.commandLog) but must
 // never reach the on-disk .git/regit/command.log file. Tests that only inspect
-// pendingCmds (like TestDropBodies_nonContiguousSelectionLogsHonestNote above)
+// planCmds (like TestDropBodies_nonContiguousSelectionLogsHonestNote above)
 // would not notice a regression that drops or inverts the
 // `if !strings.HasPrefix(line, "#")` guard inside commitPending.
 func TestCommitPending_honestNoteNotWrittenToOnDiskLog(t *testing.T) {
@@ -2391,17 +2391,17 @@ func TestCommitPending_honestNoteNotWrittenToOnDiskLog(t *testing.T) {
 	m = runRestructureFeature(t, m, "Drop bodies")
 	m = send(m, "enter") // confirm the popup -> stages DropBody edits + the "#" note
 	staged := false
-	for _, l := range m.pendingCmds {
+	for _, l := range m.planCmds {
 		if strings.HasPrefix(l, "#") && strings.Contains(l, "drop-bodies") {
 			staged = true
 		}
 	}
 	if !staged {
-		t.Fatalf("setup: expected the honest note staged in pendingCmds, got %v", m.pendingCmds)
+		t.Fatalf("setup: expected the honest note staged in planCmds, got %v", m.planCmds)
 	}
 
 	m = send(m, "A")     // stage the plan for apply -> modePipeline
-	m = send(m, "enter") // apply through the real commitPending, flushing pendingCmds
+	m = send(m, "enter") // apply through the real commitPending, flushing planCmds
 	if m.statusKind == statusErr {
 		t.Fatalf("apply errored: %s", m.statusMsg)
 	}
@@ -2632,23 +2632,33 @@ func TestCalendarPane_showsConflictCountNotOldViolation(t *testing.T) {
 	}
 }
 
-// TestPipelineCancel_clearsPendingCmd guards that esc/q in the pipeline overlay
-// wipes pendingCmds so a future unrelated apply cannot log a stale command.
-func TestPipelineCancel_clearsPendingCmd(t *testing.T) {
+// TestPipelineCancel_clearsPendingKeepsPlanLines guards the ownership-model fix:
+// esc/q in a PEEK of the pipeline overlay must clear m.pending (so a stale
+// direct-change's command line — owned by the change object, not a shared slot —
+// cannot leak into a later unrelated apply) but must NOT drop the plan-edit
+// lines (redateCmd here) staged before the peek, since those still describe
+// m.plan, which survives the cancel. This inverts the old single-slot test's
+// assertion (esc used to wipe the shared pendingCmds slot outright, which is
+// exactly the bug that dropped a real staged redate line after a peek).
+func TestPipelineCancel_clearsPendingKeepsPlanLines(t *testing.T) {
 	m := newTestModel(t)
 	m = applyStrategyInPane(m) // stage edits (tab tab enter) so p works
-	m = send(m, "p")           // open the pipeline overlay (modePipeline)
+	if m.redateCmd == "" {
+		t.Fatal("setup: applyStrategyInPane should have set redateCmd")
+	}
+	m = send(m, "p") // open the pipeline overlay (modePipeline) as a peek
 	if m.mode != modePipeline {
 		t.Fatalf("p should open the pipeline overlay, got %v", m.mode)
 	}
-	// Inject a stale command as if a previous operation set it.
-	m.pendingCmds = []string{"regit split x"}
-	m = send(m, "esc") // cancel — should clear both pending and pendingCmds
+	m = send(m, "esc") // cancel the peek
 	if m.mode != modeMain {
 		t.Fatalf("esc should return to main mode, got %v", m.mode)
 	}
-	if len(m.pendingCmds) != 0 {
-		t.Errorf("esc in pipeline overlay should clear pendingCmds, got %v", m.pendingCmds)
+	if m.pending != nil {
+		t.Error("esc in pipeline overlay should clear the pending change")
+	}
+	if m.redateCmd == "" {
+		t.Error("esc from a peek must not drop the staged plan-edit line (redateCmd)")
 	}
 }
 

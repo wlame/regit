@@ -191,15 +191,15 @@ func TestReword_multiRewordLogsEveryHash(t *testing.T) {
 	// A completed walk collapses to exactly one reword entry (each step's line
 	// already lists every hash walked so far, so it replaces the previous
 	// step's entry instead of stacking a stale duplicate).
-	if len(m.pendingCmds) != 1 {
-		t.Fatalf("completed walk should leave exactly one reword entry, got %v", m.pendingCmds)
+	if len(m.planCmds) != 1 {
+		t.Fatalf("completed walk should leave exactly one reword entry, got %v", m.planCmds)
 	}
 	for _, h := range []string{h0, h1} {
-		if !strings.Contains(m.pendingCmds[0], capability.Short(h)) {
-			t.Errorf("pendingCmds[0] %q is missing reworded commit %s", m.pendingCmds[0], capability.Short(h))
+		if !strings.Contains(m.planCmds[0], capability.Short(h)) {
+			t.Errorf("planCmds[0] %q is missing reworded commit %s", m.planCmds[0], capability.Short(h))
 		}
 	}
-	if !strings.Contains(m.pendingCmds[0], "reword") || !strings.Contains(m.pendingCmds[0], "--execute") {
-		t.Errorf("pendingCmds[0] is not a reword --execute line: %q", m.pendingCmds[0])
+	if !strings.Contains(m.planCmds[0], "reword") || !strings.Contains(m.planCmds[0], "--execute") {
+		t.Errorf("planCmds[0] is not a reword --execute line: %q", m.planCmds[0])
 	}
 }

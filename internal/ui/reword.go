@@ -445,14 +445,14 @@ func (m Model) updateReword(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				shorts[i] = capability.Short(h)
 			}
 			line := capability.Render("reword", capability.RewordArgMap(shorts...))
-			if m.rewordSt.targetIdx > 0 && len(m.pendingCmds) > 0 {
+			if m.rewordSt.targetIdx > 0 && len(m.planCmds) > 0 {
 				// Continuing the same walk: this line already supersedes the one
 				// logged for the previous commit (it lists every hash so far), so
 				// replace that running entry instead of stacking a stale duplicate
 				// for every step of the walk.
-				m.pendingCmds[len(m.pendingCmds)-1] = line
+				m.planCmds[len(m.planCmds)-1] = line
 			} else {
-				m.pendingCmds = append(m.pendingCmds, line)
+				m.planCmds = append(m.planCmds, line)
 			}
 			if next, cmd, more := m.advanceReword(); more {
 				return next, cmd // walk to the next commit in the set

@@ -17,6 +17,15 @@ import (
 type reauthorChange struct {
 	plan    *model.Plan
 	targets map[string]bool
+	// cmd is the CLI-equivalent line for this reauthor, set once at staging time.
+	cmd string
+}
+
+func (c reauthorChange) commandLines() []string {
+	if c.cmd == "" {
+		return nil
+	}
+	return []string{c.cmd}
 }
 
 // newReauthorChange builds the plan: an identity Edit on each target commit, with
@@ -259,8 +268,8 @@ func (m Model) stageReauthor() (tea.Model, tea.Cmd) {
 	for _, c := range st.targets {
 		hashes = append(hashes, short(c.Hash))
 	}
-	m.pendingCmds = append(m.pendingCmds, capability.Render("reauthor",
-		capability.ReauthorArgMap(name, email, st.committerToo, strings.Join(hashes, ","))))
+	change.cmd = capability.Render("reauthor",
+		capability.ReauthorArgMap(name, email, st.committerToo, strings.Join(hashes, ",")))
 	m.pending = change
 	m.pendingGuard = guard
 	m.pipelineOrigin = modeReauthor // esc returns to the wizard, preserving its typed edits

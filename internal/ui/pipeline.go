@@ -35,19 +35,31 @@ type pendingChange interface {
 	// apply performs the mutation through the safety manager (backup → op →
 	// verify → branch-ref CAS) and returns the backup ref in the result.
 	apply(mgr *safety.Manager, state model.RepoState, opts safety.ApplyOptions) (safety.ApplyResult, error)
+	// commandLines are the CLI-equivalent line(s) for THIS change alone, owned by
+	// the change itself rather than a shared slot on the model — commitPending
+	// flushes exactly these to the footer/on-disk log, so an applied change can
+	// never log another staged-but-unrelated action's line (or vice versa).
+	commandLines() []string
 }
 
 // planChange applies the plan's accumulated date/message edits — the change `A`
-// (and the staged reword/retitle/drop edits) produce.
+// (and the staged reword/retitle/drop edits) produce. cmds is a snapshot, taken at
+// staging time, of every plan-edit command line accumulated so far (the active
+// strategy's redate line plus any drop-bodies/retitle/reword/editor notes); it is
+// NOT recomputed from the model, so it survives a reload that wipes the plan.
 type planChange struct {
 	plan *model.Plan
 	loc  *time.Location
+	cmds []string
 }
 
-// newPlanChange wraps the current plan as a pendingChange.
-func newPlanChange(plan *model.Plan, loc *time.Location) planChange {
-	return planChange{plan: plan, loc: loc}
+// newPlanChange wraps the current plan as a pendingChange, snapshotting cmds (the
+// plan-edit command lines accumulated at staging time) onto the change.
+func newPlanChange(plan *model.Plan, loc *time.Location, cmds []string) planChange {
+	return planChange{plan: plan, loc: loc, cmds: cmds}
 }
+
+func (c planChange) commandLines() []string { return c.cmds }
 
 func (c planChange) title() string {
 	return fmt.Sprintf("Apply %d commit edit(s)", len(c.plan.Edits))
@@ -101,10 +113,19 @@ type splitChange struct {
 	tail       []model.Commit
 	groups     []model.HunkGroup
 	commitHash string
+	// cmd is the CLI-equivalent line for this split, set once at staging time.
+	cmd string
 }
 
 func (c splitChange) title() string {
 	return fmt.Sprintf("Split %s into %d commit(s)", short(c.commitHash), len(c.groups))
+}
+
+func (c splitChange) commandLines() []string {
+	if c.cmd == "" {
+		return nil
+	}
+	return []string{c.cmd}
 }
 
 // guard mirrors safety.Manager.ApplySplit's internal checks so the pipeline can

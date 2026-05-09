@@ -46,6 +46,15 @@ func (m Model) affectedChains() ([]model.SquashChain, []string) {
 type squashChange struct {
 	commits []model.Commit
 	plan    model.SquashPlan
+	// cmd is the CLI-equivalent line for this squash, set once at staging time.
+	cmd string
+}
+
+func (c squashChange) commandLines() []string {
+	if c.cmd == "" {
+		return nil
+	}
+	return []string{c.cmd}
 }
 
 func (c squashChange) title() string {
@@ -507,7 +516,8 @@ func (m Model) stageSquash() (tea.Model, tea.Cmd) {
 		m.squashSt.errMsg = "Invalid squash: " + err.Error()
 		return m, nil
 	}
-	change := squashChange{commits: m.plan.Commits, plan: plan}
+	spec := chainsToSpec(plan.Chains)
+	change := squashChange{commits: m.plan.Commits, plan: plan, cmd: capability.Render("squash", capability.SquashArgMap(spec))}
 	// Run the pre-flight guard before opening the pipeline: a hard block (dirty
 	// tree, merge) reports its reason and never enters the overlay; a pushed-history
 	// change records NeedsConfirmation so updatePipeline runs the typed-confirm step.
@@ -516,8 +526,6 @@ func (m Model) stageSquash() (tea.Model, tea.Cmd) {
 		m.setStatus(guard.BlockReason, statusErr)
 		return m, nil
 	}
-	spec := chainsToSpec(plan.Chains)
-	m.pendingCmds = append(m.pendingCmds, capability.Render("squash", capability.SquashArgMap(spec)))
 	m.pending = change
 	m.pendingGuard = guard
 	m.pipelineOrigin = modeSquash // esc returns to the wizard, preserving its typed edits

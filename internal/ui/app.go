@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -189,13 +190,17 @@ type Model struct {
 	// logVisible controls whether the command-log footer panel is rendered.
 	// Toggled with 'L'.
 	logVisible bool
-	// pendingCmds holds the CLI-equivalent command(s) for the in-flight staged
-	// change(s), populated at stage time so they can be appended to commandLog on
-	// apply. A slice (not a single slot) because a compound apply can carry
-	// several distinct staged actions at once — e.g. a redate strategy staged
-	// alongside a bulk drop-bodies before one 'A' — and every one of them must
-	// survive to the log, not just whichever staged last.
-	pendingCmds []string
+	// redateCmd is the active strategy's rendered CLI-equivalent command. It is
+	// OVERWRITTEN (never appended) by stageActive, which runs on every params
+	// keystroke/pin/carousel switch — a live re-staging site, not a one-shot
+	// commit — so appending here would fill the log with duplicate and
+	// stale-parameter redate lines. Cleared by unstageActive and a plan reset.
+	redateCmd string
+	// planCmds holds the CLI-equivalent line(s) for the other accumulated plan
+	// edits — drop-bodies, retitle, reword, and the per-commit editor — each of
+	// which is a one-shot commit to the plan (not re-staged live), so appending
+	// is correct here: every distinct staged edit must survive to the log.
+	planCmds []string
 
 	st       styles
 	quitting bool
@@ -221,6 +226,7 @@ func (m *Model) unstageActive() {
 	}
 	m.plan.Violations = nil
 	m.plan.Shifted = nil
+	m.redateCmd = ""
 }
 
 // stageActive previews the active strategy: when it is ready it stages its
@@ -257,8 +263,11 @@ func (m *Model) stageActive() {
 		return
 	}
 	a.form.errMsg = ""
-	m.pendingCmds = append(m.pendingCmds, capability.Render("redate", capability.RedateArgMap(
-		a.form.strat.Name(), pickTimeModel(a.form).Name(), params, m.cfg.LinkDates)))
+	// Overwrite, not append: stageActive fires on every keystroke/pin/carousel
+	// switch, so the slot always holds exactly the current form's rendered
+	// command — the old single-slot self-deduplication that appending broke.
+	m.redateCmd = capability.Render("redate", capability.RedateArgMap(
+		a.form.strat.Name(), pickTimeModel(a.form).Name(), params, m.cfg.LinkDates))
 }
 
 // strategyStaged reports whether a strategy has staged a date distribution — an
@@ -412,8 +421,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setStatus(guard.BlockReason, statusErr)
 			return m, nil
 		}
+		sc.cmd = capability.Render("split", capability.SplitArgMap(capability.Short(c.Hash)))
 		m.pending = sc
-		m.pendingCmds = append(m.pendingCmds, capability.Render("split", capability.SplitArgMap(capability.Short(c.Hash))))
 		m.pendingGuard = guard
 		m.pipelineApply = true
 		m.previewOffset = 0
@@ -596,6 +605,8 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		m.plan.Violations = nil
 		m.plan.Shifted = nil
 		m.quotaTyping = false
+		m.redateCmd = ""
+		m.planCmds = nil
 		m.setStatus("Reset — strategies and calendar cleared", statusOK)
 		return m, nil, true
 	case "d":
@@ -881,9 +892,9 @@ func (m *Model) dropAllBodies() {
 	}
 	m.setStatus(fmt.Sprintf("Dropped the body of %d commit(s) — titles kept", dropped), statusOK)
 	if spec, ok := m.selectionCommitSpec(); ok {
-		m.pendingCmds = append(m.pendingCmds, capability.Render("drop-bodies", capability.DropBodiesArgMap(spec)))
+		m.planCmds = append(m.planCmds, capability.Render("drop-bodies", capability.DropBodiesArgMap(spec)))
 	} else {
-		m.pendingCmds = append(m.pendingCmds, "# drop-bodies on the selected commits — set --commits=<range> to reproduce")
+		m.planCmds = append(m.planCmds, "# drop-bodies on the selected commits — set --commits=<range> to reproduce")
 	}
 }
 
@@ -969,12 +980,12 @@ func (m Model) applyRetitle() (tea.Model, tea.Cmd) {
 	if m.retitle.togglesOnly() {
 		// Only the capitalize/ensure-dot finishing toggles ran — no regex
 		// pattern — and --match is required, so there is no valid line to render.
-		m.pendingCmds = append(m.pendingCmds, "# retitle (capitalize/ensure-dot) — no headless equivalent yet")
+		m.planCmds = append(m.planCmds, "# retitle (capitalize/ensure-dot) — no headless equivalent yet")
 	} else if spec, ok := m.selectionCommitSpec(); ok {
-		m.pendingCmds = append(m.pendingCmds, capability.Render("retitle", capability.RetitleArgMap(
+		m.planCmds = append(m.planCmds, capability.Render("retitle", capability.RetitleArgMap(
 			m.retitle.pattern.Value(), m.retitle.replace.Value(), spec)))
 	} else {
-		m.pendingCmds = append(m.pendingCmds, "# retitle on the selected commits — set --commits=<range> to reproduce")
+		m.planCmds = append(m.planCmds, "# retitle on the selected commits — set --commits=<range> to reproduce")
 	}
 	return m, nil
 }
@@ -1296,6 +1307,13 @@ func (m Model) saveEditor() (tea.Model, tea.Cmd) {
 	m.recomputeViolations()
 	m.mode = modeMain
 	m.reportPlan("Edited " + short(c.Hash))
+	// The per-commit editor has no headless equivalent yet, so log an honest
+	// note rather than staying silent — dedupe so re-editing the same commit in
+	// one session doesn't stack a duplicate note for every save.
+	note := "# edit " + short(c.Hash) + " — no headless equivalent yet"
+	if !slices.Contains(m.planCmds, note) {
+		m.planCmds = append(m.planCmds, note)
+	}
 	return m, nil
 }
 
@@ -1309,10 +1327,13 @@ func (m Model) updatePipeline(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "q":
 		// Return to wherever the pipeline was staged from — the main view for a
 		// plan apply, or the wizard (squash/reauthor) that staged it, so typed
-		// edits still sitting in squashSt/reauthorSt aren't lost.
+		// edits still sitting in squashSt/reauthorSt aren't lost. Deliberately does
+		// NOT touch redateCmd/planCmds: those describe edits still sitting in
+		// m.plan, which survives this cancel (a peek in particular must not drop
+		// them — only clearing m.pending here matters, since a direct change's
+		// command line lives on the change itself and is discarded with it).
 		m.mode = m.pipelineOrigin
 		m.pending = nil
-		m.pendingCmds = nil
 		m.pipelineOrigin = modeMain
 		return m, nil
 	case "up", "k":
@@ -1327,9 +1348,10 @@ func (m Model) updatePipeline(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		if !m.pipelineApply {
+			// A read-only peek closes without applying — same "keep the plan
+			// lines, only drop pending" rule as esc/q above.
 			m.mode = modeMain
 			m.pending = nil
-			m.pendingCmds = nil
 			return m, nil
 		}
 		if m.pendingGuard.NeedsConfirmation {
@@ -1357,8 +1379,9 @@ func (m Model) pendingPreviewLen() int {
 }
 
 // commitPending applies the staged pendingChange through the safety manager,
+// flushes ITS OWN command lines (never a shared slot — see pendingChange.commandLines),
 // reloads history, and reports the backup ref. It is the single apply funnel for
-// every mutation (plan edits and split).
+// every mutation (plan edits, split, squash, reauthor).
 func (m Model) commitPending(confirmed bool) (tea.Model, tea.Cmd) {
 	if m.pending == nil {
 		m.mode = modeMain
@@ -1374,22 +1397,17 @@ func (m Model) commitPending(confirmed bool) (tea.Model, tea.Cmd) {
 	if err != nil {
 		m.mode = modeMain
 		m.pending = nil
-		m.pendingCmds = nil
 		m.setStatus(err.Error(), statusErr)
 		return m, nil
 	}
 	title := m.pending.title()
-	m.pending = nil
-	m.pipelineOrigin = modeMain
-	if err := m.reload(); err != nil {
-		m.mode = modeMain
-		m.setStatus("Applied, but reload failed: "+err.Error(), statusWarn)
-		return m, nil
-	}
-	m.mode = modeMain
-	m.setStatus(fmt.Sprintf("%s ✓ backup at %s — press U to undo", title, short(res.BackupRef)), statusOK)
-	if len(m.pendingCmds) > 0 {
-		for _, line := range m.pendingCmds {
+	lines := m.pending.commandLines()
+	// Flush the applied change's own lines BEFORE reload: an applied-but-then
+	// reload-failed action still really happened (the git rewrite committed), so
+	// it must not be silently dropped from the audit trail just because the
+	// UI's post-apply refresh failed.
+	if len(lines) > 0 {
+		for _, line := range lines {
 			m.commandLog = append(m.commandLog, line)
 			// A "#"-prefixed line is an honest note (e.g. a non-expressible
 			// selection), not a runnable command — keep it in the in-memory
@@ -1401,8 +1419,21 @@ func (m Model) commitPending(confirmed bool) (tea.Model, tea.Cmd) {
 		vline := res.Verification.String()
 		m.commandLog = append(m.commandLog, vline)
 		appendCommandLog(m.repo, vline)
-		m.pendingCmds = nil
 	}
+	m.pending = nil
+	m.pipelineOrigin = modeMain
+	// Clear the plan-scoped lines regardless of change type: reload() below wipes
+	// m.plan, so any redateCmd/planCmds describing it are stale either way. A
+	// direct change's own line lived on the change and vanished with m.pending.
+	m.redateCmd = ""
+	m.planCmds = nil
+	if err := m.reload(); err != nil {
+		m.mode = modeMain
+		m.setStatus("Applied, but reload failed: "+err.Error(), statusWarn)
+		return m, nil
+	}
+	m.mode = modeMain
+	m.setStatus(fmt.Sprintf("%s ✓ backup at %s — press U to undo", title, short(res.BackupRef)), statusOK)
 	return m, m.markAndFetch()
 }
 
@@ -1426,7 +1457,17 @@ func (m Model) stagePlanApply(applyMode bool) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	pc := newPlanChange(m.plan, m.loc)
+	// Snapshot every plan-edit line accumulated so far onto the change: the active
+	// strategy's redate line (if any) first, then the other staged edits in the
+	// order they were made. This is the ONLY place redateCmd and planCmds are
+	// combined — commitPending later flushes exactly this snapshot, not the live
+	// (and by then stale, since reload wipes the plan) model fields.
+	cmds := make([]string, 0, len(m.planCmds)+1)
+	if m.redateCmd != "" {
+		cmds = append(cmds, m.redateCmd)
+	}
+	cmds = append(cmds, m.planCmds...)
+	pc := newPlanChange(m.plan, m.loc, cmds)
 	guard := pc.guard(m.state)
 	if applyMode && guard.Blocked {
 		m.setStatus(guard.BlockReason, statusErr)
@@ -1444,13 +1485,24 @@ func (m Model) stagePlanApply(applyMode bool) (tea.Model, tea.Cmd) {
 func (m Model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
-		m.mode = modeMain
+		// Return to wherever the pipeline was staged from (the wizard, for a
+		// squash/reauthor confirm) instead of always modeMain, so a pushed-history
+		// change cancelled at the typed-confirm prompt doesn't lose the wizard's
+		// typed state. Clear pending so its command line (owned by the change,
+		// not a shared slot) cannot leak into a later, unrelated apply; leave
+		// redateCmd/planCmds untouched — they describe m.plan, unaffected by this
+		// cancel.
+		m.mode = m.pipelineOrigin
+		m.pending = nil
+		m.pipelineOrigin = modeMain
 		m.setStatus("Apply cancelled", statusWarn)
 		return m, nil
 	case "enter":
 		if strings.TrimSpace(m.confirmInput.Value()) != m.confirmGuard.ConfirmWord {
 			m.setStatus("Confirmation text did not match; apply cancelled", statusErr)
-			m.mode = modeMain
+			m.mode = m.pipelineOrigin
+			m.pending = nil
+			m.pipelineOrigin = modeMain
 			return m, nil
 		}
 		return m.commitPending(true)
@@ -1470,16 +1522,18 @@ func (m Model) doUndo() (tea.Model, tea.Cmd) {
 		m.setStatus(err.Error(), statusErr)
 		return m, nil
 	}
+	// Log the undo itself, same as any other applied action, so the footer and
+	// the on-disk command log reflect the real history including reversals. Done
+	// BEFORE the reload-failure check below: the undo already rewrote history by
+	// this point, so it must be logged even if the subsequent reload fails.
+	line := capability.Render("undo", map[string]string{})
+	m.commandLog = append(m.commandLog, line)
+	appendCommandLog(m.repo, line)
 	if err := m.reload(); err != nil {
 		m.setStatus("Undo done, reload failed: "+err.Error(), statusWarn)
 		return m, nil
 	}
 	m.setStatus("Undid last apply — restored "+short(hash), statusOK)
-	// Log the undo itself, same as any other applied action, so the footer and
-	// the on-disk command log reflect the real history including reversals.
-	line := capability.Render("undo", map[string]string{})
-	m.commandLog = append(m.commandLog, line)
-	appendCommandLog(m.repo, line)
 	return m, m.markAndFetch()
 }
 

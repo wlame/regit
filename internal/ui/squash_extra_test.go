@@ -344,11 +344,12 @@ func TestStageSquash_validPlanEntersPipeline(t *testing.T) {
 	if mm.mode != modePipeline {
 		t.Errorf("mode = %v, want modePipeline", mm.mode)
 	}
-	if mm.pending == nil {
-		t.Error("pending change should be set after a successful stageSquash")
+	sc, ok := mm.pending.(squashChange)
+	if !ok {
+		t.Fatalf("pending change should be a squashChange after a successful stageSquash, got %T", mm.pending)
 	}
-	if len(mm.pendingCmds) == 0 {
-		t.Error("pendingCmds should be set after a successful stageSquash")
+	if len(sc.commandLines()) == 0 {
+		t.Error("the staged squashChange should carry a non-empty commandLines() after a successful stageSquash")
 	}
 	if !mm.pipelineApply {
 		t.Error("pipelineApply should be true after stageSquash")

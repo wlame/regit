@@ -14,7 +14,7 @@ func TestPlanChange_titleAndPreview(t *testing.T) {
 	newDate := c.OrigAuthorDate.AddDate(0, 0, 5)
 	m.plan.SetEdit(c.Hash, model.Edit{NewAuthorDate: &newDate})
 
-	pc := newPlanChange(m.plan, m.loc)
+	pc := newPlanChange(m.plan, m.loc, nil)
 	if !strings.Contains(pc.title(), "1") {
 		t.Errorf("title should mention the 1 edited commit, got %q", pc.title())
 	}
@@ -33,7 +33,7 @@ func TestPlanChange_guardCleanRepoNotBlocked(t *testing.T) {
 	nd := c.OrigAuthorDate.AddDate(0, 0, 1)
 	m.plan.SetEdit(c.Hash, model.Edit{NewAuthorDate: &nd})
 
-	g := newPlanChange(m.plan, m.loc).guard(m.state)
+	g := newPlanChange(m.plan, m.loc, nil).guard(m.state)
 	if g.Blocked {
 		t.Errorf("a clean local repo should not be blocked, got %q", g.BlockReason)
 	}
@@ -86,7 +86,7 @@ func TestPlanChange_previewMarksConflictsWithWarning(t *testing.T) {
 	m.plan.SetEdit(edited.Hash, model.Edit{NewAuthorDate: &future})
 	m.recomputeViolations() // populates plan.Shifted (2 commits)
 
-	pv := newPlanChange(m.plan, m.loc).preview(m.st)
+	pv := newPlanChange(m.plan, m.loc, nil).preview(m.st)
 	body := strings.Join(pv.lines, "\n")
 
 	if got := strings.Count(body, "⚠"); got != 2 {

@@ -25,17 +25,17 @@ func TestCommandLogToggleAndRender(t *testing.T) {
 
 func TestPendingCmdAppendsToLogOnApply(t *testing.T) {
 	// A focused unit check: simulate the emit branch directly.
-	m := Model{commandLog: nil, pendingCmds: []string{"regit drop-bodies --execute"}}
+	m := Model{commandLog: nil, planCmds: []string{"regit drop-bodies --execute"}}
 	// inline the emit branch (the same lines commitPending runs on success):
-	for _, line := range m.pendingCmds {
+	for _, line := range m.planCmds {
 		m.commandLog = append(m.commandLog, line)
 	}
-	m.pendingCmds = nil
+	m.planCmds = nil
 	if len(m.commandLog) != 1 || m.commandLog[0] != "regit drop-bodies --execute" {
 		t.Errorf("commandLog = %v", m.commandLog)
 	}
-	if m.pendingCmds != nil {
-		t.Error("pendingCmds should be cleared after emit")
+	if m.planCmds != nil {
+		t.Error("planCmds should be cleared after emit")
 	}
 }
 
@@ -43,11 +43,11 @@ func TestPendingCmdAppendsToLogOnApply(t *testing.T) {
 // several distinct actions (e.g. redate then drop-bodies) must flush every one
 // of them, not just the last — the bug this task fixes.
 func TestPendingCmds_multipleEntriesAllSurvive(t *testing.T) {
-	m := Model{commandLog: nil, pendingCmds: []string{"regit redate --execute", "regit drop-bodies --execute"}}
-	for _, line := range m.pendingCmds {
+	m := Model{commandLog: nil, planCmds: []string{"regit redate --execute", "regit drop-bodies --execute"}}
+	for _, line := range m.planCmds {
 		m.commandLog = append(m.commandLog, line)
 	}
-	m.pendingCmds = nil
+	m.planCmds = nil
 	if len(m.commandLog) != 2 {
 		t.Fatalf("commandLog = %v, want both staged commands", m.commandLog)
 	}
@@ -55,13 +55,13 @@ func TestPendingCmds_multipleEntriesAllSurvive(t *testing.T) {
 
 func TestVerificationLineAppendsToLogOnApply(t *testing.T) {
 	// Mirror commitPending's success emit branch: command line(s) THEN verification line.
-	m := Model{commandLog: nil, pendingCmds: []string{"regit redate --execute"}}
+	m := Model{commandLog: nil, planCmds: []string{"regit redate --execute"}}
 	summary := model.VerificationSummary{Commits: 3, ChangedPaths: 0}
-	for _, line := range m.pendingCmds {
+	for _, line := range m.planCmds {
 		m.commandLog = append(m.commandLog, line)
 	}
 	m.commandLog = append(m.commandLog, summary.String())
-	m.pendingCmds = nil
+	m.planCmds = nil
 	if len(m.commandLog) != 2 {
 		t.Fatalf("commandLog = %v, want 2 entries", m.commandLog)
 	}
