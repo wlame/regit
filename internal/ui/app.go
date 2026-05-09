@@ -131,6 +131,9 @@ type Model struct {
 	editor        editorState
 	retitle       retitleState
 	previewOffset int
+	// helpOffset is the scroll offset (in lines) into helpText() for the modeHelp
+	// overlay; reset to 0 whenever help is (re)opened.
+	helpOffset int
 
 	// pending is the change staged for preview/apply (modePipeline); pendingGuard
 	// is its guard result computed when staged; pipelineApply distinguishes an
@@ -483,12 +486,27 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case modePicker:
 		return m.updatePicker(msg)
 	case modeHelp:
-		if msg.String() == "?" || msg.String() == "esc" || msg.String() == "q" {
+		switch msg.String() {
+		case "?", "esc", "q":
 			m.mode = modeMain
+		case "down", "j":
+			m.helpOffset = clampHelpOffset(m.helpOffset+1, m.height)
+		case "up", "k":
+			m.helpOffset = clampHelpOffset(m.helpOffset-1, m.height)
 		}
 		return m, nil
 	}
 	return m, nil
+}
+
+// clampHelpOffset bounds a candidate help-scroll offset to [0, maxOffset], where
+// maxOffset is how many lines of helpText() overflow the viewport for the given
+// terminal height (0 when the whole help text already fits).
+func clampHelpOffset(offset, height int) int {
+	lineCount := strings.Count(helpText(), "\n") + 1
+	viewportRows := max(1, height-6)
+	maxOffset := max(0, lineCount-viewportRows)
+	return max(0, min(offset, maxOffset))
 }
 
 // --- Main view -------------------------------------------------------------
@@ -546,6 +564,7 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		return m, tea.Quit, true
 	case "?":
 		m.mode = modeHelp
+		m.helpOffset = 0
 		return m, nil, true
 	case "e":
 		model, cmd := m.openEditorAtCursor()
@@ -1234,7 +1253,7 @@ func (m Model) applyStrategy() (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	// Success: hand focus back to the list so global keys (A, p, u…) work
+	// Success: hand focus back to the list so global keys (A, p, U…) work
 	// again immediately; tab twice returns here for further tweaking.
 	m.focus = focusList
 	m.reportPlan(a.form.strat.Name())
@@ -1368,7 +1387,7 @@ func (m Model) commitPending(confirmed bool) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.mode = modeMain
-	m.setStatus(fmt.Sprintf("%s ✓ backup at %s — press u to undo", title, short(res.BackupRef)), statusOK)
+	m.setStatus(fmt.Sprintf("%s ✓ backup at %s — press U to undo", title, short(res.BackupRef)), statusOK)
 	if len(m.pendingCmds) > 0 {
 		for _, line := range m.pendingCmds {
 			m.commandLog = append(m.commandLog, line)
@@ -1807,7 +1826,18 @@ func (m Model) View() string {
 	case modeConfirm:
 		overlay = m.viewConfirm()
 	case modeHelp:
-		overlay = m.st.modal.Render(helpText())
+		lines := strings.Split(helpText(), "\n")
+		rows := max(1, m.height-6)
+		start := m.helpOffset
+		if start > max(0, len(lines)-rows) {
+			start = max(0, len(lines)-rows)
+		}
+		end := min(len(lines), start+rows)
+		body := strings.Join(lines[start:end], "\n")
+		if len(lines) > rows {
+			body += "\n" + m.st.help.Render("↑/↓ scroll · esc close")
+		}
+		overlay = m.st.modal.Render(body)
 	case modeRetitle:
 		overlay = m.retitle.view(m.affectedCommits(), m.plan, m.st)
 	case modeDropBodies:

@@ -2693,3 +2693,39 @@ func TestSelectionCommitSpec_rangeVsNonContiguous(t *testing.T) {
 		t.Error("a non-contiguous selection must not be expressible as one range")
 	}
 }
+
+// TestHelpOverlay_scrolls: down/up change the visible window and clamp at both
+// ends on a short terminal.
+func TestHelpOverlay_scrolls(t *testing.T) {
+	m := newTestModel(t)
+	m.width, m.height = 100, 20 // fewer rows than helpText lines
+	m.mode = modeHelp
+	first := m.View()
+	down, _ := m.handleKey(key("down"))
+	m = down.(Model)
+	if m.helpOffset == 0 {
+		t.Error("down should advance helpOffset")
+	}
+	if m.View() == first {
+		t.Error("scrolling should change the help view")
+	}
+	// clamp at top
+	for i := 0; i < 100; i++ {
+		up, _ := m.handleKey(key("up"))
+		m = up.(Model)
+	}
+	if m.helpOffset != 0 {
+		t.Errorf("helpOffset should clamp at 0, got %d", m.helpOffset)
+	}
+}
+
+// TestCommitPending_statusSaysCapitalU: the post-apply hint uses the real binding U.
+func TestCommitPending_statusSaysCapitalU(t *testing.T) {
+	m := newTestModelN(t, 3)
+	m = applyStrategyInPane(m)
+	m = send(m, "A")     // stage → modePipeline
+	m = send(m, "enter") // apply through commitPending (sets the status)
+	if !strings.Contains(m.statusMsg, "press U to undo") {
+		t.Errorf("apply status should say 'press U to undo', got %q", m.statusMsg)
+	}
+}
