@@ -244,6 +244,7 @@ just redate -- --start=2026-01-01 --end=2026-03-01   # preview an even date spre
 just retitle '^feat: ' ''                # preview a regex subject rewrite
 just llm-help                            # agent-facing docs (regit --llm-help)
 just commands                            # list every registered verb (regit --help)
+just docs-sync                          # regenerate the marked README/AGENTS.md blocks from code
 ```
 
 Bare go commands also work:
@@ -367,11 +368,18 @@ regit squash <range-ish>
   and `Body` (the `@@ …` hunk line + diff lines). The `Patch()` method combines
   them. The fields are named `FileHeader`/`Body` in the code.
 
+- **Marked doc blocks are generated.** The regions between `<!-- regit:begin … -->`
+  and `<!-- regit:end … -->` in README.md and AGENTS.md are projections of the
+  code (see `internal/docs`). Never hand-edit inside the markers — change the
+  code (keymap, registry, config table, strategy names) and run `just docs-sync`;
+  the drift test fails CI otherwise.
+
 ## Where things live
 
 ```
 cmd/regit/main.go       Entry point: --version/--help/--llm-help, verb dispatch over capability.Registry(), else TUI
 cmd/regit/dispatch.go   Builds RunContext (config + repo + clock), parses via capability.Parse, calls Command.Run
+cmd/docgen/main.go      Dev tool: regenerates the marked doc blocks (just docs-sync / --check)
 internal/model/
   commit.go             Commit, SplitMessage
   edit.go               Edit (pending date/message change)
@@ -407,10 +415,16 @@ internal/llm/
   schema.go             Split-specific SchemaJSON (JSON schema for structured output)
 internal/safety/
   manager.go            Manager, Apply, ApplySplit (both call verify), Undo, ApplyResult.Verification
+  squash.go             Manager.ApplySquash (squashed chains + tail replay, verified like every apply)
   verify.go             Manager.verify, emptyExpectations, verifyError (the change-set verifier)
   guards.go             CheckGuards, Guard
 internal/config/
   config.go             Config, Load, REGIT_* overrides, RewordConfig
+internal/docs/
+  blocks.go             Generated doc blocks: keys/commands/strategies/env-vars/verbs renderers
+  markers.go            SpliceBlocks — replaces content between regit:begin/end marker lines
+  files.go              File→blocks table, FindRoot, Sync/Check (cmd/docgen and drift tests use these)
+  drift_test.go         Fails CI when README.md/AGENTS.md disagree with the code
 internal/capability/
   command.go            Command, Param, Example, ParamType, RunContext, ParsedArgs (+ typed accessors)
   registry.go           Registry() table (single source of truth), Lookup, strategy/time name resolution

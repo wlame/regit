@@ -7,18 +7,18 @@ same day. `regit` lets you spread those commits across a calendar with a rich se
 of strategies, edit messages, and apply the change with strong safety guarantees.
 
 ```
-┌ regit · myrepo · branch: main · 24 commits ────────────────────────────────┐
-│ COMMITS (24)                  │ 2026  [ ◀ ] [ ▶ ]                           │
-│ ▸ a1b2c3   Fix login bug      │       Mon ░░▓░░ ░░░░░ ▓▓░░░ ░░░░░ ░░░       │
-│     06-05 14:22 → 03-02 10:14 │       Wed ░▓░░░ ░░░░░ ░░▓▓▓ ▓░░░░ ░░░       │
-│   d4e5f6   Add user model     │       Fri ░░░░░ ░▓▓▓░ ░░░░░ ░░░░░ ███       │
-│     06-05 14:25 → 03-02 11:40 │       Less ·▇▇▇▇ More                       │
-│   7890ab   Refactor API   ⚑   │       Selected: 2026-03-02 (Mon) · 2 commits│
-│     06-05 14:30 → 03-09 09:02 │       ✓ sequential                         │
-├───────────────────────────────┴─────────────────────────────────────────────┤
-│ ● Even Spread · 24 commits edited · ✓ sequential                            │
-│ [s]trategy [e]dit [p]review [S]plit [w]reword [u]ndo [A]pply [r]eset [?]     │
-└──────────────────────────────────────────────────────────────────────────────┘
+┌ regit · myrepo · main · 24 commits ───────────────────────────────────────────┐
+│  Dates │ Restructure │ History │ Authorship │ Search                          │
+├────────────────────────────────┬──────────────────────────────────────────────┤
+│ COMMITS (24)                   │ 2026  ◀ March ▶                              │
+│ ▸ a1b2c3  Fix login bug        │   Mon ░░▓░░ ░░░░░ ▓▓░░░ ░░░░░                │
+│    06-05 14:22 → 03-02 10:14   │   Wed ░▓░░░ ░░░░░ ░░▓▓▓ ▓░░░░                │
+│   d4e5f6  Add user model       │   Fri ░░░░░ ░▓▓▓░ ░░░░░ ░░░░░                │
+│    06-05 14:25 → 03-02 11:40   │   Less ·▇▇▇▇ More                            │
+│   7890ab  Refactor API         │   ◀ Even Spread ▶ · 24 commits · ✓ sequential│
+├────────────────────────────────┴──────────────────────────────────────────────┤
+│ [?]help [q]uit [tab]focus [<>]tabs [e]dit [.]detail [p]review [A]pply …       │
+└───────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Core guarantees
@@ -188,8 +188,8 @@ Preserve original · Working hours · Evening hours · Non-working hours · Unif
 | Dirty working tree | apply is **blocked** until you commit or stash |
 | Out-of-order plan | apply is **blocked** until violations are resolved |
 | Already-pushed commits | apply requires **typing the branch name** to confirm |
-| Backup | `refs/regit/backup/<unix-ts>` created before each apply |
-| Undo | restores the most recent backup from within the TUI |
+| Backup | `refs/regit/backup/<branch>/<ts>-<seq>` created before each apply; an existing backup is never overwritten |
+| Undo | `U` restores the most recent backup taken **on the current branch**; cross-branch restores are refused (legacy flat backups need an explicit `regit undo --to=<ref>`) |
 
 > Rewriting history that others have pulled requires a force-push and can
 > disrupt collaborators. `regit` warns you, but use it deliberately on shared
@@ -211,6 +211,30 @@ jitter_minutes: 20
 link_dates: true             # keep author == committer date
 weekdays: [mon, tue, wed, thu, fri]
 seed: 0                      # fix for reproducible randomized strategies
+
+llm:                         # optional LLM used by split / reword / squash summaries
+  provider: ""               # ollama, lmstudio, openai, openrouter ("" = LLM off)
+  model: ""                  # e.g. qwen2.5-coder
+  base_url: ""               # override the provider's default endpoint
+  temperature: 0             # reserved — requests currently always send 0 (see M5)
+  timeout_sec: 60
+
+split:                       # commit-splitting defaults (see "Commit splitting")
+  max_commits: 4             # clamp on resulting commits per split
+  lines_per_commit: 40       # sizing heuristic for the auto max-commit scale
+  min_split_lines: 20        # diffs smaller than this are never split
+  recursion_depth: 2         # bound on recursive re-splitting
+  context: [readme]          # context keys included in the LLM prompt
+  repair_attempts: 2         # LLM regroup attempts when --test-cmd fails
+  wip_prefix: "WIP: "        # subject prefix for stages that still fail tests
+  cache: true                # persist proposals to .git/regit/cache/split/
+
+reword:                      # commit-rewording defaults (see "Commit rewording")
+  variants: 3                # ranked alternatives per commit (TUI; headless uses 1)
+  context: [readme]          # context keys included in the prompt
+  context_lines: 30          # git diff -U context depth
+  prefetch: 1                # commits generated ahead during multi-reword
+  cache: true                # persist proposals to .git/regit/cache/reword/
 ```
 
 These settings can be overridden per-run with `REGIT_*` environment variables
@@ -340,8 +364,8 @@ regit reword [<commit-ish>...]     # commits to reword (default: HEAD)
 
 Multiple commit-ishes may be supplied; they are de-duplicated and processed in
 root-first history order. In headless mode exactly one variant is requested per
-commit (no TUI to choose from); use the TUI's `w` key to browse multiple ranked
-alternatives interactively.
+commit (no TUI to choose from); use the TUI's Restructure → Reword menu to browse
+multiple ranked alternatives interactively.
 
 ### API key resolution
 
@@ -383,7 +407,8 @@ hint, and variant count, so any input change produces a cache miss. Use
 When rewording multiple commits, `regit` starts generating the next commit's
 proposal while you are reading and accepting the current one. The pipeline buffer
 depth is controlled by `reword.prefetch` in the config (default: 1 ahead). The
-TUI also prefetches the next commit below the cursor when you press `w`.
+TUI also prefetches the next commit below the cursor when you use the
+Restructure → Reword menu.
 
 ### Configuration defaults
 
@@ -418,10 +443,14 @@ The codebase is layered so the interesting logic is pure and testable:
 - `internal/gitio` — the only package that shells out to `git`
 - `internal/safety` — guards, backup refs, undo
 - `internal/split` — commit-splitting orchestrator (extract → group → build → validate → repair → apply)
+- `internal/squash` — commit-squash engine (chain summarization, cache, prompt)
+- `internal/reword` — commit-rewording engine (variants, cache, prompt building)
 - `internal/llm` — LLM backend abstraction (OpenAI-compatible HTTP + agent CLI)
 - `internal/config` — YAML + env configuration
+- `internal/capability` — the command registry: every action as data + headless Run (CLI/TUI/help project from it)
 - `internal/ui` — Bubble Tea terminal interface
 - `internal/model` — shared domain types
+- `internal/docs` — generated-docs renderer; `just docs-sync` rewrites the marked README/AGENTS.md blocks
 
 ## License
 

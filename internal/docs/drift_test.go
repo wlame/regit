@@ -3,8 +3,14 @@ package docs
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/wlame/regit/internal/capability"
+	"github.com/wlame/regit/internal/config"
+	"github.com/wlame/regit/internal/gitio"
 )
 
 // driftRoot locates the repo root for doc-drift assertions, skipping when the
@@ -82,6 +88,87 @@ func TestDocs_onDiskSpliceIsIdempotent(t *testing.T) {
 		}
 		if once != twice {
 			t.Errorf("%s: splice is not a fixed point", f.Path)
+		}
+	}
+}
+
+// yamlKeys returns every yaml tag reachable from t, recursing into struct
+// fields, so the README config test covers nested llm./split./reword. keys.
+func yamlKeys(t reflect.Type) []string {
+	var keys []string
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		tag := strings.Split(f.Tag.Get("yaml"), ",")[0]
+		if tag == "" || tag == "-" {
+			continue
+		}
+		keys = append(keys, tag)
+		if f.Type.Kind() == reflect.Struct {
+			keys = append(keys, yamlKeys(f.Type)...)
+		}
+	}
+	return keys
+}
+
+// TestREADME_documentsEveryConfigKey catches the failure mode that let the
+// llm:/split: blocks go undocumented: any yaml-tagged Config field must appear
+// as a "key:" somewhere in the README. The match is anchored to the start of a
+// (possibly indented/list-prefixed) YAML line so a key that is a suffix of
+// another key — e.g. "model" inside "default_time_model" — can't false-pass.
+func TestREADME_documentsEveryConfigKey(t *testing.T) {
+	root := driftRoot(t)
+	raw, err := os.ReadFile(filepath.Join(root, "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range yamlKeys(reflect.TypeOf(config.Config{})) {
+		pattern := regexp.MustCompile(`(?m)^[ \t-]*` + regexp.QuoteMeta(key) + `:`)
+		if !pattern.Match(raw) {
+			t.Errorf("README.md does not document config key %q", key)
+		}
+	}
+}
+
+// TestREADME_mentionsEveryInternalPackage keeps the Development section's
+// package map complete as packages are added.
+func TestREADME_mentionsEveryInternalPackage(t *testing.T) {
+	root := driftRoot(t)
+	raw, err := os.ReadFile(filepath.Join(root, "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(filepath.Join(root, "internal"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.IsDir() && !strings.Contains(string(raw), "internal/"+e.Name()) {
+			t.Errorf("README.md does not mention internal/%s", e.Name())
+		}
+	}
+}
+
+// TestREADME_showsBackupRefPattern binds the safety table to the real backup
+// ref shape (gitio.BackupRefDocPattern is itself test-locked to BackupRefName).
+func TestREADME_showsBackupRefPattern(t *testing.T) {
+	root := driftRoot(t)
+	raw, err := os.ReadFile(filepath.Join(root, "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), gitio.BackupRefDocPattern) {
+		t.Errorf("README.md does not show the backup ref pattern %q", gitio.BackupRefDocPattern)
+	}
+}
+
+// TestRunFiles_existForEveryVerb keeps the generated runfiles-map line honest:
+// every verb must really have its run_<flat>.go implementation file.
+func TestRunFiles_existForEveryVerb(t *testing.T) {
+	root := driftRoot(t)
+	for _, c := range capability.Registry() {
+		p := filepath.Join(root, "internal", "capability", "run_"+strings.ReplaceAll(c.Name, "-", "")+".go")
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("verb %q has no run file at %s", c.Name, p)
 		}
 	}
 }
