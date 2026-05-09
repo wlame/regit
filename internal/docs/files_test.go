@@ -68,3 +68,69 @@ func TestCheck_failsLoudlyOnMalformedMarker(t *testing.T) {
 		}
 	}
 }
+
+// TestSync_writesBlocksAndIsIdempotent exercises Sync's write path — the one
+// cmd/docgen actually runs — against a synthetic root: seed both doc files
+// with empty, well-formed marker pairs for every declared block, run Sync,
+// and assert the rendered content lands on disk. A second Sync must be a
+// no-op, proving the write path (not just SpliceBlocks) is idempotent.
+func TestSync_writesBlocksAndIsIdempotent(t *testing.T) {
+	root := t.TempDir()
+	for _, f := range Files() {
+		var b strings.Builder
+		b.WriteString("# synthetic\n\n")
+		for _, n := range f.Blocks {
+			b.WriteString(BeginMarker(n) + "\n" + EndMarker(n) + "\n\n")
+		}
+		if err := os.WriteFile(filepath.Join(root, f.Path), []byte(b.String()), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	changed, err := Sync(root)
+	if err != nil {
+		t.Fatalf("first Sync: %v", err)
+	}
+	if len(changed) != len(Files()) {
+		t.Errorf("first Sync changed %v, want both doc files", changed)
+	}
+
+	all := Blocks()
+	for _, f := range Files() {
+		raw, err := os.ReadFile(filepath.Join(root, f.Path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, n := range f.Blocks {
+			if !strings.Contains(string(raw), all[n]) {
+				t.Errorf("%s: block %q content not written by Sync", f.Path, n)
+			}
+		}
+	}
+
+	changed, err = Sync(root)
+	if err != nil {
+		t.Fatalf("second Sync: %v", err)
+	}
+	if len(changed) != 0 {
+		t.Errorf("second Sync changed %v, want none", changed)
+	}
+}
+
+// TestSync_reportsReadErrorForMissingFile covers regenerate's read-error
+// branch: Sync must surface os.ReadFile's error rather than swallowing it,
+// and must not report any file as changed once it has failed.
+func TestSync_reportsReadErrorForMissingFile(t *testing.T) {
+	root := t.TempDir()
+	// Deliberately do not create README.md or AGENTS.md.
+	changed, err := Sync(root)
+	if err == nil {
+		t.Fatal("Sync returned no error for a missing doc file, want a loud failure")
+	}
+	if !strings.Contains(err.Error(), "README.md") {
+		t.Errorf("err = %q, want it to mention README.md", err)
+	}
+	if len(changed) != 0 {
+		t.Errorf("Sync reported changed = %v on failure, want none", changed)
+	}
+}

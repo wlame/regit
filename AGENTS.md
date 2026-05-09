@@ -21,8 +21,12 @@ Three independent features share a common safety/gitio core:
    applied with `--execute` — no interactive prompt).
 
 A complete, **registry-driven headless CLI** mirrors the TUI: every action is
-also a flat verb (`regit redate · split · squash · reword · retitle · drop-bodies · reauthor · undo`),
-all projected from one capability registry (see "The capability registry" below).
+also a flat verb, all projected from one capability registry (see "The
+capability registry" below). The verbs, in registry order:
+
+<!-- regit:begin verbs-overview -->
+`split` · `reword` · `squash` · `redate` · `retitle` · `reauthor` · `drop-bodies` · `undo`
+<!-- regit:end verbs-overview -->
 
 ## Core domain types (`internal/model`)
 
@@ -201,8 +205,13 @@ PROJECTIONS of this table — they cannot drift apart.
 - **Footer fidelity** is guaranteed by a round-trip test: `Render` (footer) is the
   inverse of `Parse` (CLI), so a logged line is always one the CLI accepts.
 
-**The verbs** (each a `Command` row with a `Run` in `run_<verb>.go`): `redate`,
-`split`, `reword`, `retitle`, `drop-bodies`, `undo`. Every mutating verb except
+**The verbs** (each a `Command` row with a `Run` in `run_<verb>.go`):
+
+<!-- regit:begin verbs-detail -->
+`split` · `reword` · `squash` · `redate` · `retitle` · `reauthor` · `drop-bodies` · `undo`
+<!-- regit:end verbs-detail -->
+
+Every mutating verb except
 `undo` **previews by default** and applies with `--execute`, requiring `--execute
 --force` to rewrite already-pushed history; a dirty tree or out-of-order plan is a
 hard block. `undo` is exempt — it restores immediately; `undo --list` is read-only.
@@ -412,7 +421,7 @@ internal/capability/
   argmap.go             Per-verb argMap builders the TUI footer renders (RedateArgMap, RewordArgMap, …)
   deprecate.go          DeprecatedRewrite (--yes→--execute, drop --dry-run) for split/reword
   backend.go commits.go targets.go splitprint.go   Shared LLM-backend wiring, commit lookup, range resolution, split print
-  run_*.go              Headless Run impls: redate, split, reword, retitle, dropbodies, undo
+  run_*.go              Headless Run impls, one file per verb (generated list below)
 internal/ui/
   app.go                Main Bubble Tea model + update loop; commandLog/pendingCmd footer state, appendCommandLog
   split.go              Split review screen + backend wiring for TUI
@@ -430,3 +439,7 @@ internal/ui/
 justfile                All dev recipes — prefer these over raw go commands
 AGENTS.md               This file
 ```
+
+<!-- regit:begin runfiles-map -->
+`run_*.go` files: `run_split.go` · `run_reword.go` · `run_squash.go` · `run_redate.go` · `run_retitle.go` · `run_reauthor.go` · `run_dropbodies.go` · `run_undo.go`
+<!-- regit:end runfiles-map -->

@@ -52,23 +52,85 @@ regit --repo=/path/to/repo
 
 ### Keys
 
+The full keymap, grouped the same way as the in-app `?` help overlay
+(this section is generated from the code — `just docs-sync`):
+
+<!-- regit:begin keys -->
+**GLOBAL**
+
 | Key | Action |
 |-----|--------|
-| `tab` | switch focus between commit list and calendar |
-| `↑/↓` `j/k` | move selection (list) / cursor by week (calendar) |
-| `←/→` | move calendar cursor by one day |
-| `[` / `]` | previous / next year |
-| `0`–`9` | set a per-day quota on the calendar cursor day |
-| `g` | apply accumulated quotas (Manual Pin) |
-| `s` | open the strategy palette |
-| `e` / `enter` | edit selected commit (title, body, date) — `ctrl+d` drops the body |
-| `p` | preview before/after dates |
-| `S` | split the selected commit into smaller commits with an LLM (review, then `enter` to apply · `esc` to cancel) |
-| `w` | reword the selected commit with the LLM — pick title/body variant with `←/→` (title) and `j/k` (body), `b` toggles no-body, `enter` to apply, `esc` to cancel |
-| `A` | apply the rewrite (creates a backup first) |
-| `u` | undo the last apply |
-| `r` | reset pending edits |
-| `?` | help · `q` quit |
+| `?` | toggle this help |
+| `q / ctrl+c` | quit |
+| `tab` | cycle focus across the list and the active workspace widget |
+
+**WORKSPACES**
+
+| Key | Action |
+|-----|--------|
+| `< / > or [ / ]` | switch workspace tabs (Dates · Restructure · …) |
+| `tab` | focus the active workspace's widget (calendar or feature menu) |
+| `↑/↓ · enter` | in a feature menu: move the cursor / run the selected feature |
+
+**ACTIONS (any pane)**
+
+| Key | Action |
+|-----|--------|
+| `e / enter` | edit the selected commit (title, body, date) |
+| `.` | show full detail for the selected commit (overlay when narrow) |
+| `p` | preview the pending changes (read-only) |
+| `A` | apply: preview the before/after, then enter to apply (confirm if pushed) |
+| `U` | undo the last apply |
+| `R` | reset all pending edits |
+| `L` | toggle the command-log footer (read-only) |
+
+**COMMIT LIST (focused)**
+
+| Key | Action |
+|-----|--------|
+| `d` | toggle date grouping in the commit list |
+| `a` | toggle the author column in the commit list |
+| `↑/↓ or k/j` | move the selection |
+| `ctrl+d/u` | half page down / up (pgdn/pgup move a full page) |
+| `g / G` | newest / oldest commit (home/end do the same) |
+| `} / {` | next / previous day group |
+
+**SELECTION (commit list)**
+
+| Key | Action |
+|-----|--------|
+| `space` | toggle the cursor commit in the selection set |
+| `s` | select all active commits |
+| `n` | clear the selection |
+| `v` | visual range — anchor, move to extend, v/enter to fix, esc to cancel |
+| `esc` | cancel the selection (back to the workspace default) |
+| `(reword)` | with a set selected, Reword runs multi-reword over every chosen commit |
+
+**BRANCH & BASE**
+
+| Key | Action |
+|-----|--------|
+| `B` | open the branch picker — enter switches branch, tab sets it as the base |
+| `b` | set/clear the base at the cursor commit (freeze older history) |
+
+**CALENDAR (focused)**
+
+| Key | Action |
+|-----|--------|
+| `↑/↓` | move the cursor by one day |
+| `←/→` | move the cursor by one week |
+| `0-9` | pin a per-day quota (Manual Pin strategy active); live-stages the distribution |
+| `space` | pick/unpick the day (Picked Days strategy active); reshuffles live |
+
+**STRATEGY PANE (focused)**
+
+| Key | Action |
+|-----|--------|
+| `↑/↓` | move between fields |
+| `←/→` | change strategy (on the top row) / time model |
+| `enter` | apply the strategy with the current parameters |
+| `tab / esc` | back to the commit list |
+<!-- regit:end keys -->
 
 ## Commands (headless)
 
@@ -76,15 +138,18 @@ Every interactive action has a non-interactive equivalent. Mutating commands
 **preview by default**; pass `--execute` to apply, and `--execute --force` to
 rewrite already-pushed commits. `undo` is exempt and restores immediately.
 
+<!-- regit:begin commands -->
 | Command | What it does |
 |---------|--------------|
-| `regit redate --strategy=… --time=…` | spread commit/author dates across a calendar |
-| `regit split <commit-ish>` | split one commit into 2–4 with an LLM |
-| `regit squash <range-ish>` | collapse consecutive commits into one |
-| `regit reword [<commit-ish>…]` | regenerate commit message(s) with an LLM |
-| `regit retitle --match=RE --replace=S` | regex-rewrite commit subjects across a range |
-| `regit drop-bodies [--commits=A..B]` | strip commit bodies, keep titles |
-| `regit undo [--list] [--to=<ref-or-hash>]` | restore the branch to the latest backup ref or a specific one |
+| `regit split` | Split one commit into 2–4 semantic commits using an LLM. |
+| `regit reword` | Regenerate commit message(s) with an LLM (one proposal headless). |
+| `regit squash` | Squash consecutive commits into one per chain (LLM-summarized message). |
+| `regit redate --strategy=…` | Spread commit/author dates across a calendar using a strategy. |
+| `regit retitle --match=…` | Rewrite commit subjects with a regex across a range. |
+| `regit reauthor` | Rewrite the author (and by default committer) identity of commits. |
+| `regit drop-bodies` | Strip the body of each commit in a range, keeping titles. |
+| `regit undo` | Restore the branch to the most recent regit backup ref. |
+<!-- regit:end commands -->
 
 ```bash
 regit redate --strategy=Even-Spread --time=Working-hours \
@@ -106,12 +171,15 @@ headless command for each action you apply (also written to
 `regit` separates **where** a commit lands (day) from **when** during that day
 (time), so a small menu yields many combinations.
 
-**Day assignment:** Even Spread · Manual Pin · Picked Days · Rate Fill ·
-Working Days · Weekends Only · Offset Shift · Preserve-Relative ·
-Backwards-from-Deadline · Compress.
+**Day assignment:**
+<!-- regit:begin strategies -->
+Even Spread · Manual Pin · Picked Days · Rate Fill · Working Days · Weekends Only · Offset Shift · Preserve-Relative · Backwards-from-Deadline · Compress.
+<!-- regit:end strategies -->
 
-**Time of day:** Preserve original · Working hours (with optional lunch gap) ·
-Evening · Uniform random · Fixed time · Jitter.
+**Time of day:**
+<!-- regit:begin time-models -->
+Preserve original · Working hours · Evening hours · Non-working hours · Uniform random · Fixed time · Jitter.
+<!-- regit:end time-models -->
 
 ## Safety model
 
@@ -145,8 +213,12 @@ weekdays: [mon, tue, wed, thu, fri]
 seed: 0                      # fix for reproducible randomized strategies
 ```
 
-Any value can be overridden per-run with `REGIT_*` environment variables
-(`REGIT_TIMEZONE`, `REGIT_DEFAULT_STRATEGY`, `REGIT_SEED`, …).
+These settings can be overridden per-run with `REGIT_*` environment variables
+(the environment always beats the file):
+
+<!-- regit:begin env-vars -->
+`REGIT_TIMEZONE` · `REGIT_WORKDAY_START` · `REGIT_WORKDAY_END` · `REGIT_DEFAULT_STRATEGY` · `REGIT_DEFAULT_TIME_MODEL` · `REGIT_SEED` · `REGIT_LINK_DATES` · `REGIT_LLM_PROVIDER` · `REGIT_LLM_MODEL` · `REGIT_SPLIT_MAX_COMMITS` · `REGIT_REWORD_VARIANTS`
+<!-- regit:end env-vars -->
 
 ## Commit splitting
 

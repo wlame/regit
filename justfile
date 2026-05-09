@@ -126,6 +126,14 @@ llm-help:
 commands:
     go run ./cmd/regit --help
 
+# Regenerate the generated doc blocks in README.md / AGENTS.md from the code.
+docs-sync:
+    go run ./cmd/docgen
+
+# Verify the generated doc blocks match the code (the drift test runs this same check).
+docs-check:
+    go run ./cmd/docgen --check
+
 # Remove build and coverage artifacts.
 clean:
     rm -rf {{bin_dir}} {{coverage_file}}
