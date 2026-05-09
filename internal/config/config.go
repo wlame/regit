@@ -146,50 +146,68 @@ func configPath() string {
 	return filepath.Join(base, "regit", "config.yaml")
 }
 
-// applyEnvOverrides lets REGIT_* variables win over the file, which is handy for
-// one-off runs and CI without editing the YAML.
-func applyEnvOverrides(cfg *Config) {
-	if v := os.Getenv("REGIT_TIMEZONE"); v != "" {
-		cfg.Timezone = v
-	}
-	if v := os.Getenv("REGIT_WORKDAY_START"); v != "" {
-		cfg.WorkdayStart = v
-	}
-	if v := os.Getenv("REGIT_WORKDAY_END"); v != "" {
-		cfg.WorkdayEnd = v
-	}
-	if v := os.Getenv("REGIT_DEFAULT_STRATEGY"); v != "" {
-		cfg.DefaultStrategy = v
-	}
-	if v := os.Getenv("REGIT_DEFAULT_TIME_MODEL"); v != "" {
-		cfg.DefaultTimeModel = v
-	}
-	if v := os.Getenv("REGIT_SEED"); v != "" {
+// envOverride binds one REGIT_* environment variable to the setter that applies
+// its value. This table is the single source of truth for which overrides
+// exist: applyEnvOverrides ranges it, and EnvOverrideNames projects it for the
+// README env-var list and its drift test (internal/docs). Extending env
+// coverage (planned for M5) means adding rows here, nothing else.
+type envOverride struct {
+	Name  string                // the environment variable, e.g. "REGIT_TIMEZONE"
+	Apply func(*Config, string) // parses v and sets the field; ignores bad values
+}
+
+// envOverrides holds every supported override in documentation order. Setters
+// silently ignore unparsable numbers/bools, matching the historical behavior:
+// a bad env value falls back to the file/default rather than erroring.
+var envOverrides = []envOverride{
+	{"REGIT_TIMEZONE", func(c *Config, v string) { c.Timezone = v }},
+	{"REGIT_WORKDAY_START", func(c *Config, v string) { c.WorkdayStart = v }},
+	{"REGIT_WORKDAY_END", func(c *Config, v string) { c.WorkdayEnd = v }},
+	{"REGIT_DEFAULT_STRATEGY", func(c *Config, v string) { c.DefaultStrategy = v }},
+	{"REGIT_DEFAULT_TIME_MODEL", func(c *Config, v string) { c.DefaultTimeModel = v }},
+	{"REGIT_SEED", func(c *Config, v string) {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
-			cfg.Seed = n
+			c.Seed = n
 		}
-	}
-	if v := os.Getenv("REGIT_LINK_DATES"); v != "" {
+	}},
+	{"REGIT_LINK_DATES", func(c *Config, v string) {
 		if b, err := strconv.ParseBool(v); err == nil {
-			cfg.LinkDates = b
+			c.LinkDates = b
 		}
-	}
-	if v := os.Getenv("REGIT_LLM_PROVIDER"); v != "" {
-		cfg.LLM.Provider = v
-	}
-	if v := os.Getenv("REGIT_LLM_MODEL"); v != "" {
-		cfg.LLM.Model = v
-	}
-	if v := os.Getenv("REGIT_SPLIT_MAX_COMMITS"); v != "" {
+	}},
+	{"REGIT_LLM_PROVIDER", func(c *Config, v string) { c.LLM.Provider = v }},
+	{"REGIT_LLM_MODEL", func(c *Config, v string) { c.LLM.Model = v }},
+	{"REGIT_SPLIT_MAX_COMMITS", func(c *Config, v string) {
 		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Split.MaxCommits = n
+			c.Split.MaxCommits = n
 		}
-	}
-	if v := os.Getenv("REGIT_REWORD_VARIANTS"); v != "" {
+	}},
+	{"REGIT_REWORD_VARIANTS", func(c *Config, v string) {
 		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Reword.Variants = n
+			c.Reword.Variants = n
+		}
+	}},
+}
+
+// applyEnvOverrides lets REGIT_* variables win over the file, which is handy
+// for one-off runs and CI without editing the YAML.
+func applyEnvOverrides(cfg *Config) {
+	for _, o := range envOverrides {
+		if v := os.Getenv(o.Name); v != "" {
+			o.Apply(cfg, v)
 		}
 	}
+}
+
+// EnvOverrideNames returns every supported REGIT_* override in table order.
+// The README's env-var list is generated from this (see internal/docs), so the
+// docs always name exactly the variables the code honors.
+func EnvOverrideNames() []string {
+	names := make([]string, len(envOverrides))
+	for i, o := range envOverrides {
+		names[i] = o.Name
+	}
+	return names
 }
 
 // Location resolves the configured timezone to a *time.Location, defaulting to

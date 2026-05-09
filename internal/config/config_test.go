@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -165,6 +166,18 @@ func TestLoad_regitEnvPrefixOverrides(t *testing.T) {
 	}
 }
 
+func TestLoad_llmModelEnvOverride(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("REGIT_LLM_MODEL", "gpt-4o")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.LLM.Model != "gpt-4o" {
+		t.Fatalf("llm model = %q", cfg.LLM.Model)
+	}
+}
+
 func TestLoad_rewordDefaults(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	cfg, err := Load()
@@ -182,5 +195,35 @@ func TestLoad_rewordEnvOverride(t *testing.T) {
 	cfg, _ := Load()
 	if cfg.Reword.Variants != 5 {
 		t.Fatalf("variants = %d", cfg.Reword.Variants)
+	}
+}
+
+func TestEnvOverrideNames_listsSupportedVarsInTableOrder(t *testing.T) {
+	want := []string{
+		"REGIT_TIMEZONE", "REGIT_WORKDAY_START", "REGIT_WORKDAY_END",
+		"REGIT_DEFAULT_STRATEGY", "REGIT_DEFAULT_TIME_MODEL", "REGIT_SEED",
+		"REGIT_LINK_DATES", "REGIT_LLM_PROVIDER", "REGIT_LLM_MODEL",
+		"REGIT_SPLIT_MAX_COMMITS", "REGIT_REWORD_VARIANTS",
+	}
+	got := EnvOverrideNames()
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("EnvOverrideNames() = %v, want %v", got, want)
+	}
+}
+
+func TestApplyEnvOverrides_ignoresUnparsableValues(t *testing.T) {
+	t.Setenv("REGIT_SEED", "not-a-number")
+	t.Setenv("REGIT_SPLIT_MAX_COMMITS", "NaN")
+	t.Setenv("REGIT_LINK_DATES", "not-a-bool")
+	cfg := Default()
+	applyEnvOverrides(&cfg)
+	if cfg.Seed != 0 {
+		t.Errorf("Seed = %d, want 0 (unparsable value must be ignored)", cfg.Seed)
+	}
+	if cfg.Split.MaxCommits != 4 {
+		t.Errorf("Split.MaxCommits = %d, want 4", cfg.Split.MaxCommits)
+	}
+	if !cfg.LinkDates {
+		t.Errorf("LinkDates = false, want true (default preserved)")
 	}
 }
