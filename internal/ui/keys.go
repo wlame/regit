@@ -8,7 +8,8 @@ import (
 )
 
 // keys.go is the single source of truth for the keymap. The help overlay (the
-// '?' screen) and the compact keybar hint are GENERATED from the keymap table, so
+// '?' screen), the compact keybar hint, and the README's Keys section (via
+// DocSections and internal/docs) are all GENERATED from the keymap table, so
 // the documentation can never drift from the keys the code actually handles —
 // there is one table, not a hand-maintained help slice plus a
 // separately hard-coded keybar string.
