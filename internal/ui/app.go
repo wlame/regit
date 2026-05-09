@@ -1352,6 +1352,7 @@ func (m Model) updatePipeline(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// lines, only drop pending" rule as esc/q above.
 			m.mode = modeMain
 			m.pending = nil
+			m.pipelineOrigin = modeMain
 			return m, nil
 		}
 		if m.pendingGuard.NeedsConfirmation {

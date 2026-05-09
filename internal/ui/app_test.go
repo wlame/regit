@@ -2686,6 +2686,56 @@ func TestFooter_undoIsLogged(t *testing.T) {
 	}
 }
 
+// TestFooter_compoundApplyLogsAllPlanLines proves the redateCmd++planCmds
+// snapshot taken by stagePlanApply actually reaches the on-disk log: stage a
+// strategy (redateCmd) AND a drop-bodies edit (a planCmds line) together, apply
+// once, and confirm BOTH command lines survive to command.log alongside the
+// verification line. TestFooter_stagingStrategyLogsExactlyOneRedateLine and
+// TestFooter_directApplyDoesNotFlushPlanLines (footer_ownership_test.go) each
+// cover one side of the split in isolation; neither drives a plan apply staging
+// both redateCmd and a real (non-"#") planCmds entry at once, so a regression
+// that dropped one half of the concatenation in stagePlanApply could still pass
+// both of those.
+func TestFooter_compoundApplyLogsAllPlanLines(t *testing.T) {
+	m := newTestModelN(t, 4) // display: 0=newest .. 3=oldest/root
+
+	m = applyStrategyInPane(m) // stages redateCmd
+	if m.redateCmd == "" {
+		t.Fatal("setup: applyStrategyInPane should have set redateCmd")
+	}
+
+	m = runRestructureFeature(t, m, "Drop bodies") // stages a planCmds line
+	m = send(m, "enter")                           // confirm the drop-bodies popup
+	if len(m.planCmds) == 0 {
+		t.Fatal("setup: drop-bodies should have staged a planCmds line")
+	}
+
+	m = send(m, "A")     // stagePlanApply snapshots redateCmd ++ planCmds
+	m = send(m, "enter") // apply through the real commitPending
+	if m.statusKind == statusErr {
+		t.Fatalf("apply errored: %s", m.statusMsg)
+	}
+
+	gitDir, err := m.repo.GitDir()
+	if err != nil {
+		t.Fatalf("GitDir: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(gitDir, "regit", "command.log"))
+	if err != nil {
+		t.Fatalf("reading on-disk command log: %v", err)
+	}
+	onDisk := string(raw)
+	if !strings.Contains(onDisk, "regit redate") {
+		t.Errorf("on-disk log should contain the redate line, got:\n%s", onDisk)
+	}
+	if !strings.Contains(onDisk, "regit drop-bodies") {
+		t.Errorf("on-disk log should contain the drop-bodies line, got:\n%s", onDisk)
+	}
+	if !strings.Contains(onDisk, "verified") {
+		t.Errorf("on-disk log should contain the verification line, got:\n%s", onDisk)
+	}
+}
+
 // TestSelectionCommitSpec_rangeVsNonContiguous: a contiguous non-root selection
 // yields a range; a non-contiguous one is not expressible.
 func TestSelectionCommitSpec_rangeVsNonContiguous(t *testing.T) {
