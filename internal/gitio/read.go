@@ -20,15 +20,19 @@ const (
 
 // logFormat lists the fields we read per commit, in order, joined by fieldSep
 // and terminated by recordSep. %H hash, %T tree, %P parents, author/committer
-// identity and ISO dates, %G? signature status, %B raw message.
+// identity and ISO dates, %e encoding header, %G? signature status, %B raw
+// message.
 //
 // The message is read as raw %B on purpose: git's %s folds a multi-line first
 // paragraph into one space-joined line and %b drops everything before the
-// first blank line, which silently corrupted messages on rewrite.
+// first blank line, which silently corrupted messages on rewrite. %e must
+// come before %B (not after) because %B is the last field and greedily
+// consumes everything to the end of the record when split on fieldSep.
 var logFormat = strings.Join([]string{
 	"%H", "%T", "%P",
 	"%an", "%ae", "%cn", "%ce",
 	"%aI", "%cI",
+	"%e",
 	"%G?",
 	"%B",
 }, fieldSep) + recordSep
@@ -60,7 +64,22 @@ func (r *Repo) ReadState() (model.RepoState, error) {
 		}
 	}
 
+	if shallow, err := r.IsShallow(); err == nil {
+		st.IsShallow = shallow
+	}
+
 	return st, nil
+}
+
+// IsShallow reports whether the repository is a shallow clone (created with
+// --depth or otherwise grafted). Rewriting shallow history is unsafe because the
+// grafted boundary is not a real root, so the safety guards refuse it.
+func (r *Repo) IsShallow() (bool, error) {
+	out, err := r.git("rev-parse", "--is-shallow-repository")
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(out) == "true", nil
 }
 
 // IsDirty reports whether the working tree has uncommitted changes (including
@@ -76,7 +95,8 @@ func (r *Repo) IsDirty() (bool, error) {
 
 // ReadCommits returns the first-parent linear history of the current branch in
 // root-first order (oldest commit at index 0), which is the order the rewrite
-// engine replays. Commits already present on the upstream are flagged IsPushed.
+// engine replays. Commits already present on any remote-tracking ref are
+// flagged IsPushed.
 func (r *Repo) ReadCommits() ([]model.Commit, error) {
 	out, err := r.gitRaw("log", "--first-parent", "--reverse", "--format="+logFormat, "HEAD")
 	if err != nil {
@@ -101,16 +121,18 @@ func (r *Repo) ReadCommits() ([]model.Commit, error) {
 	return commits, nil
 }
 
-// pushedHashes returns the set of commit hashes reachable from the upstream
-// branch, used to flag which commits a rewrite would touch on the remote.
+// pushedHashes returns the set of commit hashes reachable from ANY
+// remote-tracking ref (refs/remotes/**), so IsPushed reflects every remote a
+// commit was published to — not only the configured @{u} upstream. A commit
+// pushed to a non-tracking remote (e.g. a fork) is still flagged, which is the
+// safe direction: under-reporting would let a rewrite of remote history proceed
+// unwarned.
 func (r *Repo) pushedHashes() (map[string]bool, error) {
-	up, err := r.git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
-	if err != nil || up == "" {
-		return map[string]bool{}, nil
-	}
-	out, err := r.gitRaw("rev-list", up)
+	// --remotes with no argument means "all refs under refs/remotes"; if there
+	// are none, rev-list prints nothing and we return an empty set.
+	out, err := r.gitRaw("rev-list", "--remotes")
 	if err != nil {
-		return map[string]bool{}, nil
+		return map[string]bool{}, nil // best-effort: no remotes / bare → empty
 	}
 	set := make(map[string]bool)
 	for _, h := range strings.Fields(out) {
@@ -122,8 +144,8 @@ func (r *Repo) pushedHashes() (map[string]bool, error) {
 // parseCommitRecord turns one fieldSep-joined log record into a model.Commit.
 func parseCommitRecord(record string) (model.Commit, error) {
 	f := strings.Split(record, fieldSep)
-	if len(f) < 11 {
-		return model.Commit{}, fmt.Errorf("malformed log record: expected 11 fields, got %d", len(f))
+	if len(f) < 12 {
+		return model.Commit{}, fmt.Errorf("malformed log record: expected 12 fields, got %d", len(f))
 	}
 
 	authorDate, err := time.Parse(time.RFC3339, f[7])
@@ -140,7 +162,7 @@ func parseCommitRecord(record string) (model.Commit, error) {
 		parents = strings.Fields(p)
 	}
 
-	message := strings.TrimRight(f[10], "\n")
+	message := strings.TrimRight(f[11], "\n")
 	subject, body := model.SplitMessage(message)
 
 	return model.Commit{
@@ -153,7 +175,8 @@ func parseCommitRecord(record string) (model.Commit, error) {
 		CommitterEmail: f[6],
 		OrigAuthorDate: authorDate,
 		OrigCommitDate: commitDate,
-		IsSigned:       signatureStatus(f[9]),
+		Encoding:       strings.TrimSpace(f[9]),
+		IsSigned:       signatureStatus(f[10]),
 		Message:        message,
 		Subject:        subject,
 		Body:           body,

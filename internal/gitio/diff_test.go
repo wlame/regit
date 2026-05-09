@@ -59,11 +59,19 @@ func initRepo(t *testing.T) (string, *Repo) {
 }
 
 // snapTree commits whatever is currently staged and returns the tree hash.
+// --allow-empty lets callers that only care about the commit graph (not file
+// content) invoke it with nothing staged, producing a commit that reuses the
+// parent's tree.
 func snapTree(t *testing.T, dir, msg string) string {
 	t.Helper()
-	gitT(t, dir, "commit", "-q", "-m", msg)
+	gitT(t, dir, "commit", "-q", "--allow-empty", "-m", msg)
 	return gitT(t, dir, "rev-parse", "HEAD^{tree}")
 }
+
+// snapTreeMsg is an alias for snapTree: a plain commit-with-message helper for
+// tests (e.g. impact_test.go) that don't need the "write a file first" framing
+// snapTree's callers usually pair it with.
+func snapTreeMsg(t *testing.T, dir, msg string) string { return snapTree(t, dir, msg) }
 
 func TestHunks_assignsStableIDsAndFiles(t *testing.T) {
 	repo, parent, child := twoCommitRepo(t)

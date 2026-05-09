@@ -36,8 +36,10 @@ type Commit struct {
 	Subject string // first line of the commit message, for display/editing
 	Body    string // message after the first line and its blank separator
 
+	Encoding string // the commit's `encoding` header (e.g. "ISO-8859-1"); "" means UTF-8
+
 	IsSigned bool // true if the commit carried a GPG/SSH signature
-	IsPushed bool // true if this commit also exists on the upstream branch
+	IsPushed bool // true if this commit exists on any remote-tracking ref, not just the upstream
 	IsMerge  bool // true if the commit has more than one parent
 }
 

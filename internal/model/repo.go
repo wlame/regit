@@ -12,6 +12,7 @@ type RepoState struct {
 	HasUpstream   bool   // an upstream tracking branch is configured
 	UpstreamRef   string // e.g. "origin/main" (empty if none)
 	AheadOfRemote int    // commits on the local branch not on the upstream
+	IsShallow     bool   // repository is a shallow clone (history is incomplete)
 }
 
 // CanRewriteSafely reports whether a rewrite can proceed without the loud,
