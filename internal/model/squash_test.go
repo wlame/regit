@@ -179,3 +179,56 @@ func TestClampChainDate_pullsDefaultIntoWindow(t *testing.T) {
 		t.Errorf("clamped chain should validate, got %v", err)
 	}
 }
+
+// TestRewrittenCommits_startsAtEarliestChain verifies that RewrittenCommits
+// returns only the suffix from the earliest chain's first member onward, NOT
+// the full commits slice — commits before that point are never re-emitted by
+// gitio.Repo.ApplySquash, so pushed-detection must not see them.
+func TestRewrittenCommits_startsAtEarliestChain(t *testing.T) {
+	commits := chainCommits("a", "b", "c", "d", "e")
+	// One chain over {c, d}: only c, d, e are ever rewritten; a, b are untouched.
+	plan := SquashPlan{Chains: []SquashChain{
+		{Members: []Commit{commits[2], commits[3]}},
+	}}
+	got := plan.RewrittenCommits(commits)
+	if len(got) != 3 || got[0].Hash != "c" || got[2].Hash != "e" {
+		t.Errorf("RewrittenCommits = %v, want [c d e]", hashesOf(got))
+	}
+}
+
+// TestRewrittenCommits_multipleChainsUsesEarliestFirst verifies that with
+// several chains, the suffix starts at the EARLIEST chain's first member, so a
+// later chain's rewrite doesn't hide an earlier one's.
+func TestRewrittenCommits_multipleChainsUsesEarliestFirst(t *testing.T) {
+	commits := chainCommits("a", "b", "c", "d", "e", "f")
+	plan := SquashPlan{Chains: []SquashChain{
+		{Members: []Commit{commits[3], commits[4]}}, // d,e (later chain, listed first)
+		{Members: []Commit{commits[0], commits[1]}}, // a,b (earlier chain)
+	}}
+	got := plan.RewrittenCommits(commits)
+	if len(got) != 6 || got[0].Hash != "a" {
+		t.Errorf("RewrittenCommits = %v, want the full history starting at a", hashesOf(got))
+	}
+}
+
+// TestRewrittenCommits_chainNotFoundReturnsNil covers the defensive branch: if
+// no chain's first member resolves in commits, RewrittenCommits returns nil
+// rather than the full slice.
+func TestRewrittenCommits_chainNotFoundReturnsNil(t *testing.T) {
+	commits := chainCommits("a", "b")
+	plan := SquashPlan{Chains: []SquashChain{
+		{Members: []Commit{{Hash: "missing"}, {Hash: "also-missing"}}},
+	}}
+	if got := plan.RewrittenCommits(commits); got != nil {
+		t.Errorf("RewrittenCommits with no resolvable chain = %v, want nil", hashesOf(got))
+	}
+}
+
+// hashesOf is a small test helper for readable failure messages.
+func hashesOf(commits []Commit) []string {
+	out := make([]string, len(commits))
+	for i, c := range commits {
+		out[i] = c.Hash
+	}
+	return out
+}

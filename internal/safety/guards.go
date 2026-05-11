@@ -47,26 +47,20 @@ func CheckGuards(state model.RepoState, plan *model.Plan) Guard {
 				len(plan.Shifted)),
 		}
 	}
-	if anyPushed(plan) {
+	// plan.Active() is the TRUE rewrite set: the rewrite engine (Replay) re-emits
+	// every commit from the base boundary onward as a new git object, even one
+	// with no individual edit, because its parent hash changes once anything
+	// ahead of it in the frozen prefix is rewritten. Checking the full active
+	// range (rather than "IsPushed AND individually edited") is what lets
+	// redate/split/squash/reword agree on when a rewrite touches a pushed commit
+	// it is about to re-hash as a side effect of an ancestor's edit.
+	if model.AnyPushed(plan.Active()) {
 		return Guard{
 			NeedsConfirmation: true,
 			ConfirmWord:       state.Branch,
-			ConfirmReason: "some commits already exist on the upstream; rewriting them will " +
+			ConfirmReason: "some commits already exist on a remote; rewriting them will " +
 				"require a force-push and can disrupt collaborators",
 		}
 	}
 	return Guard{}
-}
-
-// anyPushed reports whether the plan would rewrite at least one commit that is
-// already present on the upstream branch.
-func anyPushed(plan *model.Plan) bool {
-	for _, c := range plan.Commits {
-		if c.IsPushed {
-			if _, edited := plan.EditFor(c.Hash); edited {
-				return true
-			}
-		}
-	}
-	return false
 }

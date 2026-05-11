@@ -155,13 +155,16 @@ func TestFooter_peekDoesNotDropPlanLines(t *testing.T) {
 func TestConfirmCancel_returnsToOriginAndNoStaleFlush(t *testing.T) {
 	m := newTestModelN(t, 4) // display: 0=newest .. 3=oldest/root, all local commits
 
-	// Fabricate pushed-history repo state (squashChange.guard reads state-level
-	// HasPushedCommits(), mirroring TestStageSquash_pushedHistorySetsConfirmGuard)
-	// so the squash needs the typed confirm step, while keeping the real
-	// repo/mgr backing this model so a later real apply can actually run.
-	m.state.HasUpstream = true
-	m.state.UpstreamRef = "origin/main"
-	m.state.AheadOfRemote = 4
+	// Mark the two newest commits (the chain this test selects below) as
+	// pushed, so squashChange.guard — which now checks the ACTUAL rewritten
+	// commits' IsPushed flags via model.AnyPushed rather than RepoState-level
+	// upstream bookkeeping (mirrors TestStageSquash_pushedHistorySetsConfirmGuard)
+	// — still requires the typed confirm step. Cleared again below, before the
+	// later unrelated redate, so that apply is not also gated: only the
+	// cancelled squash needs to touch pushed commits.
+	newest, secondNewest := len(m.plan.Commits)-1, len(m.plan.Commits)-2
+	m.plan.Commits[newest].IsPushed = true
+	m.plan.Commits[secondNewest].IsPushed = true
 
 	m = send(m, " ", "down", " ") // select the two newest commits: a 2-member chain
 	out, _, ok := m.beginSquash()
@@ -181,7 +184,7 @@ func TestConfirmCancel_returnsToOriginAndNoStaleFlush(t *testing.T) {
 
 	m = send(m, "enter")
 	if m.mode != modeConfirm {
-		t.Fatalf("a pushed-history squash should require the typed confirm, got mode %v", m.mode)
+		t.Fatalf("a squash touching pushed commits should require the typed confirm, got mode %v", m.mode)
 	}
 
 	m = send(m, "esc") // cancel at the confirm prompt
@@ -197,6 +200,10 @@ func TestConfirmCancel_returnsToOriginAndNoStaleFlush(t *testing.T) {
 	if m.mode != modeMain {
 		t.Fatalf("esc in the wizard should return to modeMain, got %v", m.mode)
 	}
+	// Clear the pushed marks: the redate below is unrelated to the cancelled
+	// squash and must not also require a confirm step.
+	m.plan.Commits[newest].IsPushed = false
+	m.plan.Commits[secondNewest].IsPushed = false
 	m = applyStrategyInPane(m)
 	m = send(m, "A")
 	m = send(m, "enter")

@@ -52,19 +52,25 @@ func TestViewPipeline_footerReflectsMode(t *testing.T) {
 	}
 }
 
+// TestSplitChange_guardConfirmsPushedCommits proves the guard is scoped to the
+// split's own rewrite set (target + tail), not to whether the repo has any
+// upstream at all: a split whose target is already pushed needs the typed
+// branch-name confirmation regardless of RepoState's upstream bookkeeping, and
+// a split whose target is unpushed is never gated — even when the RepoState
+// says the branch has an upstream elsewhere (model.AnyPushed, mirroring
+// safety.Manager.ApplySplit).
 func TestSplitChange_guardConfirmsPushedCommits(t *testing.T) {
-	sc := splitChange{commit: model.Commit{Hash: "abc1234567890000"}}
-	// A repo with an upstream has pushed commits, so a split needs the typed
-	// branch-name confirmation (it mirrors safety.Manager.ApplySplit).
-	pushed := model.RepoState{Branch: "main", HasUpstream: true, UpstreamRef: "origin/main", AheadOfRemote: 1}
-	g := sc.guard(pushed)
+	pushedTarget := splitChange{commit: model.Commit{Hash: "abc1234567890000", IsPushed: true}}
+	g := pushedTarget.guard(model.RepoState{Branch: "main"})
 	if !g.NeedsConfirmation || g.ConfirmWord != "main" {
-		t.Errorf("a split in a repo with pushed commits should need confirmation with the branch word, got %+v", g)
+		t.Errorf("a split whose target is pushed should need confirmation with the branch word, got %+v", g)
 	}
-	// A purely local repo (no upstream) is not gated.
-	local := model.RepoState{Branch: "main"}
-	if g2 := sc.guard(local); g2.NeedsConfirmation || g2.Blocked {
-		t.Errorf("a purely local split should not be gated, got %+v", g2)
+	// An unpushed target is never gated, even when the repo has an upstream
+	// elsewhere — pushed-detection no longer reads RepoState at all.
+	unpushedTarget := splitChange{commit: model.Commit{Hash: "abc1234567890000"}}
+	upstream := model.RepoState{Branch: "main", HasUpstream: true, UpstreamRef: "origin/main", AheadOfRemote: 1}
+	if g2 := unpushedTarget.guard(upstream); g2.NeedsConfirmation || g2.Blocked {
+		t.Errorf("a split whose target is unpushed should not be gated, got %+v", g2)
 	}
 }
 

@@ -100,7 +100,10 @@ func runSquash(ctx *RunContext, a ParsedArgs) error {
 	if state.IsDirty {
 		return guardErr("working tree has uncommitted changes; commit or stash them first")
 	}
-	if state.HasPushedCommits() && !a.Bool("force") {
+	// commits is the full history (needed to locate the chains); RewrittenCommits
+	// narrows to the suffix ApplySquash actually re-emits, so an untouched pushed
+	// commit earlier in history cannot force --force on an unrelated squash.
+	if model.AnyPushed(plan.RewrittenCommits(commits)) && !a.Bool("force") {
 		return guardErr("some commits are already pushed — re-run with --force to rewrite them")
 	}
 

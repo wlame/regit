@@ -155,7 +155,11 @@ func (m *Manager) ApplySplit(commit model.Commit, parentHash string, subs []giti
 		return ApplyResult{}, fmt.Errorf("nothing to split: fewer than two sub-commits")
 	}
 	// Pushed commits require the caller to have obtained explicit confirmation.
-	if state.HasPushedCommits() && !opts.Confirmed {
+	// The rewrite set is the target commit plus its tail: everything Replay-style
+	// re-hashing actually touches (the sub-commits themselves are new objects with
+	// no prior existence, so only the ORIGINAL commit and its downstream tail can
+	// already be pushed).
+	if model.AnyPushed(append([]model.Commit{commit}, tail...)) && !opts.Confirmed {
 		return ApplyResult{}, fmt.Errorf("confirmation required: commits are already pushed")
 	}
 

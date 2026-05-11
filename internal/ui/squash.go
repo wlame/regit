@@ -68,6 +68,10 @@ func (c squashChange) title() string {
 // guard mirrors safety.Manager.ApplySquash's internal checks so the pipeline can
 // block/confirm BEFORE applying. Keeping this in lockstep with ApplySquash means
 // the guard never disagrees with what the apply will actually allow.
+// Pushed-detection uses c.plan.RewrittenCommits(c.commits) — the suffix from the
+// earliest chain's first member onward that ApplySquash actually re-emits — not
+// the full c.commits history, so an untouched pushed commit further back cannot
+// force a confirmation on a squash that never reaches it.
 func (c squashChange) guard(state model.RepoState) safety.Guard {
 	for _, ch := range c.plan.Chains {
 		for _, mem := range ch.Members {
@@ -82,11 +86,11 @@ func (c squashChange) guard(state model.RepoState) safety.Guard {
 			BlockReason: "working tree has uncommitted changes; commit or stash them first",
 		}
 	}
-	if state.HasPushedCommits() {
+	if model.AnyPushed(c.plan.RewrittenCommits(c.commits)) {
 		return safety.Guard{
 			NeedsConfirmation: true,
 			ConfirmWord:       state.Branch,
-			ConfirmReason: "some commits are already on the upstream; squashing rewrites " +
+			ConfirmReason: "some commits already exist on a remote; squashing rewrites " +
 				"history and will require a force-push",
 		}
 	}

@@ -174,6 +174,46 @@ func TestApplySplit_refusesMergeCommit(t *testing.T) {
 	}
 }
 
+// TestApplySplit_pushedTargetRequiresConfirmation verifies ApplySplit's own
+// pushed guard (model.AnyPushed(target, tail...)): an unconfirmed apply whose
+// target is marked pushed must be refused before any repo state changes, and
+// the same call with Confirmed:true must proceed. This exercises the manager
+// level directly, independent of the capability-layer gate that normally fires
+// first in practice.
+func TestApplySplit_pushedTargetRequiresConfirmation(t *testing.T) {
+	repo, childCommit, parentHash, tail := buildSplitRepo(t)
+	mgr := NewManager(repo)
+	state, err := repo.ReadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldHead, err := repo.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentTreeHash, err := repo.ResolveRef(parentHash + "^{tree}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	subs := buildSubCommits(t, repo, parentTreeHash, childCommit)
+
+	childCommit.IsPushed = true // the split target is already on a remote
+
+	if _, err := mgr.ApplySplit(childCommit, parentHash, subs, tail, state,
+		ApplyOptions{UnixTimestamp: 1, ExpectedHead: oldHead}); err == nil {
+		t.Fatal("an unconfirmed split of a pushed target must be refused")
+	}
+	newHead, _ := repo.ResolveRef("HEAD")
+	if newHead != oldHead {
+		t.Errorf("a refused split must not move HEAD: %s -> %s", oldHead, newHead)
+	}
+
+	if _, err := mgr.ApplySplit(childCommit, parentHash, subs, tail, state,
+		ApplyOptions{UnixTimestamp: 2, Confirmed: true, ExpectedHead: oldHead}); err != nil {
+		t.Errorf("a confirmed split of a pushed target should proceed: %v", err)
+	}
+}
+
 // TestApplySplit_movesBranchAndIsUndoable exercises the happy path: build a
 // real parent→child(≥2 hunks)→tail repo, construct two SubCommits whose last
 // tree equals the child's tree, call Manager.ApplySplit, and verify:

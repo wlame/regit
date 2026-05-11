@@ -58,6 +58,103 @@ func squashTestRepo(t *testing.T, n int) (*gitio.Repo, []string) {
 	return repo, hashes
 }
 
+// squashTestRepoWithPush is squashTestRepo plus a bare origin: the oldest
+// pushedCount commits are pushed to it (a single push after that many commits
+// exist), leaving the rest local-only. Used to prove that squash's
+// pushed-detection is scoped to the range it actually rewrites
+// (model.SquashPlan.RewrittenCommits), not to whether the branch has any
+// upstream at all.
+func squashTestRepoWithPush(t *testing.T, n, pushedCount int) (*gitio.Repo, []string) {
+	t.Helper()
+	dir := t.TempDir()
+	origin := t.TempDir()
+	run := func(env []string, args ...string) {
+		c := exec.Command("git", args...)
+		c.Dir = dir
+		if env != nil {
+			c.Env = append(os.Environ(), env...)
+		}
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	if out, err := exec.Command("git", "init", "-q", "--bare", origin).CombinedOutput(); err != nil {
+		t.Fatalf("init bare: %v\n%s", err, out)
+	}
+	run(nil, "init", "-q")
+	run(nil, "symbolic-ref", "HEAD", "refs/heads/main")
+	run(nil, "config", "user.name", "wlame")
+	run(nil, "config", "user.email", "vvlame@gmail.com")
+	run(nil, "config", "commit.gpgsign", "false")
+	run(nil, "remote", "add", "origin", origin)
+	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < n; i++ {
+		name := "f" + string(rune('0'+i)) + ".txt"
+		os.WriteFile(filepath.Join(dir, name), []byte("x"+name+"\n"), 0o644)
+		run(nil, "add", ".")
+		d := base.Add(time.Duration(i) * time.Minute).Format(time.RFC3339)
+		run([]string{"GIT_AUTHOR_DATE=" + d, "GIT_COMMITTER_DATE=" + d}, "commit", "-q", "-m", "commit "+name)
+		if i+1 == pushedCount {
+			run(nil, "push", "-q", "-u", "origin", "main")
+		}
+	}
+	repo, err := gitio.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hashes := make([]string, len(commits))
+	for i, c := range commits {
+		hashes[i] = c.Hash
+	}
+	return repo, hashes
+}
+
+// TestRunSquash_pushedElsewhereDoesNotRequireForce: an upstream exists (an
+// early, untouched commit is pushed) but the squash's own rewritten range never
+// reaches it, so --execute must succeed WITHOUT --force.
+//
+// This is the M4 Task 3 correction, made visible at the headless surface:
+// squash used to over-prompt via the coarse RepoState.HasPushedCommits() (true
+// whenever ANY upstream existed on the branch, regardless of what the squash
+// touched); it now only requires --force when
+// model.AnyPushed(plan.RewrittenCommits(commits)) is true.
+func TestRunSquash_pushedElsewhereDoesNotRequireForce(t *testing.T) {
+	repo, h := squashTestRepoWithPush(t, 4, 1) // only h0 is pushed; squash h2^..h3
+	var out bytes.Buffer
+	ctx := &RunContext{Repo: repo, Cfg: config.Config{}, Stdout: &out, Stderr: &out, Now: time.Unix(1717689600, 0)}
+	a := newParsedArgs(map[string]any{"execute": true}, []string{h[2] + "^.." + h[3]})
+	if err := runSquash(ctx, a); err != nil {
+		t.Fatalf("squashing an unpushed range should succeed without --force: %v", err)
+	}
+	commits, _ := repo.ReadCommits()
+	if len(commits) != 3 {
+		t.Fatalf("expected 3 commits after squash, got %d", len(commits))
+	}
+}
+
+// TestRunSquash_pushedInRangeRequiresForce: when the squash's own rewritten
+// range includes a pushed commit, --execute must be guard-blocked (exit 2)
+// without --force. Companion to TestRunSquash_pushedElsewhereDoesNotRequireForce,
+// proving the corrected check still catches the case that actually matters.
+func TestRunSquash_pushedInRangeRequiresForce(t *testing.T) {
+	repo, h := squashTestRepoWithPush(t, 4, 4) // everything pushed, including h2,h3
+	var out bytes.Buffer
+	ctx := &RunContext{Repo: repo, Cfg: config.Config{}, Stdout: &out, Stderr: &out, Now: time.Unix(1717689600, 0)}
+	a := newParsedArgs(map[string]any{"execute": true}, []string{h[2] + "^.." + h[3]})
+	err := runSquash(ctx, a)
+	if got := ExitCode(err); got != 2 {
+		t.Fatalf("pushed-range squash without --force exit = %d, want 2 (err=%v)", got, err)
+	}
+	commits, _ := repo.ReadCommits()
+	if len(commits) != 4 {
+		t.Error("guard-blocked squash must not change history")
+	}
+}
+
 func TestParseSquashSpec_gitSemanticsExcludeA(t *testing.T) {
 	repo, h := squashTestRepo(t, 4) // h[0]..h[3] root-first
 	commits, _ := repo.ReadCommits()

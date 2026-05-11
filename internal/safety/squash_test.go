@@ -96,6 +96,48 @@ func TestApplySquash_blocksMergeMember(t *testing.T) {
 	}
 }
 
+// TestApplySquash_pushedRangeRequiresConfirmation verifies ApplySquash's own
+// pushed guard: model.AnyPushed(plan.RewrittenCommits(commits)). An unconfirmed
+// apply whose chain touches a pushed commit must be refused before any repo
+// state changes, and the same call with Confirmed:true must proceed.
+func TestApplySquash_pushedRangeRequiresConfirmation(t *testing.T) {
+	repo := newLinearRepo(t, 4) // c0..c3 root-first
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := repo.ReadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	commits[2].IsPushed = true // the chain's first member is already on a remote
+	ch := model.SquashChain{
+		Members: []model.Commit{commits[2], commits[3]}, Subject: "Squashed",
+		AuthorName: commits[2].AuthorName, AuthorEmail: commits[2].AuthorEmail,
+		AuthorDate: commits[3].OrigAuthorDate,
+	}
+	plan := model.SquashPlan{Chains: []model.SquashChain{ch}}
+	oldHead, err := repo.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mgr := NewManager(repo)
+	if _, err := mgr.ApplySquash(commits, plan, state,
+		ApplyOptions{UnixTimestamp: 1, ExpectedHead: oldHead}); err == nil {
+		t.Fatal("an unconfirmed squash touching a pushed commit must be refused")
+	}
+	newHead, _ := repo.ResolveRef("HEAD")
+	if newHead != oldHead {
+		t.Errorf("a refused squash must not move HEAD: %s -> %s", oldHead, newHead)
+	}
+
+	if _, err := mgr.ApplySquash(commits, plan, state,
+		ApplyOptions{UnixTimestamp: 2, Confirmed: true, ExpectedHead: oldHead}); err != nil {
+		t.Errorf("a confirmed squash touching a pushed commit should proceed: %v", err)
+	}
+}
+
 func TestApplySquash_blocksDirtyTree(t *testing.T) {
 	repo := newLinearRepo(t, 3)
 	commits, _ := repo.ReadCommits()

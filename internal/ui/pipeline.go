@@ -130,11 +130,14 @@ func (c splitChange) commandLines() []string {
 
 // guard mirrors safety.Manager.ApplySplit's internal checks so the pipeline can
 // gate a split BEFORE applying (a graceful block/confirm) instead of failing at
-// apply time: a merge commit or a dirty tree is blocked, and any repo with pushed
-// (upstream) commits requires the typed branch-name confirmation — splitting
-// rewrites history, so it needs the same force-push acknowledgement a plan rewrite
-// does. Keeping this in lockstep with ApplySplit means the guard never disagrees
-// with what the apply will actually allow.
+// apply time: a merge commit or a dirty tree is blocked, and a split whose
+// rewrite set (the target commit plus its tail) touches a pushed commit
+// requires the typed branch-name confirmation — splitting rewrites history, so
+// it needs the same force-push acknowledgement a plan rewrite does. Keeping
+// this in lockstep with ApplySplit means the guard never disagrees with what
+// the apply will actually allow. Pushed-detection is scoped to c.commit and
+// c.tail (model.AnyPushed), not to whether the repo has an upstream at all, so
+// a pushed ancestor the split never touches does not force a confirmation.
 func (c splitChange) guard(state model.RepoState) safety.Guard {
 	if c.commit.IsMerge {
 		return safety.Guard{Blocked: true, BlockReason: "cannot split a merge commit"}
@@ -145,11 +148,11 @@ func (c splitChange) guard(state model.RepoState) safety.Guard {
 			BlockReason: "working tree has uncommitted changes; commit or stash them first",
 		}
 	}
-	if state.HasPushedCommits() {
+	if model.AnyPushed(append([]model.Commit{c.commit}, c.tail...)) {
 		return safety.Guard{
 			NeedsConfirmation: true,
 			ConfirmWord:       state.Branch,
-			ConfirmReason: "some commits are already on the upstream; splitting rewrites " +
+			ConfirmReason: "some commits already exist on a remote; splitting rewrites " +
 				"history and will require a force-push",
 		}
 	}

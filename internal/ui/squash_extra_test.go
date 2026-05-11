@@ -70,23 +70,22 @@ func TestSquashChange_guard_dirtyTreeBlocks(t *testing.T) {
 	}
 }
 
-// TestSquashChange_guard_pushedCommitsNeedConfirm verifies that squashing
-// history already on an upstream requires a typed confirmation.
+// TestSquashChange_guard_pushedCommitsNeedConfirm verifies that squashing a
+// chain touching an already-pushed commit requires a typed confirmation. The
+// check is scoped to the squash's own rewritten range
+// (plan.RewrittenCommits(commits)), not to whether the repo has any upstream at
+// all — RepoState carries no upstream bookkeeping here to prove that.
 func TestSquashChange_guard_pushedCommitsNeedConfirm(t *testing.T) {
-	ch := model.SquashChain{Members: []model.Commit{{Hash: "a"}, {Hash: "b"}}}
-	sc := squashChange{plan: model.SquashPlan{Chains: []model.SquashChain{ch}}}
-	state := model.RepoState{
-		Branch:        "main",
-		HasUpstream:   true,
-		UpstreamRef:   "origin/main",
-		AheadOfRemote: 0,
-	}
+	commits := []model.Commit{{Hash: "a", IsPushed: true}, {Hash: "b"}}
+	ch := model.SquashChain{Members: commits}
+	sc := squashChange{commits: commits, plan: model.SquashPlan{Chains: []model.SquashChain{ch}}}
+	state := model.RepoState{Branch: "main"}
 	g := sc.guard(state)
 	if g.Blocked {
 		t.Errorf("guard should not block (only needs confirmation), got %+v", g)
 	}
 	if !g.NeedsConfirmation {
-		t.Error("guard should require confirmation when commits are on upstream")
+		t.Error("guard should require confirmation when the squash touches a pushed commit")
 	}
 	if g.ConfirmWord != "main" {
 		t.Errorf("ConfirmWord = %q, want %q", g.ConfirmWord, "main")
@@ -542,18 +541,24 @@ func TestStageSquash_dirtyTreeBlocksPipeline(t *testing.T) {
 	}
 }
 
-// TestStageSquash_pushedHistorySetsConfirmGuard: pushed history must set
-// pendingGuard.NeedsConfirmation so updatePipeline runs the typed-confirm step (H1).
+// TestStageSquash_pushedHistorySetsConfirmGuard: a squash chain that touches an
+// already-pushed commit must set pendingGuard.NeedsConfirmation so
+// updatePipeline runs the typed-confirm step (H1). Pushed-detection is scoped
+// to the chain's own commits (model.AnyPushed via RewrittenCommits), so the
+// commit itself is marked pushed rather than relying on RepoState's upstream
+// bookkeeping.
 func TestStageSquash_pushedHistorySetsConfirmGuard(t *testing.T) {
-	m := squashModelReady(linearModelCommits("a", "b", "c"), "a", "b", "c")
-	m.state = model.RepoState{Branch: "main", HasUpstream: true, UpstreamRef: "origin/main"}
+	commits := linearModelCommits("a", "b", "c")
+	commits[0].IsPushed = true // the squash chain (a,b,c) touches a pushed commit
+	m := squashModelReady(commits, "a", "b", "c")
+	m.state = model.RepoState{Branch: "main"}
 	out, _ := m.stageSquash()
 	mm := out.(Model)
 	if mm.mode != modePipeline {
-		t.Fatalf("clean pushed history should enter the pipeline, got mode %v", mm.mode)
+		t.Fatalf("a squash touching a pushed commit should enter the pipeline, got mode %v", mm.mode)
 	}
 	if !mm.pendingGuard.NeedsConfirmation {
-		t.Error("pushed history must set pendingGuard.NeedsConfirmation")
+		t.Error("a squash touching a pushed commit must set pendingGuard.NeedsConfirmation")
 	}
 }
 

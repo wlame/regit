@@ -123,6 +123,30 @@ func ClampChainDate(commits []Commit, c SquashChain) SquashChain {
 	return c
 }
 
+// RewrittenCommits returns the suffix of commits a squash actually rewrites:
+// from the earliest chain's first member (inclusive) through the end of
+// history. Callers such as ApplySquash accept the FULL commits slice so they can
+// locate the chains within it, but gitio.Repo.ApplySquash only ever re-emits
+// commits from that point onward (it walks root-first starting at the earliest
+// affected chain); everything before it keeps its original hash untouched. So
+// pushed-detection (model.AnyPushed) and any other rewrite-scoped check must
+// look at THIS suffix, never at the full commits slice — otherwise an unrelated,
+// untouched pushed commit earlier in history would over-flag a squash that never
+// comes near it, reintroducing the coarse over-prompting this predicate exists
+// to eliminate.
+func (p SquashPlan) RewrittenCommits(commits []Commit) []Commit {
+	first := len(commits)
+	for _, ch := range p.Chains {
+		if idx := indexOf(commits, ch.First().Hash); idx >= 0 && idx < first {
+			first = idx
+		}
+	}
+	if first >= len(commits) {
+		return nil
+	}
+	return commits[first:]
+}
+
 // Validate checks the plan is internally consistent against the history: chains
 // are non-empty (>=2 members), their members are consecutive in commits, no two
 // chains overlap, and each chosen date sits within its window.

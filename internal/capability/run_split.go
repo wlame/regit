@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/wlame/regit/internal/gitio"
+	"github.com/wlame/regit/internal/model"
 	"github.com/wlame/regit/internal/safety"
 	"github.com/wlame/regit/internal/split"
 )
@@ -34,6 +35,7 @@ func runSplit(ctx *RunContext, a ParsedArgs) error {
 		return usageErr("%v", err)
 	}
 	target := commits[idx]
+	tail := commits[idx+1:] // everything after target gets re-hashed too (Replay-style rewrite)
 	parentTree, err := ParentTreeOf(repo, target)
 	if err != nil {
 		return runtimeErr("parent tree: %v", err)
@@ -97,6 +99,11 @@ func runSplit(ctx *RunContext, a ParsedArgs) error {
 	// here — before ApplySplit — means ApplySplit's equivalent internal guards are
 	// never the ones that fire, so a blocked split reports exit 2 (guard) instead
 	// of exit 3 (runtime), matching redate / retitle / drop-bodies.
+	//
+	// Pushed-detection is scoped to the commits this split actually rewrites —
+	// target plus tail — not to whether the branch has an upstream at all: a
+	// pushed ancestor further back that the split never touches must not force
+	// --force here (see model.AnyPushed).
 	state, err := repo.ReadState()
 	if err != nil {
 		return runtimeErr("read state: %v", err)
@@ -104,12 +111,11 @@ func runSplit(ctx *RunContext, a ParsedArgs) error {
 	if state.IsDirty {
 		return guardErr("working tree has uncommitted changes; commit or stash them first")
 	}
-	if state.HasPushedCommits() && !a.Bool("force") {
-		return guardErr("commit %s is on a branch with already-pushed history — re-run with --force to rewrite it", Short(target.Hash))
+	if model.AnyPushed(append([]model.Commit{target}, tail...)) && !a.Bool("force") {
+		return guardErr("commit %s (or a commit after it) is already pushed — re-run with --force to rewrite it", Short(target.Hash))
 	}
 
 	subs := split.BuildSubCommits(target, prop.Groups, trees, ctx.Cfg.Split.WIPPrefix)
-	tail := commits[idx+1:]
 	mgr := safety.NewManager(repo)
 	res, err := mgr.ApplySplit(target, prop.ParentHash, subs, tail, state, safety.ApplyOptions{
 		Sign:          gitio.DropSignatures,

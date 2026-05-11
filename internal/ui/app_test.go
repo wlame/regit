@@ -2051,11 +2051,13 @@ func TestPipeline_peekWithNoEditsReportsNothing(t *testing.T) {
 }
 
 // TestPipeline_pushedRewriteRequiresTypedConfirm covers the confirm-gated apply
-// path: when a plan edit touches a commit that is already upstream (IsPushed),
-// safety.CheckGuards returns NeedsConfirmation = true with ConfirmWord = branch
-// name. The pipeline must pause at modeConfirm and only proceed to apply when
-// the user types the exact branch name; a wrong word must cancel with an error
-// and leave the plan unchanged.
+// path: when a plan edit touches a commit that is IsPushed AND inside
+// plan.Active() (the true rewrite set — the merge-base freeze already keeps the
+// genuinely shared p0/p1 prefix out of reach), safety.CheckGuards returns
+// NeedsConfirmation = true with ConfirmWord = branch name. The pipeline must
+// pause at modeConfirm and only proceed to apply when the user types the exact
+// branch name; a wrong word must cancel with an error and leave the plan
+// unchanged.
 func TestPipeline_pushedRewriteRequiresTypedConfirm(t *testing.T) {
 	// --- build a repo with two pushed commits then three local-only ones ---
 	fixtureMu.Lock()
@@ -2105,16 +2107,24 @@ func TestPipeline_pushedRewriteRequiresTypedConfirm(t *testing.T) {
 	cfg.Timezone = "UTC"
 
 	// newPushedModel is a local helper that constructs a fresh Model from the
-	// repo above and stages a date edit on the oldest pushed commit (Commits[0])
-	// so that anyPushed(plan) is true and the guard demands confirmation.
+	// repo above and stages a date edit inside the ACTIVE range on a commit
+	// marked pushed. p0/p1 are genuinely pushed but sit before the merge-base
+	// freeze (Base), so an edit staged there would be inert — Replay never
+	// visits a frozen commit, so a stale Edits entry for one can never actually
+	// cause a rewrite, and CheckGuards correctly ignores it (plan.Active() is
+	// the true rewrite set). Instead this marks the oldest ACTIVE commit as
+	// pushed, simulating Task 1's all-remotes broadening: a commit on the
+	// current branch independently pushed to some other remote (e.g. a fork)
+	// that the merge-base-driven freeze has no way to know about — the
+	// realistic case plan.Active()'s pushed-check exists to catch.
 	newPushedModel := func() Model {
 		m := New(repo, safety.NewManager(repo), cfg, state, commits)
 		updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 		m = updated.(Model)
 
-		// Commits[0] is the oldest commit (p0), which is pushed. Stage a date
-		// edit directly — bypassing the freeze — to trigger NeedsConfirmation.
-		pushed := m.plan.Commits[0]
+		idx := m.plan.Base // oldest active (non-frozen) commit
+		m.plan.Commits[idx].IsPushed = true
+		pushed := m.plan.Commits[idx]
 		nd := pushed.OrigAuthorDate.AddDate(0, 0, 1)
 		m.plan.SetEdit(pushed.Hash, model.Edit{NewAuthorDate: &nd})
 		return m
@@ -2233,9 +2243,12 @@ func TestRestructureMenu_showsAffectedCount(t *testing.T) {
 
 func TestPipeline_pushedSplitRoutesToConfirm(t *testing.T) {
 	m := newTestModelN(t, 3)
-	// Simulate a repo whose commits are on an upstream (HasPushedCommits()).
-	m.state = model.RepoState{Branch: "main", HasUpstream: true, UpstreamRef: "origin/main", AheadOfRemote: 1}
+	m.state = model.RepoState{Branch: "main"}
+	// Mark the split target itself pushed: splitChange.guard now checks the
+	// actual rewrite set (target + tail) via model.AnyPushed, not whether the
+	// repo has any upstream at all.
 	target := m.plan.Commits[len(m.plan.Commits)-1] // newest
+	target.IsPushed = true
 	sc := splitChange{
 		commit:     target,
 		commitHash: target.Hash,

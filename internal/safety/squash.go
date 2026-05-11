@@ -30,7 +30,12 @@ func (m *Manager) ApplySquash(commits []model.Commit, plan model.SquashPlan, sta
 	if state.IsDirty {
 		return ApplyResult{}, fmt.Errorf("rewrite blocked: working tree is dirty")
 	}
-	if state.HasPushedCommits() && !opts.Confirmed {
+	// commits is the FULL history (ApplySquash needs it to locate the chains), but
+	// gitio.Repo.ApplySquash only ever re-emits the suffix from the earliest
+	// chain's first member onward — everything before that keeps its original
+	// hash. RewrittenCommits narrows to that suffix so an unrelated, untouched
+	// pushed commit earlier in history cannot over-flag this squash.
+	if model.AnyPushed(plan.RewrittenCommits(commits)) && !opts.Confirmed {
 		return ApplyResult{}, fmt.Errorf("confirmation required: commits are already pushed")
 	}
 

@@ -127,10 +127,9 @@ func TestRepoState_Guards(t *testing.T) {
 	if !(RepoState{}).CanRewriteSafely() {
 		t.Error("clean state should be safe")
 	}
-	pushed := RepoState{HasUpstream: true, UpstreamRef: "origin/main"}
-	if !pushed.HasPushedCommits() {
-		t.Error("state with upstream should report pushed commits")
-	}
+	// Pushed-commit detection is retired from RepoState entirely (HasPushedCommits
+	// is gone): it is now the per-commit model.AnyPushed predicate, exercised in
+	// pushed_test.go, since only the commits a rewrite actually touches matter.
 }
 
 // TestPlan_SetBase verifies that SetBase clamps the boundary within [0, last],

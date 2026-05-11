@@ -18,13 +18,11 @@ type RepoState struct {
 // CanRewriteSafely reports whether a rewrite can proceed without the loud,
 // extra-confirmation path. A dirty tree blocks outright; pushed commits require
 // explicit confirmation handled by the UI, so they are reported separately.
+//
+// Pushed-commit detection is NOT a RepoState method: whether a rewrite needs the
+// typed confirmation depends on which commits it actually touches, not on
+// whether the branch has an upstream at all. See model.AnyPushed, which every
+// mutating surface calls over the commits it is about to rewrite.
 func (r RepoState) CanRewriteSafely() bool {
 	return !r.IsDirty
-}
-
-// HasPushedCommits reports whether the branch has commits that already exist on
-// the upstream and would therefore be rewritten — the case that demands a typed
-// confirmation before applying.
-func (r RepoState) HasPushedCommits() bool {
-	return r.HasUpstream && r.AheadOfRemote >= 0 && r.UpstreamRef != ""
 }
