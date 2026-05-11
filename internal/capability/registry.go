@@ -29,6 +29,7 @@ var registry = []Command{
 			{Name: "repo", Type: ParamString, Default: ".", Help: "path to the git repository"},
 			{Name: "execute", Type: ParamBool, Default: "false", Help: "apply the split (default: dry-run preview)"},
 			{Name: "force", Type: ParamBool, Default: "false", Help: "allow rewriting already-pushed commits"},
+			{Name: "sign", Type: ParamBool, Default: "false", Help: "re-sign rewritten commits with your configured signing key"},
 		},
 		Examples: []Example{
 			{Cmd: "regit split HEAD --llm=ollama/qwen2.5-coder", Why: "preview a split of HEAD (dry-run)"},
@@ -62,6 +63,7 @@ var registry = []Command{
 			{Name: "repo", Type: ParamString, Default: ".", Help: "path to the git repository"},
 			{Name: "execute", Type: ParamBool, Default: "false", Help: "apply the reword (default: dry-run preview)"},
 			{Name: "force", Type: ParamBool, Default: "false", Help: "allow rewriting already-pushed commits"},
+			{Name: "sign", Type: ParamBool, Default: "false", Help: "re-sign rewritten commits with your configured signing key"},
 		},
 		Examples: []Example{
 			{Cmd: "regit reword HEAD --llm=ollama/qwen2.5-coder", Why: "preview a new message for HEAD"},
@@ -93,6 +95,7 @@ var registry = []Command{
 			{Name: "repo", Type: ParamString, Default: ".", Help: "path to the git repository"},
 			{Name: "execute", Type: ParamBool, Default: "false", Help: "apply the squash (default: dry-run preview)"},
 			{Name: "force", Type: ParamBool, Default: "false", Help: "allow rewriting already-pushed commits"},
+			{Name: "sign", Type: ParamBool, Default: "false", Help: "re-sign rewritten commits with your configured signing key"},
 		},
 		Examples: []Example{
 			{Cmd: "regit squash 6f3a^..a2df", Why: "preview squashing a chain (dry-run); ^ includes 6f3a"},
@@ -145,6 +148,7 @@ var registry = []Command{
 			{Name: "execute", Type: ParamBool, Default: "false", Help: "apply (default: dry-run preview)"},
 			{Name: "force", Type: ParamBool, Default: "false", Help: "allow rewriting already-pushed commits"},
 			{Name: "allow-merges", Type: ParamBool, Default: "false", Help: "proceed even if the range contains merge commits (their side branches keep their dates)"},
+			{Name: "sign", Type: ParamBool, Default: "false", Help: "re-sign rewritten commits with your configured signing key"},
 		},
 		Examples: []Example{
 			{Cmd: "regit redate --strategy=Even-Spread --time=Working-hours --start=2026-01-01 --end=2026-03-01", Why: "preview an even spread across two months"},
@@ -172,6 +176,7 @@ var registry = []Command{
 			{Name: "repo", Type: ParamString, Default: ".", Help: "path to the git repository"},
 			{Name: "execute", Type: ParamBool, Default: "false", Help: "apply (default: dry-run preview)"},
 			{Name: "force", Type: ParamBool, Default: "false", Help: "allow rewriting already-pushed commits"},
+			{Name: "sign", Type: ParamBool, Default: "false", Help: "re-sign rewritten commits with your configured signing key"},
 		},
 		Examples: []Example{
 			{Cmd: `regit retitle --match='^feat: ' --replace=''`, Why: "strip a conventional-commit prefix (preview)"},
@@ -195,6 +200,7 @@ var registry = []Command{
 			{Name: "repo", Type: ParamString, Default: ".", Help: "path to the git repository"},
 			{Name: "execute", Type: ParamBool, Default: "false", Help: "apply (default: dry-run preview)"},
 			{Name: "force", Type: ParamBool, Default: "false", Help: "allow rewriting already-pushed commits"},
+			{Name: "sign", Type: ParamBool, Default: "false", Help: "re-sign rewritten commits with your configured signing key"},
 		},
 		Examples: []Example{
 			{Cmd: "regit reauthor --name=wlame --email=new@x.com --commits=6f3a^..a2df", Why: "preview changing author+committer on a range"},
@@ -222,6 +228,7 @@ var registry = []Command{
 			{Name: "repo", Type: ParamString, Default: ".", Help: "path to the git repository"},
 			{Name: "execute", Type: ParamBool, Default: "false", Help: "apply (default: dry-run preview)"},
 			{Name: "force", Type: ParamBool, Default: "false", Help: "allow rewriting already-pushed commits"},
+			{Name: "sign", Type: ParamBool, Default: "false", Help: "re-sign rewritten commits with your configured signing key"},
 		},
 		Examples: []Example{
 			{Cmd: "regit drop-bodies", Why: "preview dropping every commit body on the branch"},

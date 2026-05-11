@@ -8,6 +8,20 @@ import (
 	"github.com/wlame/regit/internal/model"
 )
 
+// buildRedatePlan builds a plan that redates every commit by one hour with no
+// message edit — the minimal plan shape shared by tests that only care that
+// Replay produces one new commit object per input commit (the encoding
+// round-trip test and the signing round-trip test).
+func buildRedatePlan(t *testing.T, commits []model.Commit) *model.Plan {
+	t.Helper()
+	plan := model.NewPlan(commits)
+	for _, c := range commits {
+		nd := c.OrigAuthorDate.Add(time.Hour)
+		plan.SetEdit(c.Hash, model.Edit{NewAuthorDate: &nd, NewCommitDate: &nd})
+	}
+	return plan
+}
+
 // TestReplay_preservesNonUTF8Encoding proves that Replay round-trips a commit's
 // `encoding` header. Replay always feeds the ORIGINAL raw message bytes back to
 // git on stdin (see buildMessage), so if the source commit declared those bytes
@@ -26,11 +40,7 @@ func TestReplay_preservesNonUTF8Encoding(t *testing.T) {
 	}
 
 	// Build a plan that redates every commit (no message edit).
-	plan := model.NewPlan(commits)
-	for _, c := range commits {
-		nd := c.OrigAuthorDate.Add(time.Hour)
-		plan.SetEdit(c.Hash, model.Edit{NewAuthorDate: &nd, NewCommitDate: &nd})
-	}
+	plan := buildRedatePlan(t, commits)
 
 	newHead, _, err := r.Replay(plan, DropSignatures)
 	if err != nil {

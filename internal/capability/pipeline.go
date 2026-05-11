@@ -54,6 +54,7 @@ func applyGuardErr(err error) error {
 // always created by safety.Apply.
 func applyOrPreview(ctx *RunContext, plan *model.Plan, a ParsedArgs, preview func(io.Writer, *model.Plan)) error {
 	preview(ctx.Stdout, plan)
+	warnDroppedSignatures(ctx.Stdout, plan.Active(), a)
 
 	if !a.Bool("execute") {
 		fmt.Fprintln(ctx.Stdout, "\n(dry run — nothing applied; pass --execute to apply)")
@@ -75,9 +76,14 @@ func applyOrPreview(ctx *RunContext, plan *model.Plan, a ParsedArgs, preview fun
 		return runtimeErr("nothing to apply: empty plan")
 	}
 
+	sm, err := signMode(ctx, a)
+	if err != nil {
+		return err
+	}
+
 	mgr := safety.NewManager(ctx.Repo)
 	res, err := mgr.Apply(plan, state, safety.ApplyOptions{
-		Sign:          gitio.DropSignatures,
+		Sign:          sm,
 		UnixTimestamp: ctx.Now.Unix(),
 		Confirmed:     a.Bool("force"), // satisfies the pushed-history confirmation
 		ExpectedHead:  plan.Commits[len(plan.Commits)-1].Hash,
@@ -88,4 +94,35 @@ func applyOrPreview(ctx *RunContext, plan *model.Plan, a ParsedArgs, preview fun
 	fmt.Fprintf(ctx.Stdout, "\nApplied. New HEAD %s (backup %s)\n", Short(res.NewHead), res.BackupRef)
 	fmt.Fprintln(ctx.Stdout, res.Verification.String())
 	return nil
+}
+
+// signMode resolves --sign to a gitio.SignMode, failing fast (exit 2) if
+// signing is requested but the repo has no signing key configured — instead of
+// letting `commit-tree -S` fail deep inside a replay with a confusing git error.
+func signMode(ctx *RunContext, a ParsedArgs) (gitio.SignMode, error) {
+	if !a.Bool("sign") {
+		return gitio.DropSignatures, nil
+	}
+	if !ctx.Repo.HasSigningKey() {
+		return gitio.DropSignatures, guardErr("--sign requires a signing key: set user.signingkey (and gpg.format) first")
+	}
+	return gitio.ReSign, nil
+}
+
+// warnDroppedSignatures prints a heads-up in the preview when a rewrite will
+// strip signatures from already-signed commits and the user did not pass
+// --sign, so the loss is visible up front instead of a silent side effect.
+func warnDroppedSignatures(w io.Writer, commits []model.Commit, a ParsedArgs) {
+	if a.Bool("sign") {
+		return
+	}
+	n := 0
+	for _, c := range commits {
+		if c.IsSigned {
+			n++
+		}
+	}
+	if n > 0 {
+		fmt.Fprintf(w, "⚠ %d signed commit(s) will lose their signatures (pass --sign to re-sign)\n", n)
+	}
 }

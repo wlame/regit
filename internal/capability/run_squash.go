@@ -87,6 +87,7 @@ func runSquash(ctx *RunContext, a ParsedArgs) error {
 	}
 
 	printSquashPlan(ctx.Stdout, plan, ctx.Now.Location())
+	warnDroppedSignatures(ctx.Stdout, plan.RewrittenCommits(commits), a)
 
 	if !a.Bool("execute") {
 		fmt.Fprintln(ctx.Stdout, "\n(dry run — nothing applied; pass --execute to apply)")
@@ -107,9 +108,14 @@ func runSquash(ctx *RunContext, a ParsedArgs) error {
 		return guardErr("some commits are already pushed — re-run with --force to rewrite them")
 	}
 
+	sm, err := signMode(ctx, a)
+	if err != nil {
+		return err
+	}
+
 	mgr := safety.NewManager(repo)
 	res, err := mgr.ApplySquash(commits, plan, state, safety.ApplyOptions{
-		Sign:          gitio.DropSignatures,
+		Sign:          sm,
 		UnixTimestamp: ctx.Now.Unix(),
 		Confirmed:     a.Bool("force"),
 		ExpectedHead:  commits[len(commits)-1].Hash,

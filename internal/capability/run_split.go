@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/wlame/regit/internal/gitio"
 	"github.com/wlame/regit/internal/model"
 	"github.com/wlame/regit/internal/safety"
 	"github.com/wlame/regit/internal/split"
@@ -88,6 +87,7 @@ func runSplit(ctx *RunContext, a ParsedArgs) error {
 
 	printProposal(ctx.Stdout, target, prop)
 	printEquivalentCommands(ctx.Stdout, target, prop)
+	warnDroppedSignatures(ctx.Stdout, append([]model.Commit{target}, tail...), a)
 
 	if !a.Bool("execute") {
 		fmt.Fprintln(ctx.Stdout, "\n(dry run — nothing applied; proposal cached; pass --execute to apply)")
@@ -115,10 +115,15 @@ func runSplit(ctx *RunContext, a ParsedArgs) error {
 		return guardErr("commit %s (or a commit after it) is already pushed — re-run with --force to rewrite it", Short(target.Hash))
 	}
 
+	sm, err := signMode(ctx, a)
+	if err != nil {
+		return err
+	}
+
 	subs := split.BuildSubCommits(target, prop.Groups, trees, ctx.Cfg.Split.WIPPrefix)
 	mgr := safety.NewManager(repo)
 	res, err := mgr.ApplySplit(target, prop.ParentHash, subs, tail, state, safety.ApplyOptions{
-		Sign:          gitio.DropSignatures,
+		Sign:          sm,
 		UnixTimestamp: ctx.Now.Unix(),
 		Confirmed:     a.Bool("force"),
 		ExpectedHead:  commits[len(commits)-1].Hash,

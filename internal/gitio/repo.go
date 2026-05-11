@@ -44,6 +44,18 @@ func (r *Repo) GitDir() (string, error) {
 	return r.git("rev-parse", "--absolute-git-dir")
 }
 
+// HasSigningKey reports whether the repo has a commit-signing key configured
+// (user.signingkey set — required for both GPG and SSH signing). Used to fail
+// --sign fast with a clear message instead of letting `commit-tree -S` error
+// deep inside a replay.
+func (r *Repo) HasSigningKey() bool {
+	key, err := r.git("config", "--get", "user.signingkey")
+	if err == nil && strings.TrimSpace(key) != "" {
+		return true
+	}
+	return false
+}
+
 // git runs a git command in the repo root and returns trimmed stdout.
 func (r *Repo) git(args ...string) (string, error) {
 	out, err := runGit(r.root, nil, nil, args...)
