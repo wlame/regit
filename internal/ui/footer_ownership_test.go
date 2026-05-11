@@ -9,9 +9,16 @@ package ui
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/wlame/regit/internal/config"
+	"github.com/wlame/regit/internal/gitio"
+	"github.com/wlame/regit/internal/safety"
 )
 
 // readCommandLog reads the on-disk .git/regit/command.log for the model's repo,
@@ -217,5 +224,121 @@ func TestConfirmCancel_returnsToOriginAndNoStaleFlush(t *testing.T) {
 	}
 	if !strings.Contains(log, "regit redate") {
 		t.Errorf("the unrelated redate apply should still be logged:\n%s", log)
+	}
+}
+
+// newModelWithUpstream builds a Model over a repo with two commits pushed to a
+// bare origin (auto-frozen by the merge-base base, same fixture shape as
+// TestStartup_cursorOnFirstUnpushedCommit) followed by two local-only commits.
+// HasUpstream is true, and editing/applying over the local commits needs no
+// typed confirm — isolating pushHint's footer behavior from the confirm-gated
+// apply path already covered by TestPipeline_pushedRewriteRequiresTypedConfirm.
+func newModelWithUpstream(t *testing.T) Model {
+	t.Helper()
+	fixtureMu.Lock()
+	defer fixtureMu.Unlock()
+	dir := t.TempDir()
+	origin := t.TempDir()
+	git := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = hermeticGitEnv(dir,
+			"GIT_AUTHOR_DATE=2026-06-05T14:00:00+00:00",
+			"GIT_COMMITTER_DATE=2026-06-05T14:00:00+00:00")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	commit := func(name string) {
+		if err := os.WriteFile(filepath.Join(dir, name+".txt"), []byte(name+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		git("add", ".")
+		git("commit", "-q", "-m", "commit "+name)
+	}
+
+	bareInit := exec.Command("git", "init", "-q", "--bare", origin)
+	bareInit.Env = hermeticGitEnv(dir)
+	if out, err := bareInit.CombinedOutput(); err != nil {
+		t.Fatalf("init bare: %v\n%s", err, out)
+	}
+	git("init", "-q")
+	git("symbolic-ref", "HEAD", "refs/heads/main")
+	git("config", "user.name", "wlame")
+	git("config", "user.email", "vvlame@gmail.com")
+	git("config", "commit.gpgsign", "false")
+	git("remote", "add", "origin", origin)
+
+	commit("p0")
+	commit("p1")
+	git("push", "-q", "-u", "origin", "main")
+	commit("local0")
+	commit("local1")
+
+	repo, err := gitio.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, _ := repo.ReadState()
+	commits, _ := repo.ReadCommits()
+	cfg := config.Default()
+	cfg.Timezone = "UTC"
+
+	m := New(repo, safety.NewManager(repo), cfg, state, commits)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	return updated.(Model)
+}
+
+// TestFooter_pushHintAfterApplyWithUpstream proves the TUI surfaces the same
+// force-with-lease push hint the headless CLI prints (capability.pushHint,
+// internal/capability/pipeline.go) after a successful apply on a branch with
+// an upstream: the exact recovery command must land in the command-log
+// footer, both in the in-memory panel (m.commandLog) and the on-disk log.
+func TestFooter_pushHintAfterApplyWithUpstream(t *testing.T) {
+	m := newModelWithUpstream(t)
+	if !m.state.HasUpstream {
+		t.Fatal("setup: branch should have an upstream")
+	}
+
+	m = applyStrategyInPane(m) // stages an Even-Spread redate over the active (unpushed) range
+	m = send(m, "A")
+	if m.mode != modePipeline {
+		t.Fatalf("A should open the pipeline preview, got mode %v", m.mode)
+	}
+	m = send(m, "enter")
+	if m.statusKind != statusOK {
+		t.Fatalf("apply should succeed without a typed confirm, got status %v: %s", m.statusKind, m.statusMsg)
+	}
+
+	want := "git push --force-with-lease origin main"
+	if !strings.Contains(strings.Join(m.commandLog, "\n"), want) {
+		t.Errorf("expected %q in the footer command log; got:\n%s", want, strings.Join(m.commandLog, "\n"))
+	}
+	if !strings.Contains(readCommandLog(t, m), want) {
+		t.Errorf("expected %q in the on-disk command log; got:\n%s", want, readCommandLog(t, m))
+	}
+}
+
+// TestFooter_noPushHintWithoutUpstream proves the footer stays silent about
+// publishing when the branch has no upstream at all — pushHintFooterLines
+// must return nil and leave the log untouched.
+func TestFooter_noPushHintWithoutUpstream(t *testing.T) {
+	m := newTestModelN(t, 3) // no remote configured
+	if m.state.HasUpstream {
+		t.Fatal("setup: branch should have no upstream")
+	}
+
+	m = applyStrategyInPane(m)
+	m = send(m, "A")
+	m = send(m, "enter")
+	if m.statusKind != statusOK {
+		t.Fatalf("apply should succeed, got status %v: %s", m.statusKind, m.statusMsg)
+	}
+
+	if strings.Contains(strings.Join(m.commandLog, "\n"), "force-with-lease") {
+		t.Errorf("no upstream -> no push hint in the footer; got:\n%s", strings.Join(m.commandLog, "\n"))
+	}
+	if strings.Contains(readCommandLog(t, m), "force-with-lease") {
+		t.Errorf("no upstream -> no push hint on disk; got:\n%s", readCommandLog(t, m))
 	}
 }

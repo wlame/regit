@@ -94,7 +94,20 @@ func applyOrPreview(ctx *RunContext, plan *model.Plan, a ParsedArgs, preview fun
 	}
 	fmt.Fprintf(ctx.Stdout, "\nApplied. New HEAD %s (backup %s)\n", Short(res.NewHead), res.BackupRef)
 	fmt.Fprintln(ctx.Stdout, res.Verification.String())
+	pushHint(ctx.Stdout, state)
 	return nil
+}
+
+// pushHint prints the exact force-with-lease command to publish a rewritten
+// branch, plus a divergence note, when the branch tracks (or has) a remote.
+// --force-with-lease (never bare --force) refuses to clobber unseen remote
+// commits. Silent when the branch has no remote ref — nothing to push.
+func pushHint(w io.Writer, state model.RepoState) {
+	if !state.HasUpstream || state.Branch == "" {
+		return
+	}
+	fmt.Fprintf(w, "\n%s has diverged from your rewrite. To publish:\n  git push --force-with-lease origin %s\n",
+		state.UpstreamRef, state.Branch)
 }
 
 // signMode resolves --sign to a gitio.SignMode, failing fast (exit 2) if

@@ -325,3 +325,84 @@ func TestReportImpact_excludesMovingBranch(t *testing.T) {
 		t.Errorf("reportImpact should exclude the moving branch (refs/heads/main); got:\n%s", buf.String())
 	}
 }
+
+// capRepoWithUpstream builds a throwaway repo with 3 commits, all pushed to a
+// bare origin via `git push -u origin main` — HasUpstream is true and every
+// commit is IsPushed, so a full-history redate needs --force AND is the case
+// pushHint must fire for. Returns a RunContext wired to a captured Stdout
+// buffer, mirroring capRepoWithTagInRange's shape.
+func capRepoWithUpstream(t *testing.T) (*RunContext, *bytes.Buffer) {
+	t.Helper()
+	dir, repo := newTestRepo(t, 3)
+	origin := t.TempDir()
+	if out, err := exec.Command("git", "init", "-q", "--bare", origin).CombinedOutput(); err != nil {
+		t.Fatalf("init bare: %v\n%s", err, out)
+	}
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("remote", "add", "origin", origin)
+	run("push", "-q", "-u", "origin", "main")
+
+	var buf bytes.Buffer
+	ctx := &RunContext{Repo: repo, Cfg: config.Default(), Stdout: &buf, Stderr: &buf, Now: time.Unix(1_700_000_000, 0)}
+	return ctx, &buf
+}
+
+// capRepoNoRemote builds a throwaway repo with 3 commits and no remote
+// configured at all — pushHint's silent counterpart to capRepoWithUpstream:
+// HasUpstream is false, so a full-history redate needs no --force and prints
+// no push hint.
+func capRepoNoRemote(t *testing.T) (*RunContext, *bytes.Buffer) {
+	t.Helper()
+	_, repo := newTestRepo(t, 3)
+	var buf bytes.Buffer
+	ctx := &RunContext{Repo: repo, Cfg: config.Default(), Stdout: &buf, Stderr: &buf, Now: time.Unix(1_700_000_000, 0)}
+	return ctx, &buf
+}
+
+// applyRedate runs a real Even-Spread redate over the whole history through
+// runRedate, appending extra flags (e.g. "--execute", "--force") onto a fixed
+// strategy/date range — parsed through the real registry (parseRedate), same
+// as every other redate test, so push-hint tests exercise the exact
+// parse -> runRedate -> applyOrPreview path the CLI itself uses.
+func applyRedate(t *testing.T, ctx *RunContext, extra ...string) {
+	t.Helper()
+	args := append([]string{
+		"--strategy=Even-Spread", "--time=Working-hours",
+		"--start=2026-01-01", "--end=2026-03-01",
+	}, extra...)
+	if err := runRedate(ctx, parseRedate(t, args...)); err != nil {
+		t.Fatalf("runRedate: %v", err)
+	}
+}
+
+// TestApply_printsPushHintWhenRemoteExists proves that applying a rewrite on a
+// branch with an upstream prints the exact force-with-lease command needed to
+// publish it — the recovery step a user would otherwise have to know by heart.
+func TestApply_printsPushHintWhenRemoteExists(t *testing.T) {
+	ctx, buf := capRepoWithUpstream(t) // origin + tracking @{u}
+	applyRedate(t, ctx, "--execute", "--force")
+	out := buf.String()
+	if !strings.Contains(out, "git push --force-with-lease origin") {
+		t.Errorf("expected a push hint; got:\n%s", out)
+	}
+}
+
+// TestApply_noPushHintWithoutRemote proves pushHint stays silent when the
+// branch has no upstream at all — there is nothing to publish, so no command
+// to suggest.
+func TestApply_noPushHintWithoutRemote(t *testing.T) {
+	ctx, buf := capRepoNoRemote(t)
+	applyRedate(t, ctx, "--execute")
+	if strings.Contains(buf.String(), "force-with-lease") {
+		t.Errorf("no remote → no push hint; got:\n%s", buf.String())
+	}
+}

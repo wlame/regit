@@ -1435,7 +1435,36 @@ func (m Model) commitPending(confirmed bool) (tea.Model, tea.Cmd) {
 	}
 	m.mode = modeMain
 	m.setStatus(fmt.Sprintf("%s ✓ backup at %s — press U to undo", title, short(res.BackupRef)), statusOK)
+	// Surface the same push-hint wording as the headless CLI's pushHint
+	// (internal/capability/pipeline.go) in the command-log footer, using the
+	// just-reloaded m.state — a history rewrite never changes the upstream
+	// tracking config, so it is equally correct as the pre-apply state.
+	for _, line := range pushHintFooterLines(m.state) {
+		m.commandLog = append(m.commandLog, line)
+		// Same "#"-prefixed convention as above: the divergence note is an
+		// honest observation, not a runnable command, so it never reaches the
+		// on-disk log — only the git push line itself does.
+		if !strings.HasPrefix(line, "#") {
+			appendCommandLog(m.repo, line)
+		}
+	}
 	return m, m.markAndFetch()
+}
+
+// pushHintFooterLines mirrors capability.pushHint's wording (see
+// internal/capability/pipeline.go) for the TUI's transparency footer: when the
+// branch has an upstream, it returns the divergence note followed by the
+// exact force-with-lease command needed to publish the rewrite. Returns nil
+// when the branch has no upstream — nothing to push, so the footer stays
+// unchanged.
+func pushHintFooterLines(state model.RepoState) []string {
+	if !state.HasUpstream || state.Branch == "" {
+		return nil
+	}
+	return []string{
+		fmt.Sprintf("# %s has diverged from your rewrite. To publish:", state.UpstreamRef),
+		fmt.Sprintf("git push --force-with-lease origin %s", state.Branch),
+	}
 }
 
 // --- Apply / Confirm -------------------------------------------------------
