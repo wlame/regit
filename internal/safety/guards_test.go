@@ -83,6 +83,35 @@ func TestCheckGuards_cleanPlanPasses(t *testing.T) {
 // to over-prompt whenever ANY upstream existed at all (the old, now-deleted
 // RepoState.HasPushedCommits), and now only prompt when model.AnyPushed(the
 // actual commits being rewritten) is true.
+// TestCheckGuards_blocksShallowClone proves a shallow clone hard-blocks the
+// rewrite: its history is incomplete (git history-truncated by --depth), so any
+// rewrite that touches the boundary would silently orphan commits the clone
+// never fetched.
+func TestCheckGuards_blocksShallowClone(t *testing.T) {
+	g := CheckGuards(model.RepoState{Branch: "main", IsShallow: true}, planWithEdit(false))
+	if !g.Blocked {
+		t.Fatal("shallow clone must block the rewrite")
+	}
+	if !strings.Contains(g.BlockReason, "shallow") {
+		t.Errorf("BlockReason = %q, want it to mention shallow", g.BlockReason)
+	}
+}
+
+// TestCheckGuards_shallowReportedBeforeDirty proves the shallow check runs
+// FIRST: a repo that is both shallow and dirty must report the shallow block
+// (history-incompleteness), not the dirty-tree block, since incomplete history
+// is the more fundamental problem — the dirty tree is moot if the rewrite is
+// refused outright anyway.
+func TestCheckGuards_shallowReportedBeforeDirty(t *testing.T) {
+	g := CheckGuards(model.RepoState{IsShallow: true, IsDirty: true}, planWithEdit(false))
+	if !g.Blocked {
+		t.Fatal("shallow+dirty must still block")
+	}
+	if !strings.Contains(g.BlockReason, "shallow") {
+		t.Errorf("BlockReason = %q, want shallow reported before dirty", g.BlockReason)
+	}
+}
+
 func TestCheckGuards_confirmsOnlyWhenRewriteTouchesPushed(t *testing.T) {
 	pushed := model.Commit{Hash: "aaa", IsPushed: true}
 	local := model.Commit{Hash: "bbb", IsPushed: false}

@@ -49,6 +49,23 @@ func runRedate(ctx *RunContext, a ParsedArgs) error {
 	if err := strategy.Apply(plan, strat, tm, params, linkDates); err != nil {
 		return usageErr("%v", err)
 	}
+
+	// Replay only remaps a rewritten commit's first parent (see
+	// gitio.Repo.Replay); a merge's other parent(s) — the side branch(es) it
+	// brought in — keep their original dates untouched. That silent partial
+	// effect is surprising enough to gate behind an explicit opt-in rather than
+	// just redating the merge commit itself and calling it done.
+	if a.Bool("execute") && !a.Bool("allow-merges") {
+		merges := 0
+		for _, c := range plan.Active() {
+			if c.IsMerge {
+				merges++
+			}
+		}
+		if merges > 0 {
+			return guardErr("range contains %d merge commit(s); their side branches keep their original dates — pass --allow-merges to proceed", merges)
+		}
+	}
 	return applyOrPreview(ctx, plan, a, previewDates(ctx.Cfg.Location()))
 }
 
@@ -135,6 +152,18 @@ func previewDates(loc *time.Location) func(io.Writer, *model.Plan) {
 			fmt.Fprintf(w, "  ⚠ %d ordering violation(s)\n", len(plan.Violations))
 		} else {
 			fmt.Fprintln(w, "  ✓ sequential")
+		}
+		// Warn about merges in the dry-run preview too, so the caveat is visible
+		// well before --execute would refuse to apply it (see the merge gate in
+		// runRedate).
+		merges := 0
+		for _, c := range active {
+			if c.IsMerge {
+				merges++
+			}
+		}
+		if merges > 0 {
+			fmt.Fprintf(w, "  ⚠ %d merge commit(s) — side-branch dates unchanged (apply needs --allow-merges)\n", merges)
 		}
 	}
 }

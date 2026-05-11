@@ -30,10 +30,19 @@ type Guard struct {
 }
 
 // CheckGuards evaluates the repository state and the plan before any rewrite.
-// Order matters: a dirty tree is a hard block regardless of anything else, and a
-// plan with sequence violations is a hard block because it would produce
-// out-of-order history.
+// Order matters: a shallow clone is checked FIRST because its history is
+// fundamentally incomplete — that problem exists independently of (and takes
+// priority over reporting) a dirty tree or any plan issue. After that, a dirty
+// tree is a hard block regardless of anything else, and a plan with sequence
+// violations is a hard block because it would produce out-of-order history.
 func CheckGuards(state model.RepoState, plan *model.Plan) Guard {
+	if state.IsShallow {
+		return Guard{
+			Blocked: true,
+			BlockReason: "refusing to rewrite a shallow clone — history is incomplete; " +
+				"run 'git fetch --unshallow' first",
+		}
+	}
 	if state.IsDirty {
 		return Guard{
 			Blocked:     true,

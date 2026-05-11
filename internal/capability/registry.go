@@ -144,11 +144,13 @@ var registry = []Command{
 			{Name: "repo", Type: ParamString, Default: ".", Help: "path to the git repository"},
 			{Name: "execute", Type: ParamBool, Default: "false", Help: "apply (default: dry-run preview)"},
 			{Name: "force", Type: ParamBool, Default: "false", Help: "allow rewriting already-pushed commits"},
+			{Name: "allow-merges", Type: ParamBool, Default: "false", Help: "proceed even if the range contains merge commits (their side branches keep their dates)"},
 		},
 		Examples: []Example{
 			{Cmd: "regit redate --strategy=Even-Spread --time=Working-hours --start=2026-01-01 --end=2026-03-01", Why: "preview an even spread across two months"},
 			{Cmd: "regit redate --strategy=Manual-Pin --pin=2026-03-02=2,2026-03-05=1 --execute", Why: "pin specific days and apply"},
 			{Cmd: "regit redate --strategy=Manual-Pin --start=2026-01-01", Why: "Manual-Pin without --pin is rejected", Bad: true},
+			{Cmd: "regit redate --strategy=Even-Spread --start=2026-01-01 --end=2026-03-01 --execute", Why: "a range containing a merge commit is refused without --allow-merges", Bad: true},
 		},
 		Limitations: []string{
 			"Strategy/time names come from strategy.Strategies()/TimeModels(); accepts kebab or quoted spaced.",
