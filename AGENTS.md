@@ -374,6 +374,41 @@ regit squash <range-ish>
   code (keymap, registry, config table, strategy names) and run `just docs-sync`;
   the drift test fails CI otherwise.
 
+- **`CheckGuards` (guards.go) checks shallow-clone state before anything else.**
+  `state.IsShallow` is a hard block, ahead of the dirty-tree and out-of-order-plan
+  checks, because incomplete history invalidates any rewrite regardless of what
+  else is wrong. `redate --execute` additionally refuses a range containing a
+  merge commit unless `--allow-merges` is passed (side-branch dates are left
+  unchanged either way — the gate is about surprising the user, not correctness).
+
+- **`--sign` re-signs; the default drops signatures after warning.** `pipeline.go`'s
+  `signMode` resolves `--sign` to `gitio.ReSign` and fails fast (exit 2) if the
+  repo has no `user.signingkey` configured, rather than letting `commit-tree -S`
+  fail deep inside a replay. Without `--sign`, `warnDroppedSignatures` prints a
+  heads-up in the preview whenever the active range contains already-signed
+  commits, but still proceeds — the user opts in to re-signing, not out of
+  dropping.
+
+- **`undo` refuses to unwind past new work unless `--force`.** Each backup ref
+  is paired with a `refs/regit/applied/<branch>/<ts>-<seq>` ref (same
+  `<ts>-<seq>` suffix as its `refs/regit/backup/...` ref) recording the HEAD
+  that apply produced. `Manager.Undo` compares that recorded head to the
+  branch's current tip; a mismatch means another apply or a plain commit
+  happened since, and undo refuses unless `--force`. A legacy backup with no
+  paired applied ref degrades to the old unguarded behavior. Every `Undo` call
+  (forced or not) first backs up the current tip, so the undo itself is always
+  reversible via `undo --to=<ref>`.
+
+- **Agent-scan's deny-list is defense-in-depth, not a sandbox.** A research
+  spike found `--allowedTools` path-scoping does NOT confine `Read`/`Grep`/`Glob`
+  — a prompt injected via the scanned diff can still steer them outside the
+  repo. `--disallowedTools` deny rules (`ScanDefaultArgs`,
+  `internal/llm/agent.go`) are the only real flags-level hard block, and they DO
+  resolve symlinks and `..`; regit uses them to deny well-known secret stores
+  (`~/.ssh`, `~/.aws`, `~/.gnupg`, `/etc`, `.env`, `*.pem`, `id_rsa*`, …). Any
+  other path stays readable — treat `--agent-scan` as a trust boundary, never a
+  perimeter.
+
 ## Where things live
 
 ```
@@ -393,7 +428,7 @@ internal/gitio/
   rewrite.go            Replay (→ remap), VerifyTreesUnchanged
   split.go              ApplySplit (→ SplitRemap), SubCommit
   hunks.go              Hunks(), BuildTreeFromHunks(), Worktree
-  refs.go               UpdateRef, BackupRefPrefix, BranchRef
+  refs.go               UpdateRef, BackupRefPrefix, BranchRef, AppliedRefPrefix, RecordAppliedHead/AppliedHeadFor
   changeset.go          DiffChangeSet (git diff --raw), CommitTrees (batched tree OIDs)
 internal/split/
   engine.go             Engine, Propose, buildAndValidate, rebuildAll

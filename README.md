@@ -190,10 +190,19 @@ Preserve original · Working hours · Evening hours · Non-working hours · Unif
 | Already-pushed commits | apply requires **typing the branch name** to confirm |
 | Backup | `refs/regit/backup/<branch>/<ts>-<seq>` created before each apply; an existing backup is never overwritten |
 | Undo | `U` restores the most recent backup taken **on the current branch**; cross-branch restores are refused (legacy flat backups need an explicit `regit undo --to=<ref>`) |
+| Shallow clone | apply is **blocked** — history is incomplete; run `git fetch --unshallow` first |
+| Merge in range (redate) | apply is **blocked** until you pass `--allow-merges`; side-branch dates stay unchanged |
+| Signed commits | rewriting drops signatures; regit **warns** first, and `--sign` re-signs with your configured key |
+| Undo past new work | `undo` **refuses** to unwind when HEAD moved past the backup unless you pass `--force`; it always backs up the current tip first |
 
 > Rewriting history that others have pulled requires a force-push and can
 > disrupt collaborators. `regit` warns you, but use it deliberately on shared
 > branches.
+
+Before applying, every mutating command also reports any tags/branches in the
+active range that the rewrite would orphan; after rewriting a branch with an
+upstream, it prints the exact `git push --force-with-lease origin <branch>`
+command to publish the result.
 
 ## Configuration
 
@@ -389,10 +398,14 @@ and an `--allowedTools` list containing only the file-browsing tools
 set to the repository root. The commit diff is still gathered by `regit` and
 sent in the prompt in both modes. This mode requires `--agent`.
 
-Note that `Read`/`Grep`/`Glob` resolve paths relative to the repository but are
-not hard-confined to it (e.g. `../` traversal is not blocked at this layer) —
-treat any reword proposal produced from an untrusted diff with the same care
-you'd give any other LLM output. Hard path-scoping is deferred to M4.
+`Read`/`Grep`/`Glob` resolve paths relative to the repository but are **not
+hard-confined** to it — Claude Code's allow-list is not a boundary for the file
+tools, and true subtree confinement is only achievable with an OS-level sandbox.
+As defense-in-depth, regit denies reads of well-known secret stores (`~/.ssh`,
+`~/.aws`, `~/.gnupg`, `/etc`, `*.pem`, `id_rsa*`, …) via `--disallowedTools`
+(deny rules DO resolve symlinks and `..`). Treat agent-scan as a **trust
+boundary, not a sandbox**: only enable it on diffs you trust, and treat any
+resulting proposal with the same care as any other LLM output.
 
 ### Cache
 
