@@ -1456,15 +1456,15 @@ func (m Model) commitPending(confirmed bool) (tea.Model, tea.Cmd) {
 // branch has an upstream, it returns the divergence note followed by the
 // exact force-with-lease command needed to publish the rewrite. Returns nil
 // when the branch has no upstream — nothing to push, so the footer stays
-// unchanged.
+// unchanged. The lines (and the remote-derivation logic) come from
+// model.PushHintLines, the same helper capability.pushHint renders, so a
+// non-origin remote is reflected correctly on both surfaces at once.
 func pushHintFooterLines(state model.RepoState) []string {
-	if !state.HasUpstream || state.Branch == "" {
+	lines := model.PushHintLines(state)
+	if lines == nil {
 		return nil
 	}
-	return []string{
-		fmt.Sprintf("# %s has diverged from your rewrite. To publish:", state.UpstreamRef),
-		fmt.Sprintf("git push --force-with-lease origin %s", state.Branch),
-	}
+	return []string{"# " + lines[0], lines[1]}
 }
 
 // --- Apply / Confirm -------------------------------------------------------

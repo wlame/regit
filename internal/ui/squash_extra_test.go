@@ -93,10 +93,15 @@ func TestSquashChange_guard_pushedCommitsNeedConfirm(t *testing.T) {
 }
 
 // TestSquashChange_guard_cleanLocalOK verifies the happy path: no merge
-// commits, clean working tree, no upstream → guard is clear.
+// commits, clean working tree, and — critically — commits that ARE present
+// but all local (IsPushed: false), so the guard clears because
+// model.AnyPushed(c.plan.RewrittenCommits(c.commits)) sees only local commits,
+// not because c.commits is empty and RewrittenCommits' defensive nil branch
+// short-circuits before AnyPushed ever runs.
 func TestSquashChange_guard_cleanLocalOK(t *testing.T) {
-	ch := model.SquashChain{Members: []model.Commit{{Hash: "a"}, {Hash: "b"}}}
-	sc := squashChange{plan: model.SquashPlan{Chains: []model.SquashChain{ch}}}
+	commits := []model.Commit{{Hash: "a", IsPushed: false}, {Hash: "b", IsPushed: false}}
+	ch := model.SquashChain{Members: commits}
+	sc := squashChange{commits: commits, plan: model.SquashPlan{Chains: []model.SquashChain{ch}}}
 	g := sc.guard(model.RepoState{})
 	if g.Blocked || g.NeedsConfirmation {
 		t.Errorf("guard should be clear for clean local repo, got %+v", g)

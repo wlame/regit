@@ -101,13 +101,19 @@ func applyOrPreview(ctx *RunContext, plan *model.Plan, a ParsedArgs, preview fun
 // pushHint prints the exact force-with-lease command to publish a rewritten
 // branch, plus a divergence note, when the branch tracks (or has) a remote.
 // --force-with-lease (never bare --force) refuses to clobber unseen remote
-// commits. Silent when the branch has no remote ref — nothing to push.
+// commits. Silent when the branch has no remote ref — nothing to push. The
+// lines themselves (and the remote-derivation logic) live in
+// model.PushHintLines, shared with the TUI footer (ui.pushHintFooterLines) so
+// the wording — and the fix deriving the remote from the upstream ref instead
+// of hardcoding "origin" — cannot drift between the two surfaces.
 func pushHint(w io.Writer, state model.RepoState) {
-	if !state.HasUpstream || state.Branch == "" {
+	lines := model.PushHintLines(state)
+	if lines == nil {
 		return
 	}
-	fmt.Fprintf(w, "\n%s has diverged from your rewrite. To publish:\n  git push --force-with-lease origin %s\n",
-		state.UpstreamRef, state.Branch)
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, lines[0])
+	fmt.Fprintln(w, "  "+lines[1])
 }
 
 // signMode resolves --sign to a gitio.SignMode, failing fast (exit 2) if

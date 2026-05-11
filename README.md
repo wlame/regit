@@ -201,8 +201,8 @@ Preserve original · Working hours · Evening hours · Non-working hours · Unif
 
 Before applying, every mutating command also reports any tags/branches in the
 active range that the rewrite would orphan; after rewriting a branch with an
-upstream, it prints the exact `git push --force-with-lease origin <branch>`
-command to publish the result.
+upstream, it prints the exact `git push --force-with-lease <remote> <branch>`
+for your branch's upstream remote (not always `origin`) to publish the result.
 
 ## Configuration
 

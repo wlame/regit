@@ -75,14 +75,6 @@ func TestCheckGuards_cleanPlanPasses(t *testing.T) {
 	}
 }
 
-// TestCheckGuards_confirmsOnlyWhenRewriteTouchesPushed is the direct two-sided
-// proof that CheckGuards is scoped to the rewrite set, not "does an upstream
-// exist anywhere on the branch": a plan whose active range is entirely local
-// never prompts, and one whose active range reaches a pushed commit always
-// does. This is the split/squash/reword-visible correction: those surfaces used
-// to over-prompt whenever ANY upstream existed at all (the old, now-deleted
-// RepoState.HasPushedCommits), and now only prompt when model.AnyPushed(the
-// actual commits being rewritten) is true.
 // TestCheckGuards_blocksShallowClone proves a shallow clone hard-blocks the
 // rewrite: its history is incomplete (git history-truncated by --depth), so any
 // rewrite that touches the boundary would silently orphan commits the clone
@@ -112,6 +104,14 @@ func TestCheckGuards_shallowReportedBeforeDirty(t *testing.T) {
 	}
 }
 
+// TestCheckGuards_confirmsOnlyWhenRewriteTouchesPushed is the direct two-sided
+// proof that CheckGuards is scoped to the rewrite set, not "does an upstream
+// exist anywhere on the branch": a plan whose active range is entirely local
+// never prompts, and one whose active range reaches a pushed commit always
+// does. This is the split/squash/reword-visible correction: those surfaces used
+// to over-prompt whenever ANY upstream existed at all (the old, now-deleted
+// RepoState.HasPushedCommits), and now only prompt when model.AnyPushed(the
+// actual commits being rewritten) is true.
 func TestCheckGuards_confirmsOnlyWhenRewriteTouchesPushed(t *testing.T) {
 	pushed := model.Commit{Hash: "aaa", IsPushed: true}
 	local := model.Commit{Hash: "bbb", IsPushed: false}
