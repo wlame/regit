@@ -1468,7 +1468,8 @@ func (m Model) stagePlanApply(applyMode bool) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, m.redateCmd)
 	}
 	cmds = append(cmds, m.planCmds...)
-	pc := newPlanChange(m.plan, m.loc, cmds)
+	impact := refImpactLines(m.repo, m.plan.Active(), m.state.Branch)
+	pc := newPlanChange(m.plan, m.loc, cmds, impact)
 	guard := pc.guard(m.state)
 	if applyMode && guard.Blocked {
 		m.setStatus(guard.BlockReason, statusErr)

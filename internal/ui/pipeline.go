@@ -47,16 +47,60 @@ type pendingChange interface {
 // staging time, of every plan-edit command line accumulated so far (the active
 // strategy's redate line plus any drop-bodies/retitle/reword/editor notes); it is
 // NOT recomputed from the model, so it survives a reload that wipes the plan.
+// impact is likewise a staging-time snapshot: the pre-apply ref-impact lines
+// (see refImpactLines) for whatever tags/branches the plan's active range would
+// orphan, computed once so the overlay never re-queries the repo on every
+// render.
 type planChange struct {
-	plan *model.Plan
-	loc  *time.Location
-	cmds []string
+	plan   *model.Plan
+	loc    *time.Location
+	cmds   []string
+	impact []string
 }
 
-// newPlanChange wraps the current plan as a pendingChange, snapshotting cmds (the
-// plan-edit command lines accumulated at staging time) onto the change.
-func newPlanChange(plan *model.Plan, loc *time.Location, cmds []string) planChange {
-	return planChange{plan: plan, loc: loc, cmds: cmds}
+// newPlanChange wraps the current plan as a pendingChange, snapshotting cmds
+// (the plan-edit command lines accumulated at staging time) and impact (the
+// pre-apply ref-impact lines, see refImpactLines) onto the change.
+func newPlanChange(plan *model.Plan, loc *time.Location, cmds []string, impact []string) planChange {
+	return planChange{plan: plan, loc: loc, cmds: cmds, impact: impact}
+}
+
+// refImpactLines computes the pre-apply impact report for the TUI preview,
+// mirroring capability.reportImpact: every tag/branch that points at a commit
+// in active is listed, except the branch being rewritten (branch) — that ref
+// moves WITH the rewrite, so it is never reported as an orphan. Read-only and
+// synchronous (a single RefsPointingAt call, run when the pipeline is staged —
+// no goroutine, no tea.Cmd); any error reading refs is swallowed, since the
+// report is advisory and must never block staging the change.
+func refImpactLines(repo *gitio.Repo, active []model.Commit, branch string) []string {
+	if repo == nil || len(active) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(active))
+	for _, c := range active {
+		set[c.Hash] = true
+	}
+	impacts, err := repo.RefsPointingAt(set)
+	if err != nil || len(impacts) == 0 {
+		return nil
+	}
+	movingBranch := "refs/heads/" + branch
+	shown := impacts[:0]
+	for _, im := range impacts {
+		if im.Name == movingBranch {
+			continue // this ref moves with the rewrite; not an orphan
+		}
+		shown = append(shown, im)
+	}
+	if len(shown) == 0 {
+		return nil
+	}
+	lines := make([]string, 0, len(shown)+1)
+	lines = append(lines, fmt.Sprintf("⚠ %d ref(s) reference commits this rewrite will orphan:", len(shown)))
+	for _, im := range shown {
+		lines = append(lines, fmt.Sprintf("    %s %s → %s", im.Kind, im.Name, short(im.Commit)))
+	}
+	return lines
 }
 
 func (c planChange) commandLines() []string { return c.cmds }
@@ -74,7 +118,7 @@ func (c planChange) guard(state model.RepoState) safety.Guard {
 // in the out-of-order blast radius.
 func (c planChange) preview(st styles) previewModel {
 	shifted := shiftedSet(c.plan)
-	lines := make([]string, 0, len(c.plan.Commits))
+	lines := make([]string, 0, len(c.plan.Commits)+len(c.impact))
 	for i := len(c.plan.Commits) - 1; i >= 0; i-- {
 		commit := c.plan.Commits[i]
 		orig := commit.OrigAuthorDate.In(c.loc).Format("2006-01-02 15:04")
@@ -93,6 +137,13 @@ func (c planChange) preview(st styles) previewModel {
 		default:
 			lines = append(lines, st.dim.Render("  "+text))
 		}
+	}
+	// Impact lines (tags/branches this rewrite would orphan) go last, styled
+	// the same as the ⚠ conflict rows above — mirrors the headless preview's
+	// wording (see capability.reportImpact) so the same warning reads the same
+	// way whether the user is at a terminal or in the TUI.
+	for _, line := range c.impact {
+		lines = append(lines, st.statusWarn.Render(line))
 	}
 	title := fmt.Sprintf("Apply — %d edited · %d conflicting", len(c.plan.Edits), len(c.plan.Shifted))
 	return previewModel{title: title, lines: lines}

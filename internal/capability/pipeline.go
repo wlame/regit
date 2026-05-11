@@ -54,6 +54,7 @@ func applyGuardErr(err error) error {
 // always created by safety.Apply.
 func applyOrPreview(ctx *RunContext, plan *model.Plan, a ParsedArgs, preview func(io.Writer, *model.Plan)) error {
 	preview(ctx.Stdout, plan)
+	reportImpact(ctx, ctx.Stdout, plan.Active())
 	warnDroppedSignatures(ctx.Stdout, plan.Active(), a)
 
 	if !a.Bool("execute") {
@@ -124,5 +125,36 @@ func warnDroppedSignatures(w io.Writer, commits []model.Commit, a ParsedArgs) {
 	}
 	if n > 0 {
 		fmt.Fprintf(w, "⚠ %d signed commit(s) will lose their signatures (pass --sign to re-sign)\n", n)
+	}
+}
+
+// reportImpact prints tags/branches that point at commits the rewrite will
+// orphan, so the user sees the blast radius before confirming. Read-only and
+// non-blocking. The branch being rewritten is excluded (it is the ref that
+// moves). Failures to read refs are swallowed — the report is advisory.
+func reportImpact(ctx *RunContext, w io.Writer, active []model.Commit) {
+	set := make(map[string]bool, len(active))
+	for _, c := range active {
+		set[c.Hash] = true
+	}
+	impacts, err := ctx.Repo.RefsPointingAt(set)
+	if err != nil || len(impacts) == 0 {
+		return
+	}
+	state, _ := ctx.Repo.ReadState()
+	movingBranch := "refs/heads/" + state.Branch
+	shown := impacts[:0]
+	for _, im := range impacts {
+		if im.Name == movingBranch {
+			continue // this ref moves with the rewrite; not an orphan
+		}
+		shown = append(shown, im)
+	}
+	if len(shown) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "⚠ %d ref(s) reference commits this rewrite will orphan:\n", len(shown))
+	for _, im := range shown {
+		fmt.Fprintf(w, "    %s %s → %s\n", im.Kind, im.Name, Short(im.Commit))
 	}
 }

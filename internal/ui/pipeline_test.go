@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -14,7 +15,7 @@ func TestPlanChange_titleAndPreview(t *testing.T) {
 	newDate := c.OrigAuthorDate.AddDate(0, 0, 5)
 	m.plan.SetEdit(c.Hash, model.Edit{NewAuthorDate: &newDate})
 
-	pc := newPlanChange(m.plan, m.loc, nil)
+	pc := newPlanChange(m.plan, m.loc, nil, nil)
 	if !strings.Contains(pc.title(), "1") {
 		t.Errorf("title should mention the 1 edited commit, got %q", pc.title())
 	}
@@ -33,7 +34,7 @@ func TestPlanChange_guardCleanRepoNotBlocked(t *testing.T) {
 	nd := c.OrigAuthorDate.AddDate(0, 0, 1)
 	m.plan.SetEdit(c.Hash, model.Edit{NewAuthorDate: &nd})
 
-	g := newPlanChange(m.plan, m.loc, nil).guard(m.state)
+	g := newPlanChange(m.plan, m.loc, nil, nil).guard(m.state)
 	if g.Blocked {
 		t.Errorf("a clean local repo should not be blocked, got %q", g.BlockReason)
 	}
@@ -85,6 +86,44 @@ func TestSplitChange_guardBlocksDirtyAndMerge(t *testing.T) {
 	}
 }
 
+// TestStagePlanApply_reportsRefImpact proves the TUI preview overlay surfaces
+// the same pre-apply impact report as the headless path (capability.reportImpact):
+// a tag sitting on a commit inside the plan's active range must show up in the
+// staged planChange's preview body once stagePlanApply builds it.
+func TestStagePlanApply_reportsRefImpact(t *testing.T) {
+	m := newTestModel(t) // 3 commits, branch main, none frozen
+	target := m.plan.Commits[1]
+	tagCmd := exec.Command("git", "tag", "v1", target.Hash)
+	tagCmd.Dir = m.repo.Root()
+	if out, err := tagCmd.CombinedOutput(); err != nil {
+		t.Fatalf("git tag: %v\n%s", err, out)
+	}
+	newDate := target.OrigAuthorDate.AddDate(0, 0, 1)
+	m.plan.SetEdit(target.Hash, model.Edit{NewAuthorDate: &newDate})
+
+	updated, _ := m.stagePlanApply(false)
+	m2 := updated.(Model)
+	pc, ok := m2.pending.(planChange)
+	if !ok {
+		t.Fatalf("expected pending to be a planChange, got %T", m2.pending)
+	}
+	body := strings.Join(pc.preview(m2.st).lines, "\n")
+	if !strings.Contains(body, "v1") || !strings.Contains(strings.ToLower(body), "orphan") {
+		t.Errorf("preview should report the tag impact; got:\n%s", body)
+	}
+}
+
+// TestRefImpactLines_excludesMovingBranch proves the branch being rewritten
+// is never itself reported as an orphan: a repo with no other refs besides
+// the current branch must produce no lines even though every commit is in
+// the active set.
+func TestRefImpactLines_excludesMovingBranch(t *testing.T) {
+	m := newTestModel(t)
+	if lines := refImpactLines(m.repo, m.plan.Commits, m.state.Branch); lines != nil {
+		t.Errorf("expected no impact lines (only the moving branch points here), got %v", lines)
+	}
+}
+
 func TestPlanChange_previewMarksConflictsWithWarning(t *testing.T) {
 	m := newTestModelN(t, 4)
 	edited := m.plan.Commits[1]
@@ -92,7 +131,7 @@ func TestPlanChange_previewMarksConflictsWithWarning(t *testing.T) {
 	m.plan.SetEdit(edited.Hash, model.Edit{NewAuthorDate: &future})
 	m.recomputeViolations() // populates plan.Shifted (2 commits)
 
-	pv := newPlanChange(m.plan, m.loc, nil).preview(m.st)
+	pv := newPlanChange(m.plan, m.loc, nil, nil).preview(m.st)
 	body := strings.Join(pv.lines, "\n")
 
 	if got := strings.Count(body, "⚠"); got != 2 {

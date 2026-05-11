@@ -88,6 +88,7 @@ func runSquash(ctx *RunContext, a ParsedArgs) error {
 
 	printSquashPlan(ctx.Stdout, plan, ctx.Now.Location())
 	warnDroppedSignatures(ctx.Stdout, plan.RewrittenCommits(commits), a)
+	reportImpact(ctx, ctx.Stdout, plan.RewrittenCommits(commits))
 
 	if !a.Bool("execute") {
 		fmt.Fprintln(ctx.Stdout, "\n(dry run — nothing applied; pass --execute to apply)")

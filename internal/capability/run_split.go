@@ -85,9 +85,15 @@ func runSplit(ctx *RunContext, a ParsedArgs) error {
 		return nil
 	}
 
+	// rewritten is every commit the split re-hashes: the target itself plus the
+	// tail replayed after it (see the Pushed-detection comment below). Shared by
+	// the dropped-signature warning, the ref-impact report, and (further down)
+	// the pushed-commit guard, so they can never disagree about the rewrite set.
+	rewritten := append([]model.Commit{target}, tail...)
 	printProposal(ctx.Stdout, target, prop)
 	printEquivalentCommands(ctx.Stdout, target, prop)
-	warnDroppedSignatures(ctx.Stdout, append([]model.Commit{target}, tail...), a)
+	warnDroppedSignatures(ctx.Stdout, rewritten, a)
+	reportImpact(ctx, ctx.Stdout, rewritten)
 
 	if !a.Bool("execute") {
 		fmt.Fprintln(ctx.Stdout, "\n(dry run — nothing applied; proposal cached; pass --execute to apply)")
@@ -111,7 +117,7 @@ func runSplit(ctx *RunContext, a ParsedArgs) error {
 	if state.IsDirty {
 		return guardErr("working tree has uncommitted changes; commit or stash them first")
 	}
-	if model.AnyPushed(append([]model.Commit{target}, tail...)) && !a.Bool("force") {
+	if model.AnyPushed(rewritten) && !a.Bool("force") {
 		return guardErr("commit %s (or a commit after it) is already pushed — re-run with --force to rewrite it", Short(target.Hash))
 	}
 

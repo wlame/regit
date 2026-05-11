@@ -266,3 +266,62 @@ func TestApplyOrPreview_warnsOnRealSignedCommit(t *testing.T) {
 		t.Errorf("expected the dropped-signature warning, got:\n%s", out.String())
 	}
 }
+
+// capRepoWithTagInRange builds a throwaway repo with 3 commits and a
+// lightweight tag "v1" on the middle commit (inside the range any full-history
+// redate would rewrite), returning a RunContext wired to a captured Stdout
+// buffer so tests can assert on preview output without touching the real
+// filesystem beyond the temp repo.
+func capRepoWithTagInRange(t *testing.T) (*RunContext, *bytes.Buffer) {
+	t.Helper()
+	dir, repo := newTestRepo(t, 3)
+	cmd := exec.Command("git", "tag", "v1", "HEAD~1")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git tag: %v\n%s", err, out)
+	}
+	var buf bytes.Buffer
+	ctx := &RunContext{Repo: repo, Cfg: config.Default(), Stdout: &buf, Stderr: &buf, Now: time.Unix(1_700_000_000, 0)}
+	return ctx, &buf
+}
+
+// runRedatePreview runs a dry-run (no --execute) Even-Spread redate over the
+// whole history, exercising applyOrPreview's preview path — and so
+// reportImpact — without mutating the repo.
+func runRedatePreview(t *testing.T, ctx *RunContext) {
+	t.Helper()
+	a := parseRedate(t, "--strategy=Even-Spread", "--time=Working-hours", "--start=2026-01-01", "--end=2026-03-01")
+	if err := runRedate(ctx, a); err != nil {
+		t.Fatalf("runRedate preview: %v", err)
+	}
+}
+
+// TestApplyOrPreview_reportsRefImpact proves the pre-apply impact report: a
+// tag sitting on a commit inside the rewrite range must show up in the dry-run
+// preview, so the user sees the blast radius before ever passing --execute.
+func TestApplyOrPreview_reportsRefImpact(t *testing.T) {
+	ctx, buf := capRepoWithTagInRange(t)
+	runRedatePreview(t, ctx)
+	out := buf.String()
+	if !strings.Contains(out, "v1") || !strings.Contains(strings.ToLower(out), "reference") {
+		t.Errorf("preview should report the tag impact; got:\n%s", out)
+	}
+}
+
+// TestReportImpact_excludesMovingBranch proves the branch being rewritten is
+// never reported as an orphan: it is the ref that moves WITH the rewrite, not
+// one left behind by it. A repo with no other refs besides the current branch
+// must produce an empty report even though every commit is in the active set.
+func TestReportImpact_excludesMovingBranch(t *testing.T) {
+	_, repo := newTestRepo(t, 3)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	ctx := &RunContext{Repo: repo, Cfg: config.Default(), Stdout: &buf, Stderr: &buf, Now: time.Unix(1_700_000_000, 0)}
+	reportImpact(ctx, &buf, commits)
+	if buf.Len() != 0 {
+		t.Errorf("reportImpact should exclude the moving branch (refs/heads/main); got:\n%s", buf.String())
+	}
+}
