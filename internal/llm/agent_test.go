@@ -324,3 +324,26 @@ func TestScanDefaultArgs_isReadOnly(t *testing.T) {
 		}
 	}
 }
+
+// TestScanDefaultArgs_deniesSensitivePaths asserts that ScanDefaultArgs carries
+// a --disallowedTools deny-list covering well-known secret stores, as
+// defense-in-depth against a prompt-injected diff steering the agent to read
+// them (see the ScanDefaultArgs doc comment for why deny, not just allow, is
+// the real flags-level hard block). It also re-asserts that the allowlist and
+// plan mode from TestScanDefaultArgs_isReadOnly are still intact, since the two
+// defenses must both hold at once.
+func TestScanDefaultArgs_deniesSensitivePaths(t *testing.T) {
+	joined := strings.Join(ScanDefaultArgs, " ")
+	if !strings.Contains(joined, "--disallowedTools") {
+		t.Fatal("scan args must include --disallowedTools")
+	}
+	for _, want := range []string{"~/.ssh/**", "~/.aws/**", "~/.gnupg/**", "/etc/**", "id_rsa"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("scan deny-list missing a rule covering %q; args=%v", want, ScanDefaultArgs)
+		}
+	}
+	// The allowlist and plan mode must still be present (defense in depth intact).
+	if !strings.Contains(joined, "Read,Grep,Glob") || !strings.Contains(joined, "plan") {
+		t.Error("scan args must keep --allowedTools Read,Grep,Glob and --permission-mode plan")
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"strings"
 )
 
 // SchemaPlaceholder is the token replaced at runtime with the inline JSON
@@ -39,6 +40,25 @@ type AgentBackend struct {
 // flag skips CLAUDE.md / hooks / plugins / MCP for deterministic output.
 // {schema} is substituted with the actual JSON schema at call time.
 //
+// A research spike against Claude Code v2.1.x found that --allowedTools
+// path-scoping is NOT a security boundary for the file tools: a prompt
+// injected via the scanned diff can still steer Read/Grep/Glob at paths
+// outside the intended scope. --disallowedTools deny rules, in contrast, ARE
+// a real flags-level hard block, and they DO resolve symlinks and `..`
+// (verified empirically). ScanDefaultArgs therefore also denies reads of a
+// short list of well-known secret stores (SSH/AWS/GPG keys, /etc, .env,
+// id_rsa*, etc.) as defense-in-depth against a prompt-injected diff steering
+// the agent to exfiltrate them via its own Read/Grep/Glob calls.
+//
+// Be honest about what this is NOT: it is not a perimeter or a sandbox. Any
+// path not on the deny list — including secrets stored under a different
+// name or location than the ones listed here — remains readable if it is
+// reachable via Read/Grep/Glob from the scan's working directory. Agent-scan
+// mode is a documented TRUST BOUNDARY, not a hard confinement; true
+// confinement (blocking arbitrary reads outside the repo) requires an OS-level
+// sandbox (e.g. a container, chroot, or Landlock/seccomp profile), which
+// regit does not currently provide.
+//
 // ScanDefaultArgs should be treated as read-only; Generate copies the args
 // before substituting {schema}, so the original slice is never modified.
 var ScanDefaultArgs = []string{
@@ -47,6 +67,18 @@ var ScanDefaultArgs = []string{
 	"--bare",
 	"--permission-mode", "plan",
 	"--allowedTools", "Read,Grep,Glob",
+	// Deny reads of well-known secret stores as defense-in-depth against a
+	// prompt-injected diff steering the agent to exfiltrate them. Deny rules are
+	// the only flags-level hard block for the file tools and DO resolve symlinks
+	// and `..` (Claude Code v2.1.x, verified). This is NOT a perimeter — reads
+	// outside the repo that are not on this list still succeed — so scan mode
+	// stays a documented trust boundary; true confinement needs an OS sandbox.
+	"--disallowedTools",
+	strings.Join([]string{
+		"Read(~/.ssh/**)", "Read(~/.aws/**)", "Read(~/.gnupg/**)",
+		"Read(~/.config/**)", "Read(~/.kube/**)", "Read(~/.docker/**)",
+		"Read(//etc/**)", "Read(**/.env)", "Read(**/*.pem)", "Read(**/id_rsa*)",
+	}, ","),
 	"--json-schema", SchemaPlaceholder,
 }
 
