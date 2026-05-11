@@ -105,7 +105,7 @@ func TestManagerUndo_restoresOriginalHead(t *testing.T) {
 	if !mgr.CanUndo() {
 		t.Fatal("should be able to undo after apply")
 	}
-	restored, err := mgr.Undo()
+	restored, err := mgr.Undo(false, 2)
 	if err != nil {
 		t.Fatalf("Undo: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestManagerApply_pushedRequiresConfirmation(t *testing.T) {
 func TestManagerUndo_withoutApplyErrors(t *testing.T) {
 	repo := buildRepo(t)
 	mgr := NewManager(repo)
-	if _, err := mgr.Undo(); err == nil {
+	if _, err := mgr.Undo(false, 1); err == nil {
 		t.Error("undo with empty stack should error")
 	}
 }
@@ -215,7 +215,7 @@ func TestManagerUndo_refusesCrossBranchRestore(t *testing.T) {
 	if out, err := checkout.CombinedOutput(); err != nil {
 		t.Fatalf("checkout: %v\n%s", err, out)
 	}
-	if _, err := mgr.Undo(); err == nil {
+	if _, err := mgr.Undo(false, 8); err == nil {
 		t.Fatal("Undo on a different branch must refuse")
 	} else if !strings.Contains(err.Error(), "main") || !strings.Contains(err.Error(), "feature") {
 		t.Errorf("refusal should name both branches; got: %v", err)

@@ -129,6 +129,12 @@ func (m *Manager) Apply(plan *model.Plan, state model.RepoState, opts ApplyOptio
 		return ApplyResult{}, fmt.Errorf("move branch %s: %w", branch, err)
 	}
 
+	// Record the head this apply produced, paired with the backup, so a later
+	// undo can detect whether the branch has since advanced past this point.
+	// Non-fatal: on failure the advanced-HEAD guard simply degrades to off for
+	// this backup (undo still creates its pre-undo backup).
+	_ = m.repo.RecordAppliedHead(backupRef, newHead)
+
 	m.undoStack = append(m.undoStack, backupRef)
 	return ApplyResult{BackupRef: backupRef, OldHead: oldHead, NewHead: newHead, Verification: verification}, nil
 }
@@ -215,6 +221,12 @@ func (m *Manager) ApplySplit(commit model.Commit, parentHash string, subs []giti
 		return ApplyResult{}, fmt.Errorf("move branch %s: %w", branch, err)
 	}
 
+	// Record the head this apply produced, paired with the backup, so a later
+	// undo can detect whether the branch has since advanced past this point.
+	// Non-fatal: on failure the advanced-HEAD guard simply degrades to off for
+	// this backup (undo still creates its pre-undo backup).
+	_ = m.repo.RecordAppliedHead(backupRef, newHead)
+
 	m.undoStack = append(m.undoStack, backupRef)
 	return ApplyResult{BackupRef: backupRef, OldHead: oldHead, NewHead: newHead, Verification: verification}, nil
 }
@@ -226,7 +238,15 @@ func (m *Manager) CanUndo() bool {
 
 // Undo restores the branch to the most recent backup ref and pops it off the
 // stack. It returns the hash the branch was reset to.
-func (m *Manager) Undo() (string, error) {
+//
+// Two riders guard the reset. An advanced-HEAD check refuses to unwind past
+// work that happened since the backup's apply (another apply, or a plain
+// commit), unless force is set — undoing would silently discard it otherwise.
+// A pre-undo backup captures the current tip first, under unixTS, so the undo
+// itself is reversible via `undo --to`; unixTS is a parameter (not read from
+// the clock) so Undo stays deterministic and testable, matching how
+// ApplyOptions.UnixTimestamp is threaded through Apply.
+func (m *Manager) Undo(force bool, unixTS int64) (string, error) {
 	if !m.CanUndo() {
 		return "", fmt.Errorf("nothing to undo")
 	}
@@ -246,6 +266,18 @@ func (m *Manager) Undo() (string, error) {
 	current, err := m.repo.ResolveRef("HEAD")
 	if err != nil {
 		return "", err
+	}
+	// Advanced-HEAD guard: if this backup recorded the head its apply produced,
+	// and the branch no longer points there, work has happened since — undoing
+	// would unwind it. Refuse unless forced. A legacy backup (no paired applied
+	// ref) reports ok=false, so it degrades to today's behavior: no guard.
+	if applied, ok, _ := m.repo.AppliedHeadFor(last); ok && applied != current && !force {
+		return "", fmt.Errorf("HEAD moved past this backup (apply produced %s, branch is now %s); pass force to unwind anyway",
+			shortHash(applied), shortHash(current))
+	}
+	// Pre-undo backup: save the current tip so the undo is itself reversible.
+	if _, err := m.repo.CreateBackupRef(branch, unixTS, current); err != nil {
+		return "", fmt.Errorf("pre-undo backup: %w", err)
 	}
 	if err := m.repo.UpdateRef(gitio.BranchRef(branch), target, current); err != nil {
 		return "", fmt.Errorf("reset branch to backup: %w", err)

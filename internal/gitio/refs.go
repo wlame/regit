@@ -91,6 +91,44 @@ func (r *Repo) CreateBackupRef(branch string, unixTS int64, head string) (string
 	return "", fmt.Errorf("create backup ref: %d refs already exist for %s at %d", maxBackupSeq, branch, unixTS)
 }
 
+// AppliedRefPrefix namespaces the "applied head" refs. For each backup created
+// before a rewrite, regit records the head that rewrite PRODUCED under a
+// matching applied ref, so undo can tell whether the branch still points where
+// the apply left it (or has advanced past that point).
+const AppliedRefPrefix = "refs/regit/applied/"
+
+// appliedRefFor maps a backup ref name to its paired applied ref name by
+// swapping the prefix; both share the same "<branch>/<ts>-<seq>" tail.
+func appliedRefFor(backupRef string) string {
+	return AppliedRefPrefix + strings.TrimPrefix(backupRef, BackupRefPrefix)
+}
+
+// RecordAppliedHead points the applied ref paired with backupRef at head. Best
+// effort in spirit but returns the error so a future caller could log it; a
+// missing applied ref simply disables the advanced-HEAD guard for that backup.
+func (r *Repo) RecordAppliedHead(backupRef, head string) error {
+	return r.UpdateRef(appliedRefFor(backupRef), head, "")
+}
+
+// AppliedHeadFor returns the recorded produced-head for a backup, and whether
+// one exists. A backup without a paired applied ref (e.g. a legacy backup)
+// yields ("", false, nil).
+func (r *Repo) AppliedHeadFor(backupRef string) (string, bool, error) {
+	ref := appliedRefFor(backupRef)
+	hash, err := r.ResolveRef(ref)
+	if err != nil {
+		return "", false, nil // absent → guard simply does not apply
+	}
+	return hash, true, nil
+}
+
+// DeleteAppliedRef removes the applied ref paired with a backup (used when a
+// backup is pruned; no prune command ships in M4, so this is for completeness
+// and future M6 use).
+func (r *Repo) DeleteAppliedRef(backupRef string) error {
+	return r.DeleteRef(appliedRefFor(backupRef))
+}
+
 // BackupRefBranch extracts the branch a backup ref was taken on, or "" for
 // legacy flat refs that predate branch qualification.
 func BackupRefBranch(name string) string {

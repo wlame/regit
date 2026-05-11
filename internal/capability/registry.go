@@ -240,18 +240,22 @@ var registry = []Command{
 		Params: []Param{
 			{Name: "list", Type: ParamBool, Default: "false", Help: "list available backups (read-only)"},
 			{Name: "to", Type: ParamString, Help: "restore a specific backup (ref name or short hash)"},
+			{Name: "force", Type: ParamBool, Default: "false", Help: "unwind even if HEAD moved past the backup (discards newer commits)"},
 			{Name: "repo", Type: ParamString, Default: ".", Help: "path to the git repository"},
 		},
 		Examples: []Example{
 			{Cmd: "regit undo", Why: "restore the branch to the latest backup (acts immediately)"},
 			{Cmd: "regit undo --list", Why: "see available backups before restoring"},
+			{Cmd: "regit undo --force", Why: "unwind even though HEAD advanced past the backup's apply (discards the newer commits)"},
 			{Cmd: "regit undo --execute", Why: "undo takes no --execute; it is exempt from dry-run", Bad: true},
 		},
 		Limitations: []string{
 			"Exempt from dry-run: restores immediately. The replaced HEAD remains in the reflog.",
 			"Restores only backups taken on the current branch; legacy (pre-branch-qualified) backups need an explicit --to=<ref>.",
+			"Always creates a pre-undo backup of the current tip first, so the undo itself can be undone.",
+			"Refuses (exit 2) when HEAD has advanced past the head the backup's apply produced, unless --force; backups from before this guard existed have no paired record and are never blocked.",
 		},
-		ExitCodes: map[int]string{0: "ok", 1: "usage error", 2: "guard blocked (backup from another branch)", 3: "restore error"},
+		ExitCodes: map[int]string{0: "ok", 1: "usage error", 2: "guard blocked (backup from another branch, or HEAD moved past the backup without --force)", 3: "restore error"},
 	},
 }
 

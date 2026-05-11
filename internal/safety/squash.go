@@ -77,6 +77,12 @@ func (m *Manager) ApplySquash(commits []model.Commit, plan model.SquashPlan, sta
 		return ApplyResult{}, fmt.Errorf("move branch %s: %w", branch, err)
 	}
 
+	// Record the head this apply produced, paired with the backup, so a later
+	// undo can detect whether the branch has since advanced past this point.
+	// Non-fatal: on failure the advanced-HEAD guard simply degrades to off for
+	// this backup (undo still creates its pre-undo backup).
+	_ = m.repo.RecordAppliedHead(backupRef, newHead)
+
 	m.undoStack = append(m.undoStack, backupRef)
 	return ApplyResult{BackupRef: backupRef, OldHead: oldHead, NewHead: newHead, Verification: verification}, nil
 }

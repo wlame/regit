@@ -1513,12 +1513,20 @@ func (m Model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// doUndo restores the most recent backup. It never forces past the
+// advanced-HEAD guard (no interactive confirmation flow exists yet for it in
+// the TUI); a guard refusal surfaces the same way any other Undo error does,
+// via the status line — the user can still force it from the CLI with
+// `regit undo --force`. The pre-undo backup's timestamp comes from the wall
+// clock at the moment of the keypress, same as every other apply in this file
+// (see commitPending's UnixTimestamp: time.Now().Unix()); the Model has no
+// injected clock to thread through instead.
 func (m Model) doUndo() (tea.Model, tea.Cmd) {
 	if !m.mgr.CanUndo() {
 		m.setStatus("Nothing to undo", statusWarn)
 		return m, nil
 	}
-	hash, err := m.mgr.Undo()
+	hash, err := m.mgr.Undo(false, time.Now().Unix())
 	if err != nil {
 		m.setStatus(err.Error(), statusErr)
 		return m, nil

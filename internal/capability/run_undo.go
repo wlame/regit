@@ -9,7 +9,10 @@ import (
 
 // runUndo restores the branch to a backup ref. It is a recovery operation and is
 // exempt from the dry-run/--execute convention: it acts immediately. The pre-undo
-// HEAD stays reachable via the reflog.
+// HEAD stays reachable via the reflog. Before moving the branch, it also backs
+// up the current tip (so the undo itself is reversible) and refuses to unwind
+// past a HEAD that has advanced beyond the backup's recorded applied head,
+// unless --force is set.
 func runUndo(ctx *RunContext, a ParsedArgs) error {
 	refs, err := ctx.Repo.ListBackupRefs()
 	if err != nil {
@@ -79,6 +82,20 @@ func runUndo(ctx *RunContext, a ParsedArgs) error {
 			}
 			return runtimeErr("nothing to undo for branch %s (regit undo --list shows all backups)", state.Branch)
 		}
+	}
+
+	// Advanced-HEAD guard: if this backup recorded the head its apply produced,
+	// and the branch no longer points there, work has happened since — undoing
+	// would unwind it. Refuse unless --force. A legacy backup (no paired applied
+	// ref, e.g. one created before this ref pairing existed) reports ok=false,
+	// so it degrades to today's behavior: no guard.
+	if applied, ok, _ := ctx.Repo.AppliedHeadFor(target.Name); ok && applied != state.HeadHash && !a.Bool("force") {
+		return guardErr("HEAD moved past this backup (apply produced %s, branch is now %s); re-run with --force to unwind it",
+			Short(applied), Short(state.HeadHash))
+	}
+	// Pre-undo backup so the undo is reversible (appears in `undo --list`).
+	if _, err := ctx.Repo.CreateBackupRef(state.Branch, ctx.Now.Unix(), state.HeadHash); err != nil {
+		return runtimeErr("pre-undo backup: %v", err)
 	}
 
 	if err := ctx.Repo.UpdateRef(gitio.BranchRef(state.Branch), target.Hash, state.HeadHash); err != nil {
