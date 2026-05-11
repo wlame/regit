@@ -9,33 +9,40 @@ import (
 	"github.com/wlame/regit/internal/model"
 )
 
-// Field and record separators for parsing `git log` output. We use the ASCII
-// unit separator (0x1f) between fields and record separator (0x1e) between
-// commits because they can never appear in commit metadata, so commit messages
-// containing newlines, tabs, or pipes parse correctly.
-const (
-	fieldSep  = "\x1f"
-	recordSep = "\x1e"
-)
+// logFieldSep is git's `%x00` placeholder, which git expands to a literal NUL
+// byte between the fields of one commit's formatted output. NUL is the ONE byte
+// that can never appear inside a git object: commit messages, author names, and
+// paths may contain newlines, tabs, the ASCII unit/record separators (0x1f /
+// 0x1e), or any other control byte — but never NUL. An earlier version used
+// 0x1f/0x1e and wrongly assumed those bytes "can never appear in commit
+// metadata"; a message carrying a 0x1f was silently truncated on rewrite and a
+// 0x1e made the repo unreadable. NUL delimiting removes that whole class of bug.
+const logFieldSep = "%x00"
 
-// logFormat lists the fields we read per commit, in order, joined by fieldSep
-// and terminated by recordSep. %H hash, %T tree, %P parents, author/committer
-// identity and ISO dates, %e encoding header, %G? signature status, %B raw
-// message.
+// logFields lists the fields we read per commit, in order. %H hash, %T tree,
+// %P parents, author/committer identity and ISO dates, %e encoding header,
+// %G? signature status, %B raw message.
 //
 // The message is read as raw %B on purpose: git's %s folds a multi-line first
-// paragraph into one space-joined line and %b drops everything before the
-// first blank line, which silently corrupted messages on rewrite. %e must
-// come before %B (not after) because %B is the last field and greedily
-// consumes everything to the end of the record when split on fieldSep.
-var logFormat = strings.Join([]string{
+// paragraph into one space-joined line and %b drops everything before the first
+// blank line, which silently corrupted messages on rewrite. %B stays last only
+// for readability now — with NUL delimiting its position no longer matters for
+// correctness, because no field can contain the separator.
+var logFields = []string{
 	"%H", "%T", "%P",
 	"%an", "%ae", "%cn", "%ce",
 	"%aI", "%cI",
 	"%e",
 	"%G?",
 	"%B",
-}, fieldSep) + recordSep
+}
+
+// numLogFields is how many tokens one commit contributes to the NUL-delimited
+// stream; the parser regroups the flat token list in chunks of this size, so it
+// MUST equal len(logFields).
+const numLogFields = 12
+
+var logFormat = strings.Join(logFields, logFieldSep)
 
 // ReadState gathers the repository status the safety guards need.
 func (r *Repo) ReadState() (model.RepoState, error) {
@@ -98,20 +105,25 @@ func (r *Repo) IsDirty() (bool, error) {
 // engine replays. Commits already present on any remote-tracking ref are
 // flagged IsPushed.
 func (r *Repo) ReadCommits() ([]model.Commit, error) {
-	out, err := r.gitRaw("log", "--first-parent", "--reverse", "--format="+logFormat, "HEAD")
+	// -z NUL-terminates each commit's formatted output, so combined with the
+	// %x00 field separators the whole stream is a flat run of NUL-delimited
+	// tokens: N fields per commit, each commit followed by its own terminating
+	// NUL. --encoding=UTF-8 forces the message bytes to UTF-8 regardless of the
+	// user's i18n.logOutputEncoding, and --no-show-signature stops a repo-level
+	// log.showSignature=true from injecting gpg output that would corrupt the
+	// first field of each record.
+	out, err := r.gitRaw("log", "--first-parent", "--reverse", "-z",
+		"--no-show-signature", "--encoding=UTF-8", "--format="+logFormat, "HEAD")
 	if err != nil {
 		return nil, err
 	}
 
 	pushed, _ := r.pushedHashes() // best-effort; empty set if no upstream
 
+	tokens := strings.Split(out, "\x00")
 	var commits []model.Commit
-	for _, record := range strings.Split(out, recordSep) {
-		record = strings.Trim(record, "\n")
-		if record == "" {
-			continue
-		}
-		c, err := parseCommitRecord(record)
+	for i := 0; i+numLogFields <= len(tokens); i += numLogFields {
+		c, err := parseCommitFields(tokens[i : i+numLogFields])
 		if err != nil {
 			return nil, err
 		}
@@ -141,11 +153,11 @@ func (r *Repo) pushedHashes() (map[string]bool, error) {
 	return set, nil
 }
 
-// parseCommitRecord turns one fieldSep-joined log record into a model.Commit.
-func parseCommitRecord(record string) (model.Commit, error) {
-	f := strings.Split(record, fieldSep)
-	if len(f) < 12 {
-		return model.Commit{}, fmt.Errorf("malformed log record: expected 12 fields, got %d", len(f))
+// parseCommitFields turns one commit's NUL-delimited field tokens into a
+// model.Commit. The caller guarantees exactly numLogFields tokens.
+func parseCommitFields(f []string) (model.Commit, error) {
+	if len(f) != numLogFields {
+		return model.Commit{}, fmt.Errorf("malformed log record: expected %d fields, got %d", numLogFields, len(f))
 	}
 
 	authorDate, err := time.Parse(time.RFC3339, f[7])
