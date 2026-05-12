@@ -9,6 +9,30 @@ import (
 
 func strptr(s string) *string { return &s }
 
+func TestScrubGitEnv_stripsLocationVarsOnly(t *testing.T) {
+	in := []string{
+		"PATH=/usr/bin",
+		"GIT_DIR=/other/.git",
+		"GIT_INDEX_FILE=/tmp/idx",
+		"GIT_OBJECT_DIRECTORY=/tmp/objs",
+		"GIT_CONFIG_GLOBAL=/dev/null", // must survive: tests rely on it
+		"GIT_AUTHOR_NAME=keep",        // must survive: appended overrides need it
+		"HOME=/home/wlame",
+	}
+	got := scrubGitEnv(in)
+	joined := strings.Join(got, "\n")
+	for _, banned := range []string{"GIT_DIR=", "GIT_INDEX_FILE=", "GIT_OBJECT_DIRECTORY="} {
+		if strings.Contains(joined, banned) {
+			t.Errorf("scrubGitEnv kept location var %q", banned)
+		}
+	}
+	for _, kept := range []string{"PATH=/usr/bin", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_AUTHOR_NAME=keep", "HOME=/home/wlame"} {
+		if !strings.Contains(joined, kept) {
+			t.Errorf("scrubGitEnv dropped %q", kept)
+		}
+	}
+}
+
 func TestBuildMessage(t *testing.T) {
 	c := model.Commit{
 		Message: "Fix bug\n\ndetails here",

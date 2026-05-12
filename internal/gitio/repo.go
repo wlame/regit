@@ -76,16 +76,49 @@ func (r *Repo) gitWithEnvStdin(env []string, stdin string, args ...string) (stri
 	return strings.TrimSpace(out), err
 }
 
+// gitLocationEnv lists the GIT_* variables that redirect git to a different
+// repository, index, or object store. regit pins every operation with cmd.Dir and
+// runs all intermediate work in its own isolated worktrees, so an inherited value
+// here is never needed and only ever a footgun: if the caller's shell exported
+// GIT_INDEX_FILE (hooks and some scripts do), our worktree `read-tree --reset -u`
+// would operate on the USER'S real index and clobber it; a stale GIT_DIR would make
+// every command target the wrong repository despite cmd.Dir. We strip them before
+// running git. Note we do NOT strip GIT_CONFIG_GLOBAL/SYSTEM or GIT_AUTHOR_*/
+// GIT_COMMITTER_*: tests rely on the former for isolation, and callers append the
+// latter as explicit overrides after this scrub.
+var gitLocationEnv = map[string]bool{
+	"GIT_DIR":                          true,
+	"GIT_WORK_TREE":                    true,
+	"GIT_INDEX_FILE":                   true,
+	"GIT_OBJECT_DIRECTORY":             true,
+	"GIT_COMMON_DIR":                   true,
+	"GIT_ALTERNATE_OBJECT_DIRECTORIES": true,
+	"GIT_NAMESPACE":                    true,
+}
+
+// scrubGitEnv returns env with the gitLocationEnv variables removed. It allocates
+// a fresh slice so the caller's environment is never mutated.
+func scrubGitEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		if i := strings.IndexByte(kv, '='); i >= 0 && gitLocationEnv[kv[:i]] {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
 // runGit is the single choke point for executing git. Keeping it in one place
 // makes the command surface easy to audit and to stub in tests if ever needed.
 func runGit(dir string, extraEnv []string, stdin []byte, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	if extraEnv != nil {
-		// Inherit the ambient environment, then append overrides so callers can
-		// set GIT_* date/identity variables without dropping PATH, HOME, etc.
-		cmd.Env = append(cmd.Environ(), extraEnv...)
-	}
+	// Always run against a scrubbed copy of the ambient environment (see
+	// gitLocationEnv), then append any caller overrides (GIT_AUTHOR_DATE etc.) so
+	// they win over anything left in the environment. This runs even when extraEnv
+	// is nil so a read command cannot be steered by a leaked GIT_DIR/GIT_INDEX_FILE.
+	cmd.Env = append(scrubGitEnv(cmd.Environ()), extraEnv...)
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
 	}
