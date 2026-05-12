@@ -59,6 +59,35 @@ func spreadPlan(t *testing.T, repo *gitio.Repo) *model.Plan {
 	return plan
 }
 
+// TestPreflight_blocksShallowClone proves the shallow-clone block lives in
+// preflight, which every apply path (Apply, ApplySplit, ApplySquash) calls — so
+// split and squash, which hand-roll their other guards and skip CheckGuards,
+// still cannot rewrite a shallow clone's incomplete history.
+func TestPreflight_blocksShallowClone(t *testing.T) {
+	origin := buildRepo(t)
+	shallowDir := t.TempDir()
+	cmd := exec.Command("git", "clone", "--depth=1", "file://"+origin.Root(), ".")
+	cmd.Dir = shallowDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("shallow clone: %v\n%s", err, out)
+	}
+	repo, err := gitio.Open(shallowDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	head, err := repo.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = NewManager(repo).preflight("main", head, ApplyOptions{ExpectedHead: head})
+	if err == nil {
+		t.Fatal("preflight must block a shallow clone")
+	}
+	if !strings.Contains(err.Error(), "shallow") {
+		t.Errorf("error = %q, want it to mention shallow", err)
+	}
+}
+
 func TestManagerApply_movesBranchAndBacksUp(t *testing.T) {
 	repo := buildRepo(t)
 	mgr := NewManager(repo)

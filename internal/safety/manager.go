@@ -32,10 +32,23 @@ func NewManager(repo *gitio.Repo) *Manager {
 // head. Headless callers map it to exit code 2 (guard-blocked) via errors.Is.
 var ErrHeadMoved = errors.New("branch moved since the plan was created")
 
-// preflight re-checks live repo state at apply time: a fresh dirty-tree read
-// (the caller's snapshot may be stale) and the ExpectedHead anchor against the
-// just-resolved oldHead. Returns an error when the apply must not proceed.
+// preflight re-checks live repo state at apply time: shallow-clone state, a fresh
+// dirty-tree read (the caller's snapshot may be stale), and the ExpectedHead anchor
+// against the just-resolved oldHead. Returns an error when the apply must not
+// proceed. Every apply path (Apply, ApplySplit, ApplySquash) calls this, so the
+// shallow block cannot be forgotten by a path that skips CheckGuards — which is
+// exactly how split and squash previously slipped past it.
 func (m *Manager) preflight(branch, oldHead string, opts ApplyOptions) error {
+	// A shallow clone's history is incomplete: any replay of the tail builds on a
+	// grafted, non-real root, so this is the highest-priority block. Re-checked
+	// live here (not trusted from a snapshot) for the same reason dirtiness is.
+	shallow, err := m.repo.IsShallow()
+	if err != nil {
+		return fmt.Errorf("re-check shallow state: %w", err)
+	}
+	if shallow {
+		return fmt.Errorf("rewrite blocked: shallow clone — history is incomplete; run 'git fetch --unshallow' first")
+	}
 	dirty, err := m.repo.IsDirty()
 	if err != nil {
 		return fmt.Errorf("re-check working tree: %w", err)

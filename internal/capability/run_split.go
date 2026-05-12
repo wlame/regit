@@ -114,6 +114,9 @@ func runSplit(ctx *RunContext, a ParsedArgs) error {
 	if err != nil {
 		return runtimeErr("read state: %v", err)
 	}
+	if state.IsShallow {
+		return guardErr("shallow clone — history is incomplete; run 'git fetch --unshallow' first")
+	}
 	if state.IsDirty {
 		return guardErr("working tree has uncommitted changes; commit or stash them first")
 	}
