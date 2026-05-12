@@ -109,8 +109,15 @@ func (r *Repo) commitSub(s SubCommit, parent string, sign SignMode) (string, err
 		"GIT_COMMITTER_EMAIL=" + s.CommitterEmail,
 		"GIT_COMMITTER_DATE=" + s.CommitDate.Format(gitDateFormat),
 	}
+	// An empty parent means this sub-commit is the new root (the split target was
+	// itself a root commit); omit -p entirely so `git commit-tree` builds a valid
+	// parentless commit instead of failing on `-p ""`. Mirrors commitSquash.
+	var parents []string
+	if parent != "" {
+		parents = []string{parent}
+	}
 	// A SubCommit carries no source model.Commit, so it has no original
 	// encoding header to preserve; its fresh message is always UTF-8.
-	args := commitTreeArgs(s.Tree, []string{parent}, sign)
+	args := commitTreeArgs(s.Tree, parents, sign)
 	return r.gitWithEnvStdin(env, message, args...)
 }

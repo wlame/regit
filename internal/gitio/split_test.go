@@ -65,6 +65,63 @@ func TestApplySplit_emptyTailSplittingHEAD(t *testing.T) {
 	}
 }
 
+// TestApplySplit_rootCommit proves a ROOT commit (no parent) can be split: the
+// first sub-commit must be emitted parentless. Before the fix, commitSub passed
+// `-p ""` unconditionally and `git commit-tree` failed deep in the apply.
+func TestApplySplit_rootCommit(t *testing.T) {
+	repo, _, _ := twoCommitRepo(t) // root commit + one child (which becomes the tail)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, tail := commits[0], commits[1:]
+
+	empty, err := repo.EmptyTree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Hunks from the empty baseline up to the root's tree, applied in a worktree
+	// checked out at the empty tree, reproduce the root tree exactly.
+	hs, err := repo.Hunks(empty, root.TreeHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wt, err := repo.NewWorktree(empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wt.Close()
+	fullTree, err := repo.BuildTreeFromHunks(empty, hs, wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	subs := []SubCommit{
+		{Tree: fullTree, Subject: "root piece one", AuthorName: root.AuthorName, AuthorEmail: root.AuthorEmail,
+			CommitterName: root.CommitterName, CommitterEmail: root.CommitterEmail,
+			AuthorDate: root.OrigAuthorDate, CommitDate: root.OrigCommitDate},
+		{Tree: fullTree, Subject: "root piece two", AuthorName: root.AuthorName, AuthorEmail: root.AuthorEmail,
+			CommitterName: root.CommitterName, CommitterEmail: root.CommitterEmail,
+			AuthorDate: root.OrigAuthorDate, CommitDate: root.OrigCommitDate},
+	}
+
+	oldHead := mustGit(t, repo, "rev-parse", "HEAD")
+	// Empty parentHash: the split target is the root, so the first sub-commit is a
+	// new root.
+	newHead, remap, err := repo.ApplySplit("", subs, tail, DropSignatures)
+	if err != nil {
+		t.Fatalf("ApplySplit on root commit: %v", err)
+	}
+	if err := repo.VerifyTreesUnchanged(oldHead, newHead); err != nil {
+		t.Fatalf("final tree changed: %v", err)
+	}
+	// The rewritten root must itself be parentless.
+	firstParents := mustGit(t, repo, "rev-list", "--max-parents=0", newHead)
+	if firstParents == "" {
+		t.Fatal("rewritten history has no root commit")
+	}
+	_ = remap
+}
+
 // splitFixtureTwoSubsOneTail builds a repo with a parent commit (a.txt, b.txt),
 // a child commit that modifies a.txt and adds c.txt, and one empty tail commit.
 // It returns the repo, the parentHash (the original split commit's parent),
