@@ -2329,6 +2329,40 @@ func TestAffectedCommits_rangeExcludesFrozenRootFirst(t *testing.T) {
 	}
 }
 
+// selectedHashSet feeds both squash (affectedChains) and reauthor
+// (reauthorTargetCommits). A Range dragged across the base boundary, or a stale Set
+// carrying frozen hashes, must never leak a frozen commit into that set — otherwise
+// squash/reauthor would rewrite the frozen cone the UI renders as protected.
+func TestSelectedHashSet_excludesFrozenCommits(t *testing.T) {
+	m := newTestModelN(t, 5) // storage 0..4 root-first; display d ↔ storage 4-d
+	m.plan.SetBase(2)        // freeze storage indices 0 and 1
+	frozen := map[string]bool{m.plan.Commits[0].Hash: true, m.plan.Commits[1].Hash: true}
+
+	// Range over display [2,4] → storage 2,1,0; storage 0 and 1 are frozen.
+	m.sel.mode = SelRange
+	m.sel.anchor = 2
+	m.listCursor = 4
+	for h := range m.selectedHashSet() {
+		if frozen[h] {
+			t.Errorf("range selection leaked frozen commit %s", short(h))
+		}
+	}
+	if got := len(m.selectedHashSet()); got != 1 { // only storage 2 is editable
+		t.Fatalf("range should cover 1 editable commit, got %d", got)
+	}
+
+	// A Set that still carries a frozen hash must also drop it.
+	m.sel.mode = SelSet
+	m.sel.set = map[string]bool{m.plan.Commits[0].Hash: true, m.plan.Commits[3].Hash: true}
+	got := m.selectedHashSet()
+	if got[m.plan.Commits[0].Hash] {
+		t.Error("set selection leaked frozen commit")
+	}
+	if !got[m.plan.Commits[3].Hash] {
+		t.Error("set selection dropped an editable commit")
+	}
+}
+
 func TestDropBodies_honorsSelection(t *testing.T) {
 	m := newTestModelN(t, 4)
 	m = send(m, " ") // select the cursor (newest) commit
