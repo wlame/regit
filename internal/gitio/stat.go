@@ -47,11 +47,15 @@ type numstatRow struct {
 // It is meant to be called lazily from a tea.Cmd and cached by the caller: a
 // large commit's diff can take a beat, so it must never run on the UI goroutine.
 func (r *Repo) CommitStat(hash string) (Stat, error) {
-	numOut, err := r.gitRaw("show", "--no-color", "--no-ext-diff", "--format=", "--numstat", hash)
+	// --no-renames keeps a user's diff.renames=true config from emitting R<score>
+	// records with two path columns, which parseNameStatus / parseNumstat do not
+	// model. --no-show-signature stops a repo-level log.showSignature=true from
+	// prepending gpg output that would corrupt the first parsed line.
+	numOut, err := r.gitRaw("show", "--no-color", "--no-ext-diff", "--no-renames", "--no-show-signature", "--format=", "--numstat", hash)
 	if err != nil {
 		return Stat{}, fmt.Errorf("numstat %s: %w", hash, err)
 	}
-	nameOut, err := r.gitRaw("show", "--no-color", "--no-ext-diff", "--format=", "--name-status", hash)
+	nameOut, err := r.gitRaw("show", "--no-color", "--no-ext-diff", "--no-renames", "--no-show-signature", "--format=", "--name-status", hash)
 	if err != nil {
 		return Stat{}, fmt.Errorf("name-status %s: %w", hash, err)
 	}

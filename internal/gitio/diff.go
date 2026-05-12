@@ -9,7 +9,15 @@ import (
 
 // diffFlags are the flags passed to `git diff` whenever we generate a diff.
 // They are a single source of truth shared by Hunks() and the round-trip tests.
-var diffFlags = []string{"--no-color", "--no-ext-diff", "-U3", "--binary"}
+//
+// --src-prefix=a/ / --dst-prefix=b/ pin the standard prefixes so a user's
+// diff.noprefix=true config cannot strip them: the resulting patch is fed to
+// `git apply --index` in BuildTreeFromHunks, which rejects a prefix-less header
+// with "git diff header lacks filename information". Rename detection is left ON
+// (the hunk parser models renames via OldPath, and a rename diff rebuilds the
+// same tree) — unlike DiffChangeSet/CommitStat, whose parsers do not model R
+// records and therefore pass --no-renames.
+var diffFlags = []string{"--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "-U3", "--binary"}
 
 // DiffText returns the raw unified diff between two trees with contextLines of
 // surrounding context (-U<n>). Unlike Hunks (which uses -U3 for precise

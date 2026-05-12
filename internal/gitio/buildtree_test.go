@@ -2,6 +2,34 @@ package gitio
 
 import "testing"
 
+// TestBuildTreeFromHunks_survivesHostileDiffConfig proves the split hunk pipeline
+// is immune to a user's diff.noprefix / diff.renames config. Without the pinned
+// a/ b/ prefixes, `git apply --index` rejects the prefix-less patch with "header
+// lacks filename information"; without --no-renames a rename would collapse into an
+// R record the hunk parser cannot reproduce.
+func TestBuildTreeFromHunks_survivesHostileDiffConfig(t *testing.T) {
+	repo, parent, child := twoCommitRepo(t)
+	gitT(t, repo.Root(), "config", "diff.noprefix", "true")
+	gitT(t, repo.Root(), "config", "diff.renames", "copies")
+
+	all, err := repo.Hunks(parent, child)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wt, err := repo.NewWorktree(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wt.Close()
+	full, err := repo.BuildTreeFromHunks(parent, all, wt)
+	if err != nil {
+		t.Fatalf("build with hostile diff config: %v", err)
+	}
+	if full != child {
+		t.Fatalf("rebuild tree = %s, want child tree %s", full, child)
+	}
+}
+
 func TestBuildTreeFromHunks_subsetThenFull(t *testing.T) {
 	repo, parent, child := twoCommitRepo(t)
 	all, err := repo.Hunks(parent, child)

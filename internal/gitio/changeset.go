@@ -46,7 +46,11 @@ func (r *Repo) CommitTrees(commits []string) (map[string]string, error) {
 // parse correctly. The stream alternates [info, path, info, path, …] where each
 // info token is ":<srcmode> <dstmode> <srcsha> <dstsha> <STATUS>".
 func (r *Repo) DiffChangeSet(oldCommit, newCommit string) (model.ChangeSet, error) {
-	out, err := r.gitRaw("diff", "--raw", "-z", oldCommit, newCommit)
+	// --no-renames forces a rename to appear as a Deleted + Added pair rather than
+	// a single R record; without it, a user's diff.renames=true config emits R
+	// tokens that desync this NUL-delimited [info, path] stream. --no-ext-diff /
+	// --no-textconv keep external tools out of the machine-readable output.
+	out, err := r.gitRaw("diff", "--raw", "--no-renames", "--no-ext-diff", "--no-textconv", "-z", oldCommit, newCommit)
 	if err != nil {
 		return model.ChangeSet{}, fmt.Errorf("diff %s..%s: %w", short(oldCommit), short(newCommit), err)
 	}
