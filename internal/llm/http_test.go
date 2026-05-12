@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,6 +19,29 @@ func sampleReq() SplitRequest {
 			{ID: "H1", File: "a"}, {ID: "H2", File: "b"},
 		},
 		MaxCommits: 4,
+	}
+}
+
+// TestHTTPBackend_truncatesHugeErrorBody proves a giant non-200 body is bounded in
+// the returned error rather than flooding the terminal or logs.
+func TestHTTPBackend_truncatesHugeErrorBody(t *testing.T) {
+	huge := strings.Repeat("A", 5<<20) // 5 MiB error page
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(huge))
+	}))
+	defer srv.Close()
+
+	b := NewHTTPBackend(srv.URL, "test-model", "", 5*time.Second)
+	_, err := b.Generate(context.Background(), "sys", "user", nil, func(string) error { return nil })
+	if err == nil {
+		t.Fatal("expected an error for a 500 response")
+	}
+	if len(err.Error()) > maxErrorBodyBytes+200 {
+		t.Errorf("error body not truncated: len=%d", len(err.Error()))
+	}
+	if !strings.Contains(err.Error(), "truncated") {
+		t.Errorf("expected a truncation marker, got: %.80s…", err.Error())
 	}
 }
 

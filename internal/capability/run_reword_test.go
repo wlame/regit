@@ -22,6 +22,34 @@ func (s stubBackend) Generate(_ context.Context, _, _ string, _ []byte, _ func(s
 
 func (s stubBackend) Name() string { return "stub" }
 
+// failingBackend always errors, simulating a dead LLM endpoint.
+type failingBackend struct{}
+
+func (failingBackend) Generate(_ context.Context, _, _ string, _ []byte, _ func(string) error) (string, error) {
+	return "", context.DeadlineExceeded
+}
+func (failingBackend) Name() string { return "failing" }
+
+// TestReword_allTargetsFailReturnsError proves the exit-code contract: when every
+// target's generation fails, runReword returns a runtime error (exit 3) instead of
+// silently succeeding with "nothing to reword" (exit 0).
+func TestReword_allTargetsFailReturnsError(t *testing.T) {
+	_, repo := newTestRepo(t, 2)
+	var out bytes.Buffer
+	ctx := &RunContext{
+		Repo: repo, Cfg: config.Default(), Stdout: &out, Stderr: &out,
+		Now: time.Unix(1000, 0), Backend: failingBackend{},
+	}
+	a := newParsedArgs(map[string]any{"no-cache": true}, []string{"HEAD"})
+	err := runReword(ctx, a)
+	if err == nil {
+		t.Fatal("expected a runtime error when all reword targets fail")
+	}
+	if code := ExitCode(err); code != 3 {
+		t.Errorf("exit code = %d, want 3 (apply/runtime error)", code)
+	}
+}
+
 func TestRewordDryRunGeneratesOneVariantNoApply(t *testing.T) {
 	_, repo := newTestRepo(t, 2)
 	var out bytes.Buffer

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // secretEnvSubstrings name environment variables the agent subprocess must never
@@ -61,8 +62,14 @@ const SchemaPlaceholder = "{schema}"
 type AgentBackend struct {
 	command string
 	args    []string
-	dir     string // working directory for the subprocess; "" inherits the process cwd
+	dir     string        // working directory for the subprocess; "" inherits the process cwd
+	timeout time.Duration // per-call ceiling; 0 falls back to defaultAgentTimeout
 }
+
+// defaultAgentTimeout bounds a single agent subprocess call. Unlike the HTTP
+// backend (which has an http.Client.Timeout), a hung agent CLI would otherwise
+// block regit forever; this deadline guarantees the call returns.
+const defaultAgentTimeout = 5 * time.Minute
 
 // ScanDefaultArgs are the read-only headless args used when --agent-scan is
 // active and the user has not supplied --agent-args. The agent gets ONLY the
@@ -198,6 +205,18 @@ func (b *AgentBackend) Generate(ctx context.Context, system, user string, schema
 		}
 	}
 
+	// Apply a default deadline when the caller's context has none, so a hung agent
+	// CLI cannot block regit forever. Callers that pass their own deadline keep it.
+	timeout := b.timeout
+	if timeout <= 0 {
+		timeout = defaultAgentTimeout
+	}
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
 	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		// Combine system + user text into a single stdin payload. Agent CLIs
@@ -218,6 +237,10 @@ func (b *AgentBackend) Generate(ctx context.Context, system, user string, schema
 		// or cloud credential from the inherited environment.
 		cmd.Env = scrubbedAgentEnv()
 		cmd.Stdin = bytes.NewReader([]byte(prompt))
+		// After the context is cancelled (deadline hit), give the child a short
+		// grace period and then force-kill it, so a wedged agent that ignores its
+		// stdin closing is still reaped instead of leaking.
+		cmd.WaitDelay = 10 * time.Second
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 		if err := cmd.Run(); err != nil {

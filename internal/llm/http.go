@@ -37,10 +37,29 @@ func NewHTTPBackend(baseURL, modelName, apiKey string, timeout time.Duration) *H
 // Name returns a human-readable identifier for logs and the TUI status line.
 func (b *HTTPBackend) Name() string { return "http:" + b.model }
 
+// truncateForError trims s to maxErrorBodyBytes so an oversized error body cannot
+// flood the terminal or a log file.
+func truncateForError(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) > maxErrorBodyBytes {
+		return s[:maxErrorBodyBytes] + "… (truncated)"
+	}
+	return s
+}
+
 // maxAttempts is 2: one initial call plus one retry on validation failure.
 // We deliberately cap this low — if the model fails twice, the error message
 // should reach the user rather than burning tokens on further guesses.
 const maxAttempts = 2
+
+// maxResponseBytes caps how much of a chat response we read. A misconfigured or
+// hostile endpoint could otherwise stream unbounded data and exhaust memory; a
+// legitimate structured-output response is far smaller than this.
+const maxResponseBytes = 16 << 20 // 16 MiB
+
+// maxErrorBodyBytes bounds how much of a non-200 response body we echo into an
+// error message, so a huge error page cannot flood the terminal or logs.
+const maxErrorBodyBytes = 2 << 10 // 2 KiB
 
 // Generate runs the given prompt against the endpoint and returns the raw model
 // text. It retries up to maxAttempts when validate(raw) returns an error,
@@ -127,12 +146,14 @@ func (b *HTTPBackend) call(ctx context.Context, system, user string, schema []by
 		return "", err
 	}
 	defer resp.Body.Close()
-	data, err := io.ReadAll(resp.Body)
+	// Bound the read so a hostile or misconfigured endpoint cannot stream unbounded
+	// data and OOM the process.
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
 		return "", fmt.Errorf("read chat response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("llm http %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+		return "", fmt.Errorf("llm http %d: %s", resp.StatusCode, truncateForError(string(data)))
 	}
 	// Inline the response shape here rather than defining a full struct — the
 	// OpenAI response has many fields we don't use, and a minimal anonymous

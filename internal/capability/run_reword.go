@@ -97,9 +97,11 @@ func runReword(ctx *RunContext, a ParsedArgs) error {
 	readme := reword.ReadmeForContext(repo, opts.Context)
 
 	edits := map[string]model.Edit{}
+	failed := 0
 	for _, it := range targets {
 		res, err := eng.Generate(context.Background(), it.commit, it.parentTree, readme, opts)
 		if err != nil {
+			failed++
 			fmt.Fprintf(ctx.Stderr, "reword: %s: %v (skipping)\n", Short(it.commit.Hash), err)
 			continue
 		}
@@ -116,6 +118,11 @@ func runReword(ctx *RunContext, a ParsedArgs) error {
 	}
 
 	if len(edits) == 0 {
+		// Every target that errored is an LLM/runtime failure, not a no-op: exit 3
+		// (per the registry's documented exit codes), not a silent success.
+		if failed > 0 {
+			return runtimeErr("all %d reword target(s) failed to generate; see messages above", failed)
+		}
 		fmt.Fprintln(ctx.Stdout, "nothing to reword")
 		return nil
 	}
