@@ -6,9 +6,42 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
+
+// secretEnvSubstrings name environment variables the agent subprocess must never
+// inherit: anything holding an API key, token, secret, or password, plus common
+// cloud-credential prefixes. Matched case-insensitively against the variable name.
+var secretEnvSubstrings = []string{"API_KEY", "TOKEN", "SECRET", "PASSWORD", "AWS_", "GH_", "GITHUB_", "OPENAI", "OPENROUTER", "ANTHROPIC"}
+
+// scrubbedAgentEnv returns the process environment with every variable whose name
+// matches secretEnvSubstrings removed. The agent CLI uses its own host session for
+// auth, so dropping these cannot break it — it only prevents a prompt-injected scan
+// from reading a credential out of the inherited environment.
+func scrubbedAgentEnv() []string {
+	env := os.Environ()
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		name := kv
+		if i := strings.IndexByte(kv, '='); i >= 0 {
+			name = kv[:i]
+		}
+		upper := strings.ToUpper(name)
+		secret := false
+		for _, s := range secretEnvSubstrings {
+			if strings.Contains(upper, s) {
+				secret = true
+				break
+			}
+		}
+		if !secret {
+			out = append(out, kv)
+		}
+	}
+	return out
+}
 
 // SchemaPlaceholder is the token replaced at runtime with the inline JSON
 // schema string when constructing the agent subprocess arguments. Callers who
@@ -61,25 +94,58 @@ type AgentBackend struct {
 //
 // ScanDefaultArgs should be treated as read-only; Generate copies the args
 // before substituting {schema}, so the original slice is never modified.
-var ScanDefaultArgs = []string{
-	"-p",
-	"--output-format", "json",
-	"--bare",
-	"--permission-mode", "plan",
-	"--allowedTools", "Read,Grep,Glob",
-	// Deny reads of well-known secret stores as defense-in-depth against a
-	// prompt-injected diff steering the agent to exfiltrate them. Deny rules are
-	// the only flags-level hard block for the file tools and DO resolve symlinks
-	// and `..` (Claude Code v2.1.x, verified). This is NOT a perimeter — reads
-	// outside the repo that are not on this list still succeed — so scan mode
-	// stays a documented trust boundary; true confinement needs an OS sandbox.
-	"--disallowedTools",
-	strings.Join([]string{
-		"Read(~/.ssh/**)", "Read(~/.aws/**)", "Read(~/.gnupg/**)",
-		"Read(~/.config/**)", "Read(~/.kube/**)", "Read(~/.docker/**)",
-		"Read(//etc/**)", "Read(**/.env)", "Read(**/*.pem)", "Read(**/id_rsa*)",
-	}, ","),
-	"--json-schema", SchemaPlaceholder,
+var ScanDefaultArgs = buildScanArgs()
+
+// scanFileTools are the file-browsing tools agent-scan permits. Every deny path is
+// expanded to a rule for EACH of them: a Read(p) deny alone still lets Grep(p) read
+// the same file's content and Glob(p) enumerate it, so all three must be denied.
+var scanFileTools = []string{"Read", "Grep", "Glob"}
+
+// scanDenyPaths are the filesystem locations agent-scan denies across every file
+// tool. Deny rules resolve symlinks and `..`, so these ARE a real hard block
+// (unlike --allowedTools path-scoping). Defense-in-depth only — a path NOT listed
+// here stays readable, so scan mode remains a documented trust boundary, not a
+// sandbox. /proc is included so the process environment (which could carry API
+// keys) cannot be read via /proc/self/environ; the agent subprocess additionally
+// runs with a scrubbed environment (see scrubbedAgentEnv).
+var scanDenyPaths = []string{
+	"~/.ssh/**", "~/.aws/**", "~/.gnupg/**", "~/.config/**", "~/.kube/**",
+	"~/.docker/**", "//etc/**", "//proc/**",
+	"~/.netrc", "~/.git-credentials", "~/.npmrc", "~/.pypirc",
+	"**/.env", "**/.env.*", "**/*.pem",
+	"**/id_rsa*", "**/id_ed25519*", "**/id_ecdsa*", "**/id_dsa*",
+}
+
+// scanDenyRules expands scanDenyPaths into a comma-joined "<Tool>(<path>)" deny
+// list covering every scanFileTool for every path.
+func scanDenyRules() string {
+	rules := make([]string, 0, len(scanDenyPaths)*len(scanFileTools))
+	for _, p := range scanDenyPaths {
+		for _, tool := range scanFileTools {
+			rules = append(rules, tool+"("+p+")")
+		}
+	}
+	return strings.Join(rules, ",")
+}
+
+// ScanProtectionArgs are the security flags that MUST be present for every
+// agent-scan invocation: plan mode, the restricted allow-list, and the full
+// deny-list. They are kept separate from the invocation flags so a user's extra
+// --agent-args can be appended WITHOUT being able to drop them (see BuildBackend).
+func ScanProtectionArgs() []string {
+	return []string{
+		"--permission-mode", "plan",
+		"--allowedTools", strings.Join(scanFileTools, ","),
+		"--disallowedTools", scanDenyRules(),
+	}
+}
+
+// buildScanArgs assembles the full default agent-scan argv: the invocation flags,
+// the mandatory protections, and the schema placeholder.
+func buildScanArgs() []string {
+	args := []string{"-p", "--output-format", "json", "--bare"}
+	args = append(args, ScanProtectionArgs()...)
+	return append(args, "--json-schema", SchemaPlaceholder)
 }
 
 // NewAgentBackend builds an agent backend with the process's inherited working
@@ -146,6 +212,11 @@ func (b *AgentBackend) Generate(ctx context.Context, system, user string, schema
 			// tool calls target the correct repository (used in agent-scan mode).
 			cmd.Dir = b.dir
 		}
+		// The agent authenticates with its own host session (not our env), and
+		// regit supplies the diff in the prompt — so the child never needs regit's
+		// secrets. Strip them so a prompt-injected scan cannot exfiltrate an API key
+		// or cloud credential from the inherited environment.
+		cmd.Env = scrubbedAgentEnv()
 		cmd.Stdin = bytes.NewReader([]byte(prompt))
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr

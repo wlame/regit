@@ -1,6 +1,7 @@
 package capability
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/wlame/regit/internal/config"
@@ -86,5 +87,40 @@ func TestBuildBackendAgentScan(t *testing.T) {
 	}
 	if name := b.Name(); name == "" {
 		t.Fatal("backend name must not be empty")
+	}
+}
+
+// TestBuildBackendAgentScan_refusesProtectedArgOverride proves a user's --agent-args
+// cannot drop or widen the scan safety flags: an attempt to override --allowedTools
+// is rejected rather than silently replacing the whole protected arg set.
+func TestBuildBackendAgentScan_refusesProtectedArgOverride(t *testing.T) {
+	_, err := BuildBackend(config.Config{}, BackendOptions{
+		Agent:     "claude",
+		AgentScan: true,
+		RepoRoot:  "/tmp",
+		AgentArgs: "--allowedTools Bash",
+	})
+	if err == nil {
+		t.Fatal("expected refusal when --agent-args overrides a protected scan flag")
+	}
+	if !strings.Contains(err.Error(), "allowedTools") {
+		t.Errorf("error should name the offending flag, got: %v", err)
+	}
+}
+
+// TestBuildBackendAgentScan_appendsHarmlessArgs proves a non-protective extra arg
+// (e.g. --model) is accepted and appended to the default scan args.
+func TestBuildBackendAgentScan_appendsHarmlessArgs(t *testing.T) {
+	b, err := BuildBackend(config.Config{}, BackendOptions{
+		Agent:     "claude",
+		AgentScan: true,
+		RepoRoot:  "/tmp",
+		AgentArgs: "--model opus",
+	})
+	if err != nil {
+		t.Fatalf("harmless extra args should be accepted, got: %v", err)
+	}
+	if b == nil {
+		t.Fatal("expected non-nil backend")
 	}
 }

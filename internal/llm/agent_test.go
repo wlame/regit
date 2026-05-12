@@ -337,13 +337,40 @@ func TestScanDefaultArgs_deniesSensitivePaths(t *testing.T) {
 	if !strings.Contains(joined, "--disallowedTools") {
 		t.Fatal("scan args must include --disallowedTools")
 	}
-	for _, want := range []string{"~/.ssh/**", "~/.aws/**", "~/.gnupg/**", "/etc/**", "id_rsa"} {
+	for _, want := range []string{"~/.ssh/**", "~/.aws/**", "~/.gnupg/**", "/etc/**", "id_rsa", "//proc/**", "~/.git-credentials", "~/.netrc", ".env.*", "id_ed25519"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("scan deny-list missing a rule covering %q; args=%v", want, ScanDefaultArgs)
+		}
+	}
+	// Every deny path must be denied for ALL three file tools, not just Read — a
+	// Read(p) deny alone still lets Grep/Glob read the same path's content.
+	for _, tool := range []string{"Read", "Grep", "Glob"} {
+		if !strings.Contains(joined, tool+"(~/.ssh/**)") {
+			t.Errorf("deny-list missing %s(~/.ssh/**); Grep/Glob bypass still open", tool)
 		}
 	}
 	// The allowlist and plan mode must still be present (defense in depth intact).
 	if !strings.Contains(joined, "Read,Grep,Glob") || !strings.Contains(joined, "plan") {
 		t.Error("scan args must keep --allowedTools Read,Grep,Glob and --permission-mode plan")
+	}
+}
+
+func TestScrubbedAgentEnv_dropsSecrets(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "sk-secret")
+	t.Setenv("GITHUB_TOKEN", "ghp-secret")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "aws-secret")
+	t.Setenv("PATH", "/usr/bin")
+	t.Setenv("HOME", "/home/wlame")
+
+	got := strings.Join(scrubbedAgentEnv(), "\n")
+	for _, banned := range []string{"OPENAI_API_KEY", "GITHUB_TOKEN", "AWS_SECRET_ACCESS_KEY", "sk-secret", "ghp-secret"} {
+		if strings.Contains(got, banned) {
+			t.Errorf("scrubbedAgentEnv leaked %q", banned)
+		}
+	}
+	for _, kept := range []string{"PATH=/usr/bin", "HOME=/home/wlame"} {
+		if !strings.Contains(got, kept) {
+			t.Errorf("scrubbedAgentEnv dropped non-secret %q", kept)
+		}
 	}
 }

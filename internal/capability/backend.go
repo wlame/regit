@@ -30,11 +30,18 @@ func BuildBackend(cfg config.Config, o BackendOptions) (llm.Backend, error) {
 	if o.Agent != "" {
 		if o.AgentScan {
 			// Agent-scan mode: the agent may browse the repo read-only
-			// (Read/Grep/Glob; no exec). The diff is still gathered by regit
-			// and sent in the prompt. Caller-supplied args override the defaults.
-			args := llm.ScanDefaultArgs
+			// (Read/Grep/Glob; no exec). The diff is still gathered by regit and
+			// sent in the prompt. Any user --agent-args are APPENDED to the default
+			// scan args, never a replacement — so the deny-list, plan mode, and
+			// allow-list can never be silently dropped. A user arg that tries to
+			// override a protective flag is refused outright.
+			args := append([]string{}, llm.ScanDefaultArgs...)
 			if o.AgentArgs != "" {
-				args = strings.Fields(o.AgentArgs)
+				extra := strings.Fields(o.AgentArgs)
+				if bad := firstProtectedFlag(extra); bad != "" {
+					return nil, fmt.Errorf("--agent-args may not override the agent-scan safety flag %q", bad)
+				}
+				args = append(args, extra...)
 			}
 			return llm.NewAgentBackendInDir(o.Agent, args, o.RepoRoot), nil
 		}
@@ -64,6 +71,26 @@ func BuildBackend(cfg config.Config, o BackendOptions) (llm.Backend, error) {
 		timeoutSec = 60 // sane default; zero would reject all requests
 	}
 	return llm.NewHTTPBackend(baseURL, modelName, resolveAPIKey(provider), time.Duration(timeoutSec)*time.Second), nil
+}
+
+// protectedScanFlags are the agent-scan flags a user's --agent-args must not
+// override — doing so could re-enable Bash, widen the allow-list, or drop the
+// deny-list. firstProtectedFlag returns the first offending token, or "".
+var protectedScanFlags = []string{"--permission-mode", "--allowedTools", "--disallowedTools"}
+
+func firstProtectedFlag(args []string) string {
+	for _, a := range args {
+		name := a
+		if i := strings.IndexByte(a, '='); i >= 0 { // handle --flag=value form
+			name = a[:i]
+		}
+		for _, p := range protectedScanFlags {
+			if name == p {
+				return p
+			}
+		}
+	}
+	return ""
 }
 
 // splitProviderModel splits "provider/model" on the first slash. For
