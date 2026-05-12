@@ -10,6 +10,7 @@ import (
 	"github.com/wlame/regit/internal/config"
 	"github.com/wlame/regit/internal/gitio"
 	"github.com/wlame/regit/internal/model"
+	"github.com/wlame/regit/internal/termsafe"
 )
 
 func printProposal(w io.Writer, target model.Commit, prop model.SplitProposal) {
@@ -20,7 +21,7 @@ func printProposal(w io.Writer, target model.Commit, prop model.SplitProposal) {
 		if g.WIP {
 			wip = " [WIP]"
 		}
-		fmt.Fprintf(w, "  %d. %s%s\n", i+1, g.Subject, wip)
+		fmt.Fprintf(w, "  %d. %s%s\n", i+1, termsafe.Line(g.Subject), wip)
 		for _, id := range g.HunkIDs {
 			fmt.Fprintf(w, "       %s\n", id)
 		}

@@ -463,6 +463,7 @@ The codebase is layered so the interesting logic is pure and testable:
 - `internal/capability` — the command registry: every action as data + headless Run (CLI/TUI/help project from it)
 - `internal/ui` — Bubble Tea terminal interface
 - `internal/model` — shared domain types
+- `internal/termsafe` — strips terminal escape sequences from untrusted repo/LLM text before display
 - `internal/docs` — generated-docs renderer; `just docs-sync` rewrites the marked README/AGENTS.md blocks
 
 ## License

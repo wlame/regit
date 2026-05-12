@@ -25,6 +25,38 @@ func detailCommit() model.Commit {
 	}
 }
 
+// TestRenderDetail_stripsTerminalEscapesFromRepoContent proves untrusted commit
+// fields (subject, body, author, file path) cannot smuggle an ANSI/OSC escape
+// through the detail panel. regit itself never emits OSC (ESC ]), so any OSC in the
+// output would be an injected one; the raw ESC that introduces the payload must be
+// gone entirely.
+func TestRenderDetail_stripsTerminalEscapesFromRepoContent(t *testing.T) {
+	c := detailCommit()
+	c.Subject = "Fix bug\x1b]0;HACKED\x07"           // OSC window-title spoof
+	c.Body = "body\x1b]52;c;ZXZpbA==\x07line"        // OSC-52 clipboard write
+	c.AuthorName = "Ann\x1b[31mMalory"               // CSI color
+	plan := model.NewPlan([]model.Commit{c})
+	st := gitio.Stat{Files: []gitio.FileStat{{Status: "M", Path: "a\x1b]0;x\x07b.go", Add: 1, Del: 0}}}
+
+	out := renderDetail(c, st, true, "", plan, time.UTC, 60, 40, newStyles())
+
+	if strings.Contains(out, "\x1b]") {
+		t.Errorf("detail leaked an OSC escape sequence from repo content:\n%q", out)
+	}
+	// Text OUTSIDE the escape survives; the OSC payloads (title + clipboard) are
+	// gone entirely because they are part of the stripped sequence.
+	for _, want := range []string{"Fix bug", "AnnMalory", "b.go"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected sanitized text %q in output:\n%s", want, out)
+		}
+	}
+	for _, gone := range []string{"HACKED", "ZXZpbA=="} {
+		if strings.Contains(out, gone) {
+			t.Errorf("escape payload %q should have been stripped with its sequence:\n%q", gone, out)
+		}
+	}
+}
+
 func TestRenderDetail_showsStatAndMessage(t *testing.T) {
 	c := detailCommit()
 	plan := model.NewPlan([]model.Commit{c})

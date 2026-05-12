@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/wlame/regit/internal/model"
+	"github.com/wlame/regit/internal/termsafe"
 )
 
 // listRow is one rendered line of the commit list: either a selectable commit
@@ -189,7 +190,7 @@ func (m Model) authorCell(c model.Commit) (text string, width int) {
 	if !m.showAuthor {
 		return "", 0
 	}
-	name := truncate(authorLabel(c), authorColWidth)
+	name := truncate(termsafe.Line(authorLabel(c)), authorColWidth)
 	if pad := authorColWidth - len([]rune(name)); pad > 0 {
 		name += strings.Repeat(" ", pad)
 	}
@@ -227,7 +228,7 @@ func (m Model) renderCommitRow(displayIdx, inner int, calKey string) string {
 
 	// Fixed columns before the subject: gutter(2) + hash(8) + gap(1) + marker(1) + gap(1).
 	const fixed = 13
-	subj := truncate(m.plan.EffectiveSubject(c), max(1, inner-fixed-authWidth))
+	subj := truncate(termsafe.Line(m.plan.EffectiveSubject(c)), max(1, inner-fixed-authWidth))
 
 	frozen := m.plan.IsFrozen(len(m.plan.Commits) - 1 - displayIdx)
 	isCursor := displayIdx == m.listCursor

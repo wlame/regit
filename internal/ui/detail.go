@@ -9,6 +9,7 @@ import (
 
 	"github.com/wlame/regit/internal/gitio"
 	"github.com/wlame/regit/internal/model"
+	"github.com/wlame/regit/internal/termsafe"
 )
 
 // detailDateLayout is the full author/committer-date format used in the detail
@@ -30,9 +31,9 @@ func renderDetail(c model.Commit, st gitio.Stat, haveStat bool, statErr string, 
 	head = appendLines(head, sty.modalTitle.Render("DETAIL "+short(c.Hash)))
 	head = appendLines(head, sty.dim.Render(c.Hash))
 	head = appendLines(head, "")
-	head = appendLines(head, fmt.Sprintf("%s %s", c.AuthorName, sty.dim.Render("<"+c.AuthorEmail+">")))
+	head = appendLines(head, fmt.Sprintf("%s %s", termsafe.Line(c.AuthorName), sty.dim.Render("<"+termsafe.Line(c.AuthorEmail)+">")))
 	if c.CommitterName != c.AuthorName || c.CommitterEmail != c.AuthorEmail {
-		head = appendLines(head, sty.dim.Render(fmt.Sprintf("committer %s <%s>", c.CommitterName, c.CommitterEmail)))
+		head = appendLines(head, sty.dim.Render(fmt.Sprintf("committer %s <%s>", termsafe.Line(c.CommitterName), termsafe.Line(c.CommitterEmail))))
 	}
 	head = appendLines(head, sty.dim.Render("authored ")+c.OrigAuthorDate.In(loc).Format(detailDateLayout))
 	if eff := plan.EffectiveAuthorDate(c); !eff.Equal(c.OrigAuthorDate) {
@@ -45,10 +46,10 @@ func renderDetail(c model.Commit, st gitio.Stat, haveStat bool, statErr string, 
 	// Message block: subject + wrapped body, built in full so it stays visible.
 	var msg []string
 	msg = appendLines(msg, "")
-	msg = appendLines(msg, lipgloss.NewStyle().Bold(true).Width(width).Render(plan.EffectiveSubject(c)))
+	msg = appendLines(msg, lipgloss.NewStyle().Bold(true).Width(width).Render(termsafe.Line(plan.EffectiveSubject(c))))
 	if c.Body != "" {
 		msg = appendLines(msg, "")
-		msg = appendLines(msg, sty.dim.Width(width).Render(c.Body))
+		msg = appendLines(msg, sty.dim.Width(width).Render(termsafe.Block(c.Body)))
 	}
 
 	// The file list gets the rows left between the header (plus one spacing row)
@@ -135,5 +136,5 @@ func renderFileLine(f gitio.FileStat, sty styles) string {
 	if !f.Binary {
 		counts = sty.newDate.Render(fmt.Sprintf("+%d", f.Add)) + " " + sty.statusErr.Render(fmt.Sprintf("−%d", f.Del))
 	}
-	return fmt.Sprintf(" %s %s  %s", sty.hash.Render(f.Status), f.Path, counts)
+	return fmt.Sprintf(" %s %s  %s", sty.hash.Render(f.Status), termsafe.Line(f.Path), counts)
 }
