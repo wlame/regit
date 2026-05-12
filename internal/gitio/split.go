@@ -79,7 +79,7 @@ func (r *Repo) ApplySplit(parentHash string, subs []SubCommit, tail []model.Comm
 			"GIT_COMMITTER_EMAIL=" + c.CommitterEmail,
 			"GIT_COMMITTER_DATE=" + c.OrigCommitDate.Format(gitDateFormat),
 		}
-		args := commitTreeArgs(c.TreeHash, newParents, sign, c.Encoding)
+		args := commitTreeArgs(c.TreeHash, newParents, sign)
 		// Message is fed on stdin (no -m) so multi-line bodies need no escaping.
 		hash, err := r.gitWithEnvStdin(env, message, args...)
 		if err != nil {
@@ -111,6 +111,6 @@ func (r *Repo) commitSub(s SubCommit, parent string, sign SignMode) (string, err
 	}
 	// A SubCommit carries no source model.Commit, so it has no original
 	// encoding header to preserve; its fresh message is always UTF-8.
-	args := commitTreeArgs(s.Tree, []string{parent}, sign, "")
+	args := commitTreeArgs(s.Tree, []string{parent}, sign)
 	return r.gitWithEnvStdin(env, message, args...)
 }

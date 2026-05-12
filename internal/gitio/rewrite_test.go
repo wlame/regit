@@ -62,34 +62,47 @@ func buildRedatePlan(t *testing.T, commits []model.Commit) *model.Plan {
 	return plan
 }
 
-// TestReplay_preservesNonUTF8Encoding proves that Replay round-trips a commit's
-// `encoding` header. Replay always feeds the ORIGINAL raw message bytes back to
-// git on stdin (see buildMessage), so if the source commit declared those bytes
-// to be e.g. ISO-8859-1, the rebuilt commit must declare the same encoding —
-// otherwise git would re-tag the identical bytes as UTF-8 and every reader ends
-// up rendering mojibake for a commit whose content never actually changed.
-func TestReplay_preservesNonUTF8Encoding(t *testing.T) {
+// TestReplay_nonUTF8MessageStaysReadable proves the fix for the encoding-corruption
+// bug. A commit whose message bytes are genuine ISO-8859-1 (é = 0xE9), declared via
+// an `encoding ISO-8859-1` header, must survive a rewrite as READABLE text — not
+// mojibake. ReadCommits forces --encoding=UTF-8 so the message arrives as UTF-8, and
+// Replay stores those UTF-8 bytes with no encoding header. An earlier version kept
+// the ISO-8859-1 header on the already-UTF-8 bytes, so every later `git log`
+// transcoded them a second time into "Café" garbage.
+func TestReplay_nonUTF8MessageStaysReadable(t *testing.T) {
 	dir, r := initRepo(t)
-	gitT(t, dir, "config", "i18n.commitEncoding", "ISO-8859-1")
-	snapTree(t, dir, "café résumé") // message stored under an ISO-8859-1 header
-	gitT(t, dir, "config", "--unset", "i18n.commitEncoding")
+	const want = "Café commit"
+	msgFile := filepath.Join(dir, "m")
+	// Raw ISO-8859-1 bytes: é is the single byte 0xE9, not the 2-byte UTF-8 seq.
+	if err := os.WriteFile(msgFile, []byte{'C', 'a', 'f', 0xE9, ' ', 'c', 'o', 'm', 'm', 'i', 't'}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, dir, "-c", "i18n.commitEncoding=ISO-8859-1", "commit", "-q", "--allow-empty", "--cleanup=verbatim", "-F", msgFile)
 
 	commits, err := r.ReadCommits()
 	if err != nil {
 		t.Fatal(err)
 	}
+	if got := commits[len(commits)-1].Message; got != want {
+		t.Fatalf("read message = %q, want %q", got, want)
+	}
 
-	// Build a plan that redates every commit (no message edit).
-	plan := buildRedatePlan(t, commits)
-
-	newHead, _, err := r.Replay(plan, DropSignatures)
+	newHead, _, err := r.Replay(buildRedatePlan(t, commits), DropSignatures)
 	if err != nil {
 		t.Fatalf("Replay: %v", err)
 	}
 
-	// The replayed HEAD must still declare ISO-8859-1 in its raw object header.
-	raw := gitT(t, dir, "cat-file", "commit", newHead)
-	if !strings.Contains(raw, "encoding ISO-8859-1") {
-		t.Errorf("replayed commit lost its encoding header:\n%s", raw)
+	// The rebuilt commit must NOT carry a misleading encoding header...
+	if raw := gitT(t, dir, "cat-file", "commit", newHead); strings.Contains(raw, "encoding ISO-8859-1") {
+		t.Errorf("replayed commit kept a misleading ISO-8859-1 header:\n%q", raw)
+	}
+	// ...and a fresh read of the rewritten history must still render correctly.
+	gitT(t, dir, "reset", "--hard", newHead)
+	reread, err := r.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reread[len(reread)-1].Message; got != want {
+		t.Errorf("re-read message = %q, want %q (mojibake means a double transcode slipped through)", got, want)
 	}
 }

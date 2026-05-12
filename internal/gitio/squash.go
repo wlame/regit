@@ -82,7 +82,7 @@ func (r *Repo) ApplySquash(commits []model.Commit, plan model.SquashPlan, sign S
 		}
 		// Untouched commit: re-emit byte-identically with a remapped first parent.
 		newParents := remapFirstParent(c.ParentHashes, prevNew)
-		args := commitTreeArgs(c.TreeHash, newParents, sign, c.Encoding)
+		args := commitTreeArgs(c.TreeHash, newParents, sign)
 		hash, e := r.gitWithEnvStdin(buildCommitEnv(c, model.Edit{}), buildMessage(c, model.Edit{}), args...)
 		if e != nil {
 			return "", SquashRemap{}, fmt.Errorf("replay %s: %w", short(c.Hash), e)
@@ -132,7 +132,7 @@ func (r *Repo) commitSquash(s SubCommit, parent string, sign SignMode) (string, 
 	// The squashed commit synthesizes a fresh message from the chain's chosen
 	// subject/body, so — unlike an untouched pass-through commit — it has no
 	// original encoding header to preserve; pass "" (fresh messages are UTF-8).
-	args := commitTreeArgs(s.Tree, parents, sign, "")
+	args := commitTreeArgs(s.Tree, parents, sign)
 	return r.gitWithEnvStdin(env, message, args...)
 }
 

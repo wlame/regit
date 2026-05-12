@@ -24,21 +24,19 @@ const (
 // the timezone offset so the calendar day lands where the user expects.
 const gitDateFormat = time.RFC3339
 
-// commitTreeArgs builds the argument vector for `git commit-tree`, threading the
-// signing choice and the original encoding header. When encoding is a non-UTF-8
-// value we prepend `-c i18n.commitEncoding=<enc>` so git writes the same
-// `encoding` header it read and treats the raw stdin message bytes as that
-// charset — otherwise a non-UTF-8 message (fed back verbatim from %B) would be
-// mislabeled UTF-8 and display as mojibake. UTF-8 (encoding == "" or "UTF-8")
-// needs no override. This is the ONLY place that builds a commit-tree argument
-// vector; every commit-emitting call site in this package routes through it so
-// the encoding round-trip can never be forgotten at a new site.
-func commitTreeArgs(tree string, parents []string, sign SignMode, encoding string) []string {
-	var args []string
-	if enc := strings.TrimSpace(encoding); enc != "" && !strings.EqualFold(enc, "UTF-8") {
-		args = append(args, "-c", "i18n.commitEncoding="+enc)
-	}
-	args = append(args, "commit-tree", tree)
+// commitTreeArgs builds the argument vector for `git commit-tree`, threading only
+// the signing choice.
+//
+// It deliberately does NOT emit `-c i18n.commitEncoding=<enc>`. ReadCommits forces
+// `--encoding=UTF-8`, so every message we hold is already UTF-8 bytes, and
+// `git commit-tree` writes its stdin message verbatim without transcoding. Setting
+// a non-UTF-8 encoding header would therefore mislabel UTF-8 bytes as (say)
+// ISO-8859-1, and every later `git log` would transcode them a second time into
+// permanent mojibake — the exact corruption an earlier version caused by trying to
+// "preserve" the header. Storing the UTF-8 bytes with no encoding header is
+// faithful (the text is unchanged) and displays correctly everywhere.
+func commitTreeArgs(tree string, parents []string, sign SignMode) []string {
+	args := []string{"commit-tree", tree}
 	for _, p := range parents {
 		args = append(args, "-p", p)
 	}
@@ -83,7 +81,7 @@ func (r *Repo) Replay(plan *model.Plan, sign SignMode) (newHead string, remap ma
 		message := buildMessage(c, edit)
 		env := buildCommitEnv(c, edit)
 
-		args := commitTreeArgs(c.TreeHash, newParents, sign, c.Encoding)
+		args := commitTreeArgs(c.TreeHash, newParents, sign)
 		// Message is fed on stdin (no -m) so multi-line bodies need no escaping.
 		newHash, err := r.gitWithEnvStdin(env, message, args...)
 		if err != nil {
