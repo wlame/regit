@@ -49,6 +49,7 @@ one group, no unknown IDs) before any git object is created.
 cmd/regit/          CLI entry points (main.go, dispatch.go)
 internal/
   model/            Pure domain types — no imports from other internal packages
+  termsafe/         Strips terminal escapes from untrusted text before display
   strategy/         Pure date-distribution algorithms — no git, no UI
   gitio/            THE ONLY PACKAGE THAT SHELLS OUT TO git
   safety/           Guards, backup refs, undo stack
@@ -316,9 +317,10 @@ regit split <commit-ish>
      — if --test-cmd: run after each stage; repair loop (≤2 regroups) on failure
   8. Verify Tk == C.TreeHash (invariant 1) → write cache
   9. Default (no --execute): print proposal + equivalent commands; stop here
- 10. With --execute: guard (dirty/already-pushed → exit 2 unless --force) → backup
-     ref → ApplySplit (emit C1..Ck, replay tail) → VerifyTreesUnchanged
-     (invariant 2) → move branch (compare-and-swap) → print summary
+ 10. With --execute: guard (shallow/dirty/already-pushed → exit 2 unless --force,
+     re-checked in Manager.preflight) → backup ref → ApplySplit (emit C1..Ck, replay
+     tail) → verify (empty-expectation change-set, invariant 2) → move branch
+     (compare-and-swap) → print summary
 ```
 
 ## Commit-squashing flow (end to end)
@@ -374,12 +376,33 @@ regit squash <range-ish>
   code (keymap, registry, config table, strategy names) and run `just docs-sync`;
   the drift test fails CI otherwise.
 
-- **`CheckGuards` (guards.go) checks shallow-clone state before anything else.**
-  `state.IsShallow` is a hard block, ahead of the dirty-tree and out-of-order-plan
-  checks, because incomplete history invalidates any rewrite regardless of what
-  else is wrong. `redate --execute` additionally refuses a range containing a
-  merge commit unless `--allow-merges` is passed (side-branch dates are left
-  unchanged either way — the gate is about surprising the user, not correctness).
+- **Shallow-clone and dirty-tree blocks live in TWO places, by design.**
+  `CheckGuards` (guards.go) checks `state.IsShallow` first for the plan-based verbs,
+  but split and squash hand-roll their guards and skip `CheckGuards` — so the
+  authoritative block is `Manager.preflight` (manager.go), which re-checks shallow +
+  dirty LIVE and is called by every apply path (`Apply`, `ApplySplit`, `ApplySquash`).
+  Put any new "must hold at apply time" invariant in `preflight` so no path can
+  forget it. `redate --execute` additionally refuses a range containing a merge
+  commit unless `--allow-merges` is passed (side-branch dates are left unchanged
+  either way — the gate is about surprising the user, not correctness).
+
+- **`git log` is parsed as a NUL-delimited stream, not 0x1f/0x1e.** `read.go` uses
+  `git log -z` with `%x00` field separators and forces `--encoding=UTF-8` /
+  `--no-show-signature`. NUL is the only byte a git object cannot contain, so an
+  adversarial commit message can neither truncate a field nor split a record.
+  Rewrites store messages as faithful UTF-8 with no `encoding` header (see
+  `commitTreeArgs`) — re-labeling already-transcoded bytes was the old mojibake bug.
+
+- **`runGit` scrubs repository-location `GIT_*` env** (`GIT_DIR`, `GIT_INDEX_FILE`,
+  `GIT_WORK_TREE`, `GIT_OBJECT_DIRECTORY`, …) before every call, so an exported
+  `GIT_INDEX_FILE` cannot make a worktree op clobber the user's real index. It does
+  NOT strip `GIT_CONFIG_GLOBAL/SYSTEM` (tests rely on them) or `GIT_AUTHOR_*/
+  COMMITTER_*` (callers append them as explicit overrides).
+
+- **Untrusted repo/LLM text is sanitized before display.** `internal/termsafe`
+  (`Line`/`Block`) strips ANSI/OSC escape sequences and stray control bytes; every
+  render site that emits a commit subject, author, path, body, or LLM subject routes
+  through it, so a crafted commit cannot spoof the terminal or write the clipboard.
 
 - **`--sign` re-signs; the default drops signatures after warning.** `pipeline.go`'s
   `signMode` resolves `--sign` to `gitio.ReSign` and fails fast (exit 2) if the
@@ -402,10 +425,17 @@ regit squash <range-ish>
 - **Agent-scan's deny-list is defense-in-depth, not a sandbox.** A research
   spike found `--allowedTools` path-scoping does NOT confine `Read`/`Grep`/`Glob`
   — a prompt injected via the scanned diff can still steer them outside the
-  repo. `--disallowedTools` deny rules (`ScanDefaultArgs`,
-  `internal/llm/agent.go`) are the only real flags-level hard block, and they DO
-  resolve symlinks and `..`; regit uses them to deny well-known secret stores
-  (`~/.ssh`, `~/.aws`, `~/.gnupg`, `/etc`, `.env`, `*.pem`, `id_rsa*`, …). Any
+  repo. `--disallowedTools` deny rules (`ScanDefaultArgs`, `internal/llm/agent.go`)
+  are the only real flags-level hard block, and they DO resolve symlinks and `..`.
+  Every deny PATH is expanded to a rule for ALL THREE file tools (Read, Grep, Glob)
+  — a `Read(p)` deny alone still lets Grep read `p`'s content — and the list covers
+  `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config`, `~/.kube`, `~/.docker`, `/etc`,
+  `/proc`, `~/.netrc`, `~/.git-credentials`, `.env`/`.env.*`, `*.pem`, `id_rsa*`,
+  `id_ed25519*`, …. The subprocess also runs with a **scrubbed environment**
+  (`scrubbedAgentEnv`, dropping `*API_KEY*`/`*TOKEN*`/`*SECRET*`/cloud vars) so
+  `Read(/proc/self/environ)` cannot exfiltrate regit's secrets, and a user's
+  `--agent-args` are APPENDED to (never replace) the protections — an attempt to
+  override `--permission-mode`/`--allowedTools`/`--disallowedTools` is refused. Any
   other path stays readable — treat `--agent-scan` as a trust boundary, never a
   perimeter.
 
