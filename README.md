@@ -225,7 +225,7 @@ llm:                         # optional LLM used by split / reword / squash summ
   provider: ""               # ollama, lmstudio, openai, openrouter ("" = LLM off)
   model: ""                  # e.g. qwen2.5-coder
   base_url: ""               # override the provider's default endpoint
-  temperature: 0             # reserved — requests currently always send 0 (see M5)
+  temperature: 0             # reserved — requests currently always send 0
   timeout_sec: 60
 
 split:                       # commit-splitting defaults (see "Commit splitting")

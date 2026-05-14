@@ -16,26 +16,39 @@ func (r *Repo) CommitTrees(commits []string) (map[string]string, error) {
 	if len(commits) == 0 {
 		return map[string]string{}, nil
 	}
-	args := make([]string, 0, len(commits)+1)
-	args = append(args, "rev-parse")
-	for _, c := range commits {
-		// "<commit>^{tree}" peels a commit object to the tree it points at.
-		args = append(args, c+"^{tree}")
-	}
-	out, err := r.git(args...)
-	if err != nil {
-		return nil, fmt.Errorf("resolve commit trees: %w", err)
-	}
-	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if len(lines) != len(commits) {
-		return nil, fmt.Errorf("rev-parse returned %d trees for %d commits", len(lines), len(commits))
-	}
 	trees := make(map[string]string, len(commits))
-	for i, c := range commits {
-		trees[c] = strings.TrimSpace(lines[i])
+	// Chunk the commits so a very large active range (tens of thousands of commits)
+	// cannot overflow the OS argument limit (E2BIG) with one giant rev-parse call.
+	for start := 0; start < len(commits); start += commitTreesBatch {
+		end := start + commitTreesBatch
+		if end > len(commits) {
+			end = len(commits)
+		}
+		batch := commits[start:end]
+		args := make([]string, 0, len(batch)+1)
+		args = append(args, "rev-parse")
+		for _, c := range batch {
+			// "<commit>^{tree}" peels a commit object to the tree it points at.
+			args = append(args, c+"^{tree}")
+		}
+		out, err := r.git(args...)
+		if err != nil {
+			return nil, fmt.Errorf("resolve commit trees: %w", err)
+		}
+		lines := strings.Split(strings.TrimSpace(out), "\n")
+		if len(lines) != len(batch) {
+			return nil, fmt.Errorf("rev-parse returned %d trees for %d commits", len(lines), len(batch))
+		}
+		for i, c := range batch {
+			trees[c] = strings.TrimSpace(lines[i])
+		}
 	}
 	return trees, nil
 }
+
+// commitTreesBatch bounds how many "<commit>^{tree}" args go into one rev-parse
+// call, keeping the command line well under any OS ARG_MAX.
+const commitTreesBatch = 500
 
 // DiffChangeSet computes the actual per-path change-set between two commits using
 // git's own content hashes (`git diff --raw`). Rename/copy detection is OFF, so a

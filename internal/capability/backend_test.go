@@ -14,6 +14,16 @@ func TestBuildBackendErrorsWithoutLLM(t *testing.T) {
 	}
 }
 
+func TestBuildBackend_unknownProviderAndMissingModelFailFast(t *testing.T) {
+	if _, err := BuildBackend(config.Default(), BackendOptions{LLM: "gpt-4o"}); err == nil {
+		t.Error("--llm=gpt-4o (no slash) should fail fast on the missing model")
+	}
+	_, err := BuildBackend(config.Default(), BackendOptions{LLM: "acme/some-model"})
+	if err == nil || !strings.Contains(err.Error(), "unknown LLM provider") {
+		t.Errorf("unknown provider should fail with a clear message, got: %v", err)
+	}
+}
+
 func TestBuildBackendAgentWins(t *testing.T) {
 	b, err := BuildBackend(config.Default(), BackendOptions{Agent: "claude"})
 	if err != nil || b == nil {

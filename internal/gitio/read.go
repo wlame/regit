@@ -197,10 +197,13 @@ func parseCommitFields(f []string) (model.Commit, error) {
 }
 
 // signatureStatus interprets git's %G? code: G (good), U (good, untrusted), X/Y/R
-// (expired/revoked variants) all mean a signature is present; N means none.
+// (expired/revoked variants), E (cannot check), and B (BAD signature) all mean a
+// signature is PRESENT — so a rewrite would strip it and the user should be warned.
+// N means no signature. B was previously omitted, silently dropping a bad-but-real
+// signature without the heads-up every other present-signature state gets.
 func signatureStatus(code string) bool {
 	switch strings.TrimSpace(code) {
-	case "G", "U", "X", "Y", "R", "E":
+	case "G", "U", "X", "Y", "R", "E", "B":
 		return true
 	default:
 		return false

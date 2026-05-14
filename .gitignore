@@ -32,7 +32,7 @@ go.work.sum
 .serena/
 .remember/
 .superpowers/
-.vb
+.vb*
 .aider*
 .cursor/
 *.plan.md

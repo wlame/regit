@@ -60,10 +60,22 @@ func BuildBackend(cfg config.Config, o BackendOptions) (llm.Backend, error) {
 		return nil, fmt.Errorf("no LLM configured: pass --llm=provider/model or --agent=<cmd>")
 	}
 
+	// An empty model would fail deep inside the request; catch it here. A common
+	// cause is `--llm=gpt-4o` (no slash), which parses as provider "gpt-4o" with no
+	// model — surface that clearly.
+	if modelName == "" {
+		return nil, fmt.Errorf("no model in --llm: use provider/model, e.g. openai/gpt-4o (got provider %q)", provider)
+	}
+
 	// Determine base URL: explicit flag > config > provider default.
 	baseURL := o.BaseURL
 	if baseURL == "" {
 		baseURL = defaultBaseURL(provider, cfg.LLM.BaseURL)
+	}
+	// An unknown provider resolves to an empty base URL, which would otherwise fail
+	// obscurely at request time. Fail fast with the list of known providers.
+	if baseURL == "" {
+		return nil, fmt.Errorf("unknown LLM provider %q; known: ollama, lmstudio, openai, openrouter (or pass --llm-base-url)", provider)
 	}
 
 	timeoutSec := cfg.LLM.TimeoutSec
