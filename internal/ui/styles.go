@@ -10,13 +10,11 @@ type styles struct {
 	title        lipgloss.Style
 	pane         lipgloss.Style
 	paneActive   lipgloss.Style
-	listItem     lipgloss.Style
 	listCursor   lipgloss.Style
 	hash         lipgloss.Style
 	author       lipgloss.Style
 	dayHighlight lipgloss.Style
 	picked       lipgloss.Style
-	origDate     lipgloss.Style
 	newDate      lipgloss.Style
 	marker       lipgloss.Style
 	statusOK     lipgloss.Style
@@ -41,13 +39,11 @@ func newStyles() styles {
 		title:        lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")).Background(lipgloss.Color("63")).Padding(0, 1),
 		pane:         lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240")).Padding(0, 1),
 		paneActive:   lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("63")).Padding(0, 1),
-		listItem:     lipgloss.NewStyle(),
 		listCursor:   lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("213")),
 		hash:         lipgloss.NewStyle().Foreground(lipgloss.Color("178")),
 		author:       lipgloss.NewStyle().Foreground(lipgloss.Color("109")),
 		dayHighlight: lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")).Background(lipgloss.Color("60")),
 		picked:       lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("84")),
-		origDate:     lipgloss.NewStyle().Foreground(lipgloss.Color("244")),
 		newDate:      lipgloss.NewStyle().Foreground(lipgloss.Color("84")),
 		marker:       lipgloss.NewStyle().Foreground(lipgloss.Color("214")),
 		statusOK:     lipgloss.NewStyle().Foreground(lipgloss.Color("84")),

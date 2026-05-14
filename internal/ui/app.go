@@ -1298,10 +1298,6 @@ func (m Model) applyStrategy() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) defaultTimeModel() strategy.TimeModel {
-	return timeModelByName(m.cfg.DefaultTimeModel)
-}
-
 // --- Editor ----------------------------------------------------------------
 
 func (m Model) updateEditor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1756,7 +1752,7 @@ func (m Model) buildSplitChange(c model.Commit, st splitState) (splitChange, boo
 	}, true
 }
 
-// beginSplit is called when the user presses [S]. It resolves the split inputs on
+// beginSplit is invoked from the Restructure feature menu (Split). It resolves the split inputs on
 // the UI thread, then fires Engine.Propose asynchronously (generateSplitCmd) and
 // enters modeSplitGen so the TUI stays responsive for the full LLM latency. The
 // result lands later as a splitResultMsg, handled in Update.
