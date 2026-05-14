@@ -6,6 +6,9 @@ binary := "regit"
 bin_dir := "dist"
 coverage_file := "coverage.out"
 
+# Minimum total statement coverage; `just cover` and `just ci` fail below it.
+cover_min := "80"
+
 # Version stamped into builds: latest tag + dirty/commit marker, or "dev"
 # outside any tag (e.g. a fresh clone with no tags).
 version := `git describe --tags --dirty --always 2>/dev/null || echo dev`
@@ -57,9 +60,14 @@ test:
 test-race:
     go test -race -coverprofile={{coverage_file}} ./...
 
-# Show per-function coverage from the last profile (runs tests if needed).
+# Show per-function coverage and FAIL if the total is below cover_min.
 cover: test-race
+    #!/usr/bin/env bash
+    set -euo pipefail
     go tool cover -func={{coverage_file}}
+    total="$(go tool cover -func={{coverage_file}} | tail -n 1 | awk '{print $3}' | tr -d '%')"
+    echo "total coverage: ${total}% (floor {{cover_min}}%)"
+    awk -v t="$total" -v m={{cover_min}} 'BEGIN { if (t+0 < m+0) { print "coverage below floor"; exit 1 } }'
 
 # Open an HTML coverage report in the browser.
 cover-html: test-race
@@ -96,9 +104,9 @@ tidy:
 deps:
     go mod download
 
-# Full local CI pipeline, mirroring .github/workflows/ci.yml.
-ci: fmt-check vet build test-race
-    go tool cover -func={{coverage_file}} | tail -n 1
+# Full local CI pipeline. GitHub CI calls this exact recipe, so the two cannot
+# disagree. The coverage gate lives in `cover` (which reruns test-race).
+ci: fmt-check vet build cover
 
 # Run the LLM-backed commit splitter against a commit (defaults to HEAD).
 # Usage: just split <commit-ish> -- --llm=ollama/qwen2.5-coder --dry-run

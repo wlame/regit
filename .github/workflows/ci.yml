@@ -23,23 +23,11 @@ jobs:
           go-version: ${{ matrix.go-version }}
           cache: true
 
-      - name: Verify formatting
-        run: |
-          unformatted=$(gofmt -l .)
-          if [ -n "$unformatted" ]; then
-            echo "These files are not gofmt-formatted:"
-            echo "$unformatted"
-            exit 1
-          fi
+      - name: Install just
+        uses: extractions/setup-just@v2
 
-      - name: Vet
-        run: go vet ./...
-
-      - name: Build
-        run: go build ./...
-
-      - name: Test (race + coverage)
-        run: go test -race -coverprofile=coverage.out ./...
-
-      - name: Coverage summary
-        run: go tool cover -func=coverage.out | tail -n 1
+      # One entrypoint: the same `just ci` a developer runs locally (fmt-check,
+      # vet, build, and test-race with the coverage gate). CI and local cannot
+      # drift because they invoke the identical recipe.
+      - name: CI (fmt, vet, build, test-race, coverage gate)
+        run: just ci
