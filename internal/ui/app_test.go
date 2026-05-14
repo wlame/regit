@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -2150,7 +2151,7 @@ func TestPipeline_pushedRewriteRequiresTypedConfirm(t *testing.T) {
 	}
 
 	// --- sub-test: wrong confirmation word cancels apply ---
-	t.Run("wrong word cancels", func(t *testing.T) {
+	t.Run("wrong word keeps the prompt open to retype", func(t *testing.T) {
 		m := newPushedModel()
 
 		m = send(m, "A")
@@ -2164,20 +2165,24 @@ func TestPipeline_pushedRewriteRequiresTypedConfirm(t *testing.T) {
 			t.Fatalf("enter on a pushed edit should require confirmation, got mode %v", m.mode)
 		}
 
-		// Type the wrong word and confirm.
+		// Type the wrong word and confirm: the prompt stays open (no apply, no
+		// discard) so the user can fix a typo instead of re-staging.
 		m.confirmInput.SetValue("nope")
 		updated, _ = m.Update(key("enter"))
 		m = updated.(Model)
 
-		if m.mode != modeMain {
-			t.Errorf("wrong confirm word should return to modeMain, got mode %v", m.mode)
+		if m.mode != modeConfirm {
+			t.Errorf("wrong confirm word should keep the prompt open, got mode %v", m.mode)
 		}
-		if m.statusKind != statusErr {
-			t.Errorf("wrong confirm word should set statusErr, got %v", m.statusKind)
-		}
-		// The edit must still be staged — nothing was applied.
 		if !m.plan.HasChanges() {
-			t.Error("wrong confirm word must not apply — the edit should still be pending")
+			t.Error("wrong confirm word must not apply or discard — the edit should still be pending")
+		}
+
+		// esc from the prompt is the deliberate cancel.
+		updated, _ = m.Update(key("esc"))
+		m = updated.(Model)
+		if m.mode == modeConfirm {
+			t.Error("esc should leave the confirm prompt")
 		}
 	})
 
@@ -2379,6 +2384,36 @@ func TestSelectedHashSet_excludesFrozenCommits(t *testing.T) {
 	}
 	if !got[m.plan.Commits[3].Hash] {
 		t.Error("set selection dropped an editable commit")
+	}
+}
+
+// TestUpdateConfirm_wrongWordKeepsPromptAndPending proves a mistyped branch-name
+// confirmation keeps the user in the prompt to retype instead of discarding the
+// staged change; esc is the deliberate cancel.
+func TestUpdateConfirm_wrongWordKeepsPromptAndPending(t *testing.T) {
+	m := newTestModel(t)
+	c := m.commitAtCursor()
+	nd := c.OrigAuthorDate.AddDate(0, 0, 1)
+	m.plan.SetEdit(c.Hash, model.Edit{NewAuthorDate: &nd})
+	m.pending = newPlanChange(m.plan, m.loc, nil, nil)
+	m.confirmGuard = safety.Guard{NeedsConfirmation: true, ConfirmWord: "main"}
+	ti := textinput.New()
+	ti.SetValue("wrong")
+	m.confirmInput = ti
+	m.mode = modeConfirm
+
+	updated, _ := m.updateConfirm(key("enter"))
+	m2 := updated.(Model)
+	if m2.mode != modeConfirm {
+		t.Errorf("a wrong confirm word should keep the prompt open, got mode %v", m2.mode)
+	}
+	if m2.pending == nil {
+		t.Error("a wrong confirm word must not discard the staged change")
+	}
+
+	updated, _ = m2.updateConfirm(key("esc"))
+	if m3 := updated.(Model); m3.pending != nil {
+		t.Error("esc should cancel and clear the staged change")
 	}
 }
 

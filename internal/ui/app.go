@@ -1553,10 +1553,10 @@ func (m Model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		if strings.TrimSpace(m.confirmInput.Value()) != m.confirmGuard.ConfirmWord {
-			m.setStatus("Confirmation text did not match; apply cancelled", statusErr)
-			m.mode = m.pipelineOrigin
-			m.pending = nil
-			m.pipelineOrigin = modeMain
+			// Wrong text: keep the user in the prompt to fix their typo rather than
+			// discarding the staged change and forcing them to re-stage. esc (above)
+			// is the deliberate cancel path.
+			m.setStatus(fmt.Sprintf("Type %q exactly to confirm (esc cancels)", m.confirmGuard.ConfirmWord), statusWarn)
 			return m, nil
 		}
 		return m.commitPending(true)
