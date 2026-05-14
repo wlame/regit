@@ -117,6 +117,12 @@ func (p *Plan) IsFrozen(i int) bool {
 // at least one commit stays editable) and drops any pending edits on commits
 // that became frozen.
 func (p *Plan) SetBase(i int) {
+	// An empty plan has no boundary to move; without this guard the clamp below
+	// would set Base to -1 and the Commits[:Base] slice would panic.
+	if len(p.Commits) == 0 {
+		p.Base = 0
+		return
+	}
 	if i < 0 {
 		i = 0
 	}

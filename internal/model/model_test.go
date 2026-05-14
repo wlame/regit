@@ -162,6 +162,24 @@ func TestPlan_SetBase(t *testing.T) {
 	}
 }
 
+// TestPlan_SetBase_EmptyPlan verifies that SetBase on a plan with no commits
+// (an empty branch) keeps Base at 0 instead of panicking — the old clamp set
+// Base to -1 and Commits[:Base] blew up.
+func TestPlan_SetBase_EmptyPlan(t *testing.T) {
+	p := NewPlan(nil)
+	p.SetBase(0)
+	if p.Base != 0 {
+		t.Errorf("SetBase on empty plan: Base = %d, want 0", p.Base)
+	}
+	p.SetBase(5)
+	if p.Base != 0 {
+		t.Errorf("SetBase(5) on empty plan: Base = %d, want 0", p.Base)
+	}
+	if got := p.Active(); len(got) != 0 {
+		t.Errorf("Active() on empty plan = %d commits, want 0", len(got))
+	}
+}
+
 // TestPlan_ActiveAndIsFrozen verifies that Active returns only commits from
 // Base onward and that IsFrozen correctly identifies frozen positions.
 func TestPlan_ActiveAndIsFrozen(t *testing.T) {
