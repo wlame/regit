@@ -2382,6 +2382,41 @@ func TestSelectedHashSet_excludesFrozenCommits(t *testing.T) {
 	}
 }
 
+// TestSpinnerBusy_reflectsAsyncWork proves the throbber tick loop only stays armed
+// while async generation is pending, so it doesn't wake the event loop forever.
+func TestSpinnerBusy_reflectsAsyncWork(t *testing.T) {
+	m := newTestModel(t)
+	if m.spinnerBusy() {
+		t.Error("a fresh model has no async work and must not be busy")
+	}
+	m.mode = modeSplitGen
+	if !m.spinnerBusy() {
+		t.Error("a split generation should read as busy")
+	}
+	m.mode = modeMain
+	m.rewordSt.inFlight = map[string]bool{"abc": true}
+	if !m.spinnerBusy() {
+		t.Error("an in-flight reword should read as busy")
+	}
+	delete(m.rewordSt.inFlight, "abc")
+	m.squashSt.loading = map[string]bool{"def": true}
+	if !m.spinnerBusy() {
+		t.Error("a loading squash summary should read as busy")
+	}
+}
+
+// TestGlobalAction_detailWithNoCommitsDoesNotPanic guards the empty branch: pressing
+// '.' must not open the detail overlay (which would index an empty commit slice).
+func TestGlobalAction_detailWithNoCommitsDoesNotPanic(t *testing.T) {
+	m := newTestModel(t)
+	m.plan = model.NewPlan(nil) // empty branch
+	m.listCursor = 0
+	m2 := send(m, ".")
+	if m2.mode == modeDetail {
+		t.Error("detail overlay must not open with zero commits")
+	}
+}
+
 func TestDropBodies_honorsSelection(t *testing.T) {
 	m := newTestModelN(t, 4)
 	m = send(m, " ") // select the cursor (newest) commit

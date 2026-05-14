@@ -430,6 +430,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pipelineOrigin = modeMain // staged from main; esc returns here (set explicitly, defensively)
 		return m, nil
 	case spinner.TickMsg:
+		// Only keep the throbber animating while async work is actually in flight.
+		// Otherwise the tick self-perpetuates for the rest of the session, waking the
+		// event loop every ~100ms even when the UI is idle.
+		if !m.spinnerBusy() {
+			return m, nil
+		}
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
@@ -627,6 +633,11 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		m.setStatus("Author column: "+state, statusOK)
 		return m, nil, true
 	case ".":
+		// Guard the empty branch: modeDetail's View calls commitAtCursor, which would
+		// index an empty slice. Every sibling action (e, b, split, …) guards this too.
+		if len(m.plan.Commits) == 0 {
+			return m, nil, true
+		}
 		m.mode = modeDetail
 		return m, m.markAndFetch(), true
 	case "B":
@@ -994,6 +1005,22 @@ func (m Model) applyRetitle() (tea.Model, tea.Cmd) {
 // to the root-first storage index used by the plan.
 func (m Model) storageIndexAtCursor() int {
 	return len(m.plan.Commits) - 1 - m.listCursor
+}
+
+// spinnerBusy reports whether any async generation is in flight that the shared
+// throbber animates: a split proposal, one or more reword variants, or a squash
+// summary. When nothing is pending the spinner tick loop stops re-arming itself so
+// the UI goes fully idle instead of waking every ~100ms.
+func (m Model) spinnerBusy() bool {
+	if m.mode == modeSplitGen || len(m.rewordSt.inFlight) > 0 {
+		return true
+	}
+	for _, loading := range m.squashSt.loading {
+		if loading {
+			return true
+		}
+	}
+	return false
 }
 
 // affectedCommits returns the commits a bulk action or the action-panel count
