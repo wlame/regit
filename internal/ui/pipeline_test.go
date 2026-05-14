@@ -28,6 +28,31 @@ func TestPlanChange_titleAndPreview(t *testing.T) {
 	}
 }
 
+// TestPlanChange_previewShowsMessageAndAuthorEdits proves the mandatory preview
+// spells out non-date edits (title, body, author) instead of rendering them as a
+// visually-unchanged row — the gate must show what it gates.
+func TestPlanChange_previewShowsMessageAndAuthorEdits(t *testing.T) {
+	m := newTestModel(t)
+	c := m.commitAtCursor()
+	newTitle := "Completely different subject"
+	newName := "New Author"
+	newEmail := "new@example.com"
+	m.plan.SetEdit(c.Hash, model.Edit{
+		NewSubject:     &newTitle,
+		DropBody:       true,
+		NewAuthorName:  &newName,
+		NewAuthorEmail: &newEmail,
+	})
+
+	pv := newPlanChange(m.plan, m.loc, nil, nil).preview(m.st)
+	joined := strings.Join(pv.lines, "\n")
+	for _, want := range []string{"Completely different subject", "title:", "body dropped", "New Author", "new@example.com"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("preview should surface %q for a message/author edit, got:\n%s", want, joined)
+		}
+	}
+}
+
 func TestPlanChange_guardCleanRepoNotBlocked(t *testing.T) {
 	m := newTestModel(t) // clean local repo, branch main, no upstream
 	c := m.commitAtCursor()

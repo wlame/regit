@@ -8,6 +8,7 @@ import (
 	"github.com/wlame/regit/internal/gitio"
 	"github.com/wlame/regit/internal/model"
 	"github.com/wlame/regit/internal/safety"
+	"github.com/wlame/regit/internal/termsafe"
 )
 
 // pipeline.go is the stage → preview → confirm → apply funnel. Every
@@ -123,12 +124,18 @@ func (c planChange) preview(st styles) previewModel {
 		commit := c.plan.Commits[i]
 		orig := commit.OrigAuthorDate.In(c.loc).Format("2006-01-02 15:04")
 		neu := c.plan.EffectiveAuthorDate(commit).In(c.loc).Format("2006-01-02 15:04")
-		_, changed := c.plan.EditFor(commit.Hash)
+		edit, changed := c.plan.EditFor(commit.Hash)
+		// The date columns only reflect a date change; use "→" when the date
+		// actually moved, "=" otherwise, so a message- or author-only edit does not
+		// falsely imply a date shift.
 		arrow := "  =  "
-		if changed {
+		if !c.plan.EffectiveAuthorDate(commit).Equal(commit.OrigAuthorDate) {
 			arrow = " → "
 		}
-		text := fmt.Sprintf("%s  %-32s %s%s%s", short(commit.Hash), truncate(commit.Subject, 32), orig, arrow, neu)
+		// Show the EFFECTIVE (post-edit) subject so a retitle/reword is visible in
+		// the row itself.
+		text := fmt.Sprintf("%s  %-32s %s%s%s", short(commit.Hash),
+			truncate(termsafe.Line(c.plan.EffectiveSubject(commit)), 32), orig, arrow, neu)
 		switch {
 		case shifted[commit.Hash]:
 			lines = append(lines, st.statusWarn.Render("⚠ "+text))
@@ -136,6 +143,12 @@ func (c planChange) preview(st styles) previewModel {
 			lines = append(lines, st.newDate.Render("  "+text))
 		default:
 			lines = append(lines, st.dim.Render("  "+text))
+		}
+		// Message and author edits are invisible in the date columns, so spell them
+		// out on indented sub-lines — otherwise the mandatory preview would gate a
+		// rewrite whose actual content change it never displays.
+		for _, note := range editNotes(commit, edit) {
+			lines = append(lines, st.dim.Render("        "+note))
 		}
 	}
 	// Impact lines (tags/branches this rewrite would orphan) go last, styled
@@ -147,6 +160,35 @@ func (c planChange) preview(st styles) previewModel {
 	}
 	title := fmt.Sprintf("Apply — %d edited · %d conflicting", len(c.plan.Edits), len(c.plan.Shifted))
 	return previewModel{title: title, lines: lines}
+}
+
+// editNotes returns human-readable one-liners describing the non-date changes an
+// edit makes to a commit (new title, dropped/updated body, changed author identity),
+// so the preview surfaces exactly what a reword/retitle/drop-body/reauthor will do.
+func editNotes(commit model.Commit, e model.Edit) []string {
+	var notes []string
+	if e.NewSubject != nil && *e.NewSubject != commit.Subject {
+		notes = append(notes, fmt.Sprintf("title: %q → %q",
+			truncate(termsafe.Line(commit.Subject), 26), truncate(termsafe.Line(*e.NewSubject), 26)))
+	}
+	switch {
+	case e.DropBody && commit.Body != "":
+		notes = append(notes, "body dropped")
+	case e.NewBody != nil && *e.NewBody != commit.Body:
+		notes = append(notes, "body updated")
+	}
+	if e.NewAuthorName != nil || e.NewAuthorEmail != nil {
+		name := commit.AuthorName
+		if e.NewAuthorName != nil {
+			name = *e.NewAuthorName
+		}
+		email := commit.AuthorEmail
+		if e.NewAuthorEmail != nil {
+			email = *e.NewAuthorEmail
+		}
+		notes = append(notes, fmt.Sprintf("author → %s <%s>", termsafe.Line(name), termsafe.Line(email)))
+	}
+	return notes
 }
 
 func (c planChange) apply(mgr *safety.Manager, state model.RepoState, opts safety.ApplyOptions) (safety.ApplyResult, error) {
