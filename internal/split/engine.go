@@ -70,7 +70,14 @@ func (e *Engine) Propose(ctx context.Context, commit model.Commit, parentTree, r
 	}
 
 	maxK := EffectiveMaxCommits(hunks, opts.MaxCommits, opts.LinesPerCommit)
-	fp := Fingerprint(commit.TreeHash, e.backend.Name(), opts.ContextKey, opts.UserHint, maxK)
+	// The fingerprint must change when anything that affects the proposal changes.
+	// Beyond the context KEY list, that means the README CONTENT actually sent (the
+	// TUI and CLI pass different content under the same "readme" key, and editing
+	// the README must invalidate old entries) and the test command (a --test-cmd run
+	// can bake WIP markers into the cached proposal that a plain run must not
+	// inherit). Both are folded into the context component here.
+	ctxKey := fmt.Sprintf("%s\x1freadme=%s\x1ftest=%s", opts.ContextKey, contentHash(readme), opts.TestCmd)
+	fp := Fingerprint(commit.TreeHash, e.backend.Name(), ctxKey, opts.UserHint, maxK)
 
 	// Try the cache before hitting the backend.
 	prop, hit := e.cache.Get(commit.Hash, fp)

@@ -85,8 +85,14 @@ func (e *Engine) Generate(ctx context.Context, c model.Commit, parentTree, readm
 		return Result{}, fmt.Errorf("reword: diff %s: %w", c.Hash, err)
 	}
 
-	// Build a stable cache key from every input that affects the result.
-	fp := Fingerprint(diffHash(diff), e.backend.Name(), contextKey, opts.UserHint, opts.Variants)
+	// Build a stable cache key from every input that affects the result. The
+	// context component folds in the README CONTENT (not just the key list — the
+	// TUI and CLI can pass different content under the same "readme" key, and
+	// editing the README must invalidate old entries) and whether agent-scan ran
+	// (scan lets the agent browse extra files, so its output genuinely differs and
+	// must not collide with a non-scan result).
+	ctxKey := fmt.Sprintf("%s\x1freadme=%s\x1fscan=%t", contextKey, contentHash(readme), opts.AgentScan)
+	fp := Fingerprint(diffHash(diff), e.backend.Name(), ctxKey, opts.UserHint, opts.Variants)
 
 	// Return the cached result if it is still valid for these exact inputs.
 	if r, ok := e.cache.Get(c.Hash, fp); ok {

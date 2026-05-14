@@ -51,6 +51,13 @@ func Fingerprint(diffHash, modelName, contextKey, userHint string, maxCommits in
 	return fmt.Sprintf("%x", h.Sum(nil))[:32]
 }
 
+// contentHash returns a short hex digest of s, used to fold variable-length inputs
+// (e.g. README content) into a fingerprint component without bloating it.
+func contentHash(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return fmt.Sprintf("%x", sum[:8])
+}
+
 // path returns the JSON file path for the given commit hash.
 func (c *Cache) path(commitHash string) string {
 	return filepath.Join(c.dir, commitHash+".json")

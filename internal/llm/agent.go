@@ -4,6 +4,7 @@ package llm
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -178,9 +179,19 @@ func NewAgentBackendInDir(command string, args []string, dir string) *AgentBacke
 	return b
 }
 
-// Name returns a human-readable identifier for logs and the TUI status line.
-// The command path is included so operators can see which agent binary is in use.
-func (b *AgentBackend) Name() string { return "agent:" + b.command }
+// Name returns an identifier for logs, the TUI status line, and — importantly —
+// the cache fingerprint. A short hash of the effective args is appended so that two
+// invocations differing only in, say, --model produce DIFFERENT names (and thus
+// different cache keys); a bare "agent:claude" would serve one model's cached
+// proposal for another. The substituted schema is not part of b.args, so the name
+// is stable across calls with the same configuration.
+func (b *AgentBackend) Name() string {
+	if len(b.args) == 0 {
+		return "agent:" + b.command
+	}
+	h := sha256.Sum256([]byte(strings.Join(b.args, "\x1f")))
+	return fmt.Sprintf("agent:%s#%x", b.command, h[:4])
+}
 
 // Generate runs the given prompt against the agent subprocess and returns the
 // raw model text. The full prompt (system + user + JSON instruction) is fed to

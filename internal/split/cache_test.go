@@ -47,6 +47,22 @@ func TestFingerprint_changesWithInputs(t *testing.T) {
 	}
 }
 
+// TestContentHash_distinguishesReadmeContent proves the helper that folds README
+// content into the fingerprint yields different digests for different content — the
+// mechanism that stops an edited README (or the TUI's empty README) from colliding
+// with a stale cached proposal.
+func TestContentHash_distinguishesReadmeContent(t *testing.T) {
+	if contentHash("readme v1") == contentHash("readme v2") {
+		t.Error("different README content must hash differently")
+	}
+	if contentHash("") == contentHash("some content") {
+		t.Error("empty vs non-empty README must hash differently")
+	}
+	if contentHash("same") != contentHash("same") {
+		t.Error("identical content must hash identically")
+	}
+}
+
 func TestCache_putRejectsEmptyCommitHash(t *testing.T) {
 	c := NewCache(t.TempDir())
 	fp := Fingerprint("d", "m", "c", "h", 4)

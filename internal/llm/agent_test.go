@@ -355,6 +355,21 @@ func TestScanDefaultArgs_deniesSensitivePaths(t *testing.T) {
 	}
 }
 
+// TestAgentName_variesWithArgs proves the backend name (which seeds the cache
+// fingerprint) differs when the args differ — e.g. two --model values must not
+// share a cache key under a bare "agent:claude".
+func TestAgentName_variesWithArgs(t *testing.T) {
+	opus := NewAgentBackend("claude", []string{"-p", "--model", "opus"})
+	haiku := NewAgentBackend("claude", []string{"-p", "--model", "haiku"})
+	if opus.Name() == haiku.Name() {
+		t.Errorf("different --model must yield different names; both were %q", opus.Name())
+	}
+	// Same args → same name (cache hits still work for identical configs).
+	if a, b := NewAgentBackend("claude", []string{"-p"}).Name(), NewAgentBackend("claude", []string{"-p"}).Name(); a != b {
+		t.Errorf("identical args must yield identical names, got %q vs %q", a, b)
+	}
+}
+
 func TestScrubbedAgentEnv_dropsSecrets(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "sk-secret")
 	t.Setenv("GITHUB_TOKEN", "ghp-secret")
