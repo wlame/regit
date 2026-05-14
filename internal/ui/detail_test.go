@@ -32,9 +32,9 @@ func detailCommit() model.Commit {
 // gone entirely.
 func TestRenderDetail_stripsTerminalEscapesFromRepoContent(t *testing.T) {
 	c := detailCommit()
-	c.Subject = "Fix bug\x1b]0;HACKED\x07"           // OSC window-title spoof
-	c.Body = "body\x1b]52;c;ZXZpbA==\x07line"        // OSC-52 clipboard write
-	c.AuthorName = "Ann\x1b[31mMalory"               // CSI color
+	c.Subject = "Fix bug\x1b]0;HACKED\x07"    // OSC window-title spoof
+	c.Body = "body\x1b]52;c;ZXZpbA==\x07line" // OSC-52 clipboard write
+	c.AuthorName = "Ann\x1b[31mMalory"        // CSI color
 	plan := model.NewPlan([]model.Commit{c})
 	st := gitio.Stat{Files: []gitio.FileStat{{Status: "M", Path: "a\x1b]0;x\x07b.go", Add: 1, Del: 0}}}
 
