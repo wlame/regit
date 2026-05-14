@@ -17,10 +17,16 @@ func (m Model) viewMain() string {
 	right := m.viewRightColumn()
 
 	var body string
-	if dims := computeLayout(m.width, m.height); dims.detailWidth > 0 {
+	switch dims := computeLayout(m.width, m.height); {
+	case !dims.showRight:
+		// Terminal too narrow for the right column — render the list alone rather
+		// than overflowing the frame. The workspace widget is unavailable at this
+		// width; detail is still reachable via the '.' overlay.
+		body = list
+	case dims.detailWidth > 0:
 		detail := m.viewDetailPane(dims.detailWidth)
 		body = lipgloss.JoinHorizontal(lipgloss.Top, list, detail, right)
-	} else {
+	default:
 		body = lipgloss.JoinHorizontal(lipgloss.Top, list, right)
 	}
 	status := m.viewStatusBar()
@@ -30,6 +36,16 @@ func (m Model) viewMain() string {
 		regions = append(regions, log)
 	}
 	regions = append(regions, keybar)
+	// Hard-clamp every region to the terminal width. The chrome rows (title, tabs,
+	// status, keybar) are single strings whose natural width can exceed a narrow
+	// terminal; without this, JoinVertical pads the whole frame out to the widest
+	// row and the UI overflows horizontally. MaxWidth truncates ANSI-aware, per line.
+	if m.width > 0 {
+		clamp := lipgloss.NewStyle().MaxWidth(m.width)
+		for i, r := range regions {
+			regions[i] = clamp.Render(r)
+		}
+	}
 	return lipgloss.JoinVertical(lipgloss.Left, regions...)
 }
 

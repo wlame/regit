@@ -347,6 +347,25 @@ func TestView_terminalSizeGate(t *testing.T) {
 	}
 }
 
+// Regression test: no rendered line may be WIDER than the terminal, at any width.
+// This catches both the 60–108col frame overflow (the right column no longer fits
+// there and is dropped) and wide-glyph truncation (a CJK subject measured by cells,
+// not runes). Overflowing lines wrap and cascade the whole frame.
+func TestView_neverExceedsTerminalWidth(t *testing.T) {
+	m := newTestModelN(t, 12)
+	// Give a commit a wide-glyph subject to exercise the cell-width truncation.
+	m.plan.Commits[len(m.plan.Commits)-1].Subject = "修复一个非常长的中文提交标题用于测试换行溢出问题的场景"
+	for _, w := range []int{60, 70, 80, 90, 100, 107, 108, 120, 140} {
+		updated, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: 30})
+		mm := updated.(Model)
+		for i, line := range strings.Split(mm.View(), "\n") {
+			if got := lipgloss.Width(line); got > w {
+				t.Errorf("width %d: line %d has display width %d > %d:\n%q", w, i, got, w, line)
+			}
+		}
+	}
+}
+
 // Regression test: the view must never be taller than the terminal, whatever
 // the commit count or subject length. Oversized frames get tail-clipped by
 // bubbletea, pushing the title and newest commits out of sight.

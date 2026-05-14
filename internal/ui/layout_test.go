@@ -10,7 +10,7 @@ func TestComputeLayout_ListWidthBounds(t *testing.T) {
 		wantDetail   int
 	}{
 		{"zero width renders at the 120 target floor", 0, 40, 56, 0},             // 120 < 142 -> 2-col, 120-64
-		{"narrow clamps up to the list floor", 90, 40, listFloorWidth, 0},        // 90-64=26 -> 44, 2-col
+		{"narrow drops the right column, list fills width", 90, 40, 88, 0},       // 90 < 108 -> list-only, 90-2
 		{"target floor width", 120, 40, 56, 0},                                   // 120-64, 2-col
 		{"wide terminal caps the list at 80, detail stretches", 220, 40, 80, 74}, // avail=220-66=154; list capped 80; detail=154-80
 		{"ultrawide caps list at 80, detail stretches", 400, 40, 80, 94},         // avail=240-66=174; list capped 80; detail=174-80
@@ -28,6 +28,35 @@ func TestComputeLayout_ListWidthBounds(t *testing.T) {
 				t.Fatalf("contentWidth = %d exceeds the %d cap", got.contentWidth, maxContentWidth)
 			}
 		})
+	}
+}
+
+// TestComputeLayout_narrowTerminalsFitTheFrame proves the fix for the frame
+// overflow at widths between minTermWidth and ~108: below the threshold the right
+// column is dropped (showRight=false) and the total rendered width (list pane +
+// its border + right column + join frames) never exceeds the terminal.
+func TestComputeLayout_narrowTerminalsFitTheFrame(t *testing.T) {
+	for w := minTermWidth; w <= 140; w++ {
+		d := computeLayout(w, 40)
+		// Total columns the body join consumes: pane widths plus their borders.
+		// list-only is one pane (2 border cols); with the right column it is two
+		// panes (paneFrames) or three when detail is present (paneFrames3).
+		total := d.listWidth + 2
+		if d.showRight {
+			frames := paneFrames
+			if d.detailWidth > 0 {
+				frames = paneFrames3
+			}
+			total = d.listWidth + d.detailWidth + d.rightWidth + frames
+		}
+		if total > w {
+			t.Errorf("width %d: body total %d exceeds terminal (list=%d detail=%d right=%d showRight=%v)",
+				w, total, d.listWidth, d.detailWidth, d.rightWidth, d.showRight)
+		}
+		// Below the list+right threshold the right column must be dropped.
+		if w < listFloorWidth+rightPaneWidth+paneFrames && d.showRight {
+			t.Errorf("width %d: right column should be hidden", w)
+		}
 	}
 }
 

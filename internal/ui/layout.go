@@ -53,12 +53,13 @@ const (
 // breakpoints) and not yet wired — height still flows through the listHeight()
 // method, width through rightPaneWidth const.
 type layoutDims struct {
-	contentWidth int // terminal width, capped at maxContentWidth (reserved for future work; not yet wired)
-	listWidth    int // commit-list pane width (border excluded)
-	detailWidth  int // commit-detail pane width (0 when the detail column is hidden)
-	rightWidth   int // right column (calendar/strategy) width — currently fixed (reserved for future work; not yet wired)
-	bodyHeight   int // rows available to the list/right body (reserved for future work; not yet wired)
-	editorWidth  int // editor-modal field width
+	contentWidth int  // terminal width, capped at maxContentWidth (reserved for future work; not yet wired)
+	listWidth    int  // commit-list pane width (border excluded)
+	detailWidth  int  // commit-detail pane width (0 when the detail column is hidden)
+	rightWidth   int  // right column (calendar/strategy) width — currently fixed (reserved for future work; not yet wired)
+	showRight    bool // whether the fixed right column fits; false → list-only layout on narrow terminals
+	bodyHeight   int  // rows available to the list/right body (reserved for future work; not yet wired)
+	editorWidth  int  // editor-modal field width
 }
 
 // computeLayout turns a terminal size into the region budget for the main
@@ -76,12 +77,27 @@ func computeLayout(termW, termH int) layoutDims {
 		usable = maxContentWidth
 	}
 
-	// Seat a detail column between the list and the fixed right column when the
-	// content is wide enough; otherwise keep the current two-column layout and let
-	// the detail panel surface as an on-demand overlay. The list keeps priority:
-	// it grows to listCeilWidth first, and the detail takes whatever remains.
+	// Decide whether the fixed right column (calendar/strategy) fits at all. On a
+	// terminal too narrow to seat even the list floor plus the right column, we drop
+	// the right column entirely and give the whole width to the list, rather than
+	// joining a floor-width list to a fixed right column and overflowing the frame
+	// (which is what happened for every width between minTermWidth and ~108).
+	showRight := usable >= listFloorWidth+rightPaneWidth+paneFrames
+
 	var listW, detailW int
-	if usable >= listFloorWidth+detailMinWidth+rightPaneWidth+paneFrames3 {
+	switch {
+	case !showRight:
+		// List-only: the list pane spends the whole usable width minus its own
+		// left/right border. The detail and right columns are hidden; detail is
+		// still reachable as an on-demand overlay.
+		listW = usable - 2
+		if listW < listFloorWidth {
+			listW = listFloorWidth
+		}
+	case usable >= listFloorWidth+detailMinWidth+rightPaneWidth+paneFrames3:
+		// Wide enough to seat a detail column between the list and the right column.
+		// The list keeps priority: it grows to listCeilWidth first, detail takes the
+		// rest.
 		avail := usable - rightPaneWidth - paneFrames3
 		listW = avail - detailMinWidth
 		if listW > listCeilWidth {
@@ -91,7 +107,8 @@ func computeLayout(termW, termH int) layoutDims {
 			listW = listFloorWidth
 		}
 		detailW = avail - listW
-	} else {
+	default:
+		// Two-column: list + right, no detail pane (overlay on demand).
 		listW = usable - rightPaneWidth - paneFrames
 		if listW < listFloorWidth {
 			listW = listFloorWidth
@@ -114,11 +131,16 @@ func computeLayout(termW, termH int) layoutDims {
 		editorW = editorMinWidth
 	}
 
+	rightW := rightPaneWidth
+	if !showRight {
+		rightW = 0
+	}
 	return layoutDims{
 		contentWidth: usable,
 		listWidth:    listW,
 		detailWidth:  detailW,
-		rightWidth:   rightPaneWidth,
+		rightWidth:   rightW,
+		showRight:    showRight,
 		bodyHeight:   bodyH,
 		editorWidth:  editorW,
 	}
