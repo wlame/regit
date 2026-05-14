@@ -54,12 +54,21 @@ func TestSelection_visualRangeBounds(t *testing.T) {
 	if !s.inRange(3, 2) || s.inRange(6, 2) {
 		t.Error("inRange should include 3 and exclude 6 for range [2,5]")
 	}
-	s.confirmVisual()
+	// Confirm the range at cursor 2 → span fixed at [2,5].
+	s.confirmVisual(2)
 	if s.visual {
 		t.Error("confirmVisual should stop extending")
 	}
 	if s.mode != SelRange {
 		t.Error("confirmVisual should keep the Range mode/selection")
+	}
+	// Cursor now moves to 8 for navigation — the FIXED range must NOT drift; it must
+	// stay [2,5] regardless of the live cursor.
+	if lo, hi := s.rangeBounds(8); lo != 2 || hi != 5 {
+		t.Errorf("fixed rangeBounds drifted with cursor: [%d,%d], want [2,5]", lo, hi)
+	}
+	if lo, hi := s.rangeBounds(0); lo != 2 || hi != 5 {
+		t.Errorf("fixed rangeBounds drifted with cursor: [%d,%d], want [2,5]", lo, hi)
 	}
 }
 

@@ -11,7 +11,9 @@ package ui
 type selectionState struct {
 	mode   SelectionMode
 	anchor int             // range anchor (display index), set when visual mode starts
+	end    int             // fixed second endpoint, set by confirmVisual; used only when fixed
 	visual bool            // true while a range is being extended (v pressed, not yet fixed)
+	fixed  bool            // true once a visual range is confirmed: the span stops following the cursor
 	set    map[string]bool // selected commit hashes (SelSet)
 }
 
@@ -26,7 +28,9 @@ func newSelection() selectionState {
 func (s *selectionState) reset() {
 	s.mode = SelSingle
 	s.visual = false
+	s.fixed = false
 	s.anchor = 0
+	s.end = 0
 	s.set = map[string]bool{}
 }
 
@@ -36,19 +40,31 @@ func (s *selectionState) reset() {
 func (s *selectionState) beginVisual(cursor int) {
 	s.mode = SelRange
 	s.visual = true
+	s.fixed = false
 	s.anchor = cursor
 }
 
-// confirmVisual fixes the current range (stops extending) while keeping it as the
-// selection so a consuming feature can read it.
-func (s *selectionState) confirmVisual() {
+// confirmVisual fixes the current range at [anchor, cursor] and stops it extending.
+// The span is stored (s.end) so it no longer follows the cursor — the user can move
+// the cursor to navigate without silently growing the range a consuming feature
+// (retitle, drop-bodies, squash, reauthor) will act on.
+func (s *selectionState) confirmVisual(cursor int) {
 	s.visual = false
+	s.fixed = true
+	s.end = cursor
 }
 
-// rangeBounds returns the inclusive [lo, hi] display-index span of the range given
+// rangeBounds returns the inclusive [lo, hi] display-index span of the range.
+// While the range is being extended (visual) it follows the live cursor; once
+// confirmed (fixed) it uses the stored endpoint and ignores cursor drift. A Range
+// that was never confirmed through confirmVisual (e.g. set directly) falls back to
 // the live cursor. Indices are newest-first, so lo <= hi numerically.
 func (s selectionState) rangeBounds(cursor int) (int, int) {
-	lo, hi := s.anchor, cursor
+	other := cursor
+	if s.fixed && !s.visual {
+		other = s.end
+	}
+	lo, hi := s.anchor, other
 	if lo > hi {
 		lo, hi = hi, lo
 	}

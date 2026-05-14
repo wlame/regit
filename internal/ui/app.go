@@ -662,7 +662,7 @@ func (m Model) listSelectionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	switch msg.String() {
 	case "v":
 		if m.sel.mode == SelRange && m.sel.visual {
-			m.sel.confirmVisual()
+			m.sel.confirmVisual(m.listCursor)
 			m.setStatus("Range fixed", statusOK)
 		} else {
 			m.sel.beginVisual(m.listCursor)
@@ -691,7 +691,7 @@ func (m Model) listSelectionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	case "enter":
 		if m.sel.mode == SelRange && m.sel.visual {
-			m.sel.confirmVisual()
+			m.sel.confirmVisual(m.listCursor)
 			m.setStatus("Range fixed", statusOK)
 			return m, nil, true
 		}
