@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"github.com/mattn/go-runewidth"
+
 	"github.com/wlame/regit/internal/model"
 )
 
@@ -16,13 +18,17 @@ func shiftedSet(plan *model.Plan) map[string]bool {
 }
 
 // truncate shortens s to width runes, adding an ellipsis when cut.
+// truncate shortens s to fit width DISPLAY CELLS (not runes), appending an ellipsis
+// when it must cut. Measuring by cell is essential: a CJK ideograph or emoji is two
+// cells wide, so a rune-count truncation would let such a subject overflow its
+// column and wrap, blowing the row (and the whole frame) past the terminal.
 func truncate(s string, width int) string {
-	r := []rune(s)
-	if len(r) <= width {
+	if width <= 0 {
+		return ""
+	}
+	if runewidth.StringWidth(s) <= width {
 		return s
 	}
-	if width <= 1 {
-		return string(r[:width])
-	}
-	return string(r[:width-1]) + "…"
+	// runewidth.Truncate keeps the result within width cells, tail included.
+	return runewidth.Truncate(s, width, "…")
 }

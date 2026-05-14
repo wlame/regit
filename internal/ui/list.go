@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/mattn/go-runewidth"
+
 	"github.com/wlame/regit/internal/model"
 	"github.com/wlame/regit/internal/termsafe"
 )
@@ -191,7 +193,9 @@ func (m Model) authorCell(c model.Commit) (text string, width int) {
 		return "", 0
 	}
 	name := truncate(termsafe.Line(authorLabel(c)), authorColWidth)
-	if pad := authorColWidth - len([]rune(name)); pad > 0 {
+	// Pad by DISPLAY width, not rune count, so a name with wide (CJK/emoji) glyphs
+	// still fills exactly authorColWidth cells and the subject column stays aligned.
+	if pad := authorColWidth - runewidth.StringWidth(name); pad > 0 {
 		name += strings.Repeat(" ", pad)
 	}
 	return name + " ", authorColWidth + 1
