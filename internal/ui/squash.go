@@ -152,8 +152,18 @@ type squashState struct {
 	field      squashField
 	listCursor int             // index into the ACTIVE chain's members (newest-first display)
 	loading    map[string]bool // chain last-hash -> summary in flight
+	edited     map[string]bool // chain last-hash -> user typed the title/body; a late summary must not clobber it
 	dateBuf    []string        // editable date text per chain (indexed by tab); parsed on stage
 	errMsg     string          // last stage failure (bad date, invalid plan), rendered inline
+}
+
+// markEdited records that the user manually edited the given chain's message, so a
+// summary that lands afterward leaves their text alone.
+func (s *squashState) markEdited(chainKey string) {
+	if s.edited == nil {
+		s.edited = map[string]bool{}
+	}
+	s.edited[chainKey] = true
 }
 
 // active returns the chain for the current tab.
@@ -175,9 +185,14 @@ func (s squashState) switchTab(delta int) squashState {
 }
 
 // applySummary fills the chain identified by its last-hash with an LLM proposal
-// and clears its loading flag. (User edits before the summary lands are rare;
-// v1 lets the summary win, matching reword's buffer-overwrite behavior.)
+// and clears its loading flag — UNLESS the user already typed their own title/body
+// for that chain, in which case the summary is dropped so it cannot clobber their
+// edit (summaries can land after the user has moved on and typed something).
 func (s squashState) applySummary(chainKey string, p squash.Proposal) squashState {
+	if s.edited[chainKey] {
+		delete(s.loading, chainKey)
+		return s
+	}
 	s.chains = append([]model.SquashChain(nil), s.chains...)
 	for i := range s.chains {
 		if s.chains[i].Last().Hash == chainKey {
@@ -497,8 +512,10 @@ func editActiveField(st squashState, s string, del bool) squashState {
 	switch st.field {
 	case fldTitle:
 		ch.Subject = apply(ch.Subject)
+		st.markEdited(ch.Last().Hash)
 	case fldBody:
 		ch.Body = apply(ch.Body)
+		st.markEdited(ch.Last().Hash)
 	case fldAuthor:
 		ch.AuthorName = apply(ch.AuthorName)
 	case fldDate:

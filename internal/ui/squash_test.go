@@ -175,6 +175,23 @@ func TestSummarizeResult_appliesUnlessEdited(t *testing.T) {
 	if st.loading[key] {
 		t.Error("loading flag should clear once the summary lands")
 	}
+
+	// Now the "unless edited" half: a user who typed their own title/body must keep
+	// it — a late summary must not clobber the manual edit.
+	st2 := wizardState()
+	key2 := st2.chains[0].Last().Hash
+	st2.loading[key2] = true
+	st2.field = fldTitle
+	st2 = editActiveField(st2, "M", false) // user types into the title
+	st2 = editActiveField(st2, "y", false)
+	typed := st2.chains[0].Subject
+	st2 = st2.applySummary(key2, squash.Proposal{Subject: "LLM subject", Body: "LLM body"})
+	if st2.chains[0].Subject != typed {
+		t.Errorf("summary clobbered the user's typed title: got %q, want %q", st2.chains[0].Subject, typed)
+	}
+	if st2.loading[key2] {
+		t.Error("loading flag should still clear even when the summary is skipped")
+	}
 }
 
 func TestSquashState_editDateField(t *testing.T) {
