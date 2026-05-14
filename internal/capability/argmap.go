@@ -54,10 +54,34 @@ func RedateArgMap(strat, tm string, p strategy.Params, linkDates bool) map[strin
 	if !p.CompressDay.IsZero() {
 		m["compress-day"] = p.CompressDay.Format("2006-01-02")
 	}
+	// Time-model parameters. time-fixed is REQUIRED by Parse when time=Fixed-time,
+	// so omitting it produced a logged line the CLI rejected — the round-trip
+	// contract violation this closes. jitter-min reproduces the Jitter spread, and
+	// seed makes every randomized strategy replay to the same distribution (the
+	// headless run resolves seed 0 to a clock value, so the concrete seed must be
+	// emitted or "preview then --execute" would diverge).
+	switch canonName(tm) {
+	case "Fixed-time":
+		m["time-fixed"] = minToClock(p.FixedMin)
+	case "Jitter":
+		m["jitter-min"] = strconv.Itoa(p.JitterMin)
+	}
+	if p.Seed != 0 {
+		m["seed"] = strconv.FormatInt(p.Seed, 10)
+	}
 	if !linkDates {
 		m["link-dates"] = "false"
 	}
 	return m
+}
+
+// minToClock formats a minutes-from-midnight value as "HH:MM", the inverse of
+// clockToMin, so a rendered --time-fixed / footer value re-parses.
+func minToClock(min int) string {
+	if min < 0 {
+		min = 0
+	}
+	return fmt.Sprintf("%02d:%02d", (min/60)%24, min%60)
 }
 
 // RetitleArgMap builds the flag map for a `regit retitle --execute` line.

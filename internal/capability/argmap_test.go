@@ -26,6 +26,36 @@ func TestRedateArgMapRoundTrips(t *testing.T) {
 	}
 }
 
+// TestRedateArgMap_everyTimeModelRoundTrips renders a redate line for every time
+// model and re-parses it. This is the mechanical guard the missing --time-fixed bug
+// slipped past: a Fixed-time run used to render a line Parse rejected ("--time-fixed
+// is required"), breaking the footer's round-trip guarantee.
+func TestRedateArgMap_everyTimeModelRoundTrips(t *testing.T) {
+	p := strategy.Params{
+		Start:     time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		End:       time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
+		FixedMin:  10*60 + 30, // 10:30 — exercised by Fixed-time
+		JitterMin: 25,         // exercised by Jitter
+		Seed:      42,         // every randomized strategy must round-trip its seed
+	}
+	for _, tm := range strategy.TimeModels() {
+		name := tm.Name()
+		t.Run(name, func(t *testing.T) {
+			line := Render("redate", RedateArgMap("Even Spread", name, p, true))
+			parsed, err := Parse(mustLookup(t, "redate"), tokenize(line)[2:])
+			if err != nil {
+				t.Fatalf("time model %q rendered a line the CLI rejects: %v\n  %s", name, err, line)
+			}
+			if canonName(parsed.String("time")) != canonName(name) {
+				t.Errorf("time model lost on round-trip: got %q from %q", parsed.String("time"), line)
+			}
+			if parsed.Int("seed") != 42 {
+				t.Errorf("seed not preserved for %q: %s", name, line)
+			}
+		})
+	}
+}
+
 // TestRewordArgMapMultiPositionalRoundTrips: a multi-commit reword command must
 // carry every commit as a positional and round-trip back through Parse.
 func TestRewordArgMapMultiPositionalRoundTrips(t *testing.T) {
