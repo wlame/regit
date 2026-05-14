@@ -24,6 +24,14 @@ func runRedate(ctx *RunContext, a ParsedArgs) error {
 	if tm == nil {
 		return usageErr("unknown --time=%s", tmName)
 	}
+	// The Fixed-time model needs a time of day. When it is selected via config
+	// (default_time_model) rather than the --time flag, Validate never runs the
+	// AppliesIf gate that would demand --time-fixed, so FixedMin would silently stay
+	// 0 and date every commit at midnight. Fail fast with an actionable message
+	// instead; the flags must be given together so Validate accepts --time-fixed.
+	if _, isFixed := tm.(strategy.FixedModel); isFixed && !a.Has("time-fixed") {
+		return usageErr("the Fixed-time model needs a time of day; pass --time=Fixed-time --time-fixed=HH:MM")
+	}
 
 	commits, err := ctx.Repo.ReadCommits()
 	if err != nil {

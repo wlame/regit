@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -40,6 +41,25 @@ func TestRedateEvenSpreadDryRun(t *testing.T) {
 func TestRedateManualPinRequiresPin(t *testing.T) {
 	if _, err := Parse(mustLookup(t, "redate"), []string{"--strategy=Manual-Pin"}); err == nil {
 		t.Error("Manual-Pin without --pin should error")
+	}
+}
+
+// TestRedate_configFixedTimeWithoutTimeOfDayErrors proves the silent-midnight bug
+// is closed: a config default of Fixed-time with no --time-fixed must fail fast with
+// an actionable message, not date every commit at 00:00.
+func TestRedate_configFixedTimeWithoutTimeOfDayErrors(t *testing.T) {
+	_, repo := newTestRepo(t, 3)
+	cfg := config.Default()
+	cfg.DefaultTimeModel = "Fixed time"
+	var out bytes.Buffer
+	ctx := &RunContext{Repo: repo, Cfg: cfg, Stdout: &out, Stderr: &out, Now: time.Unix(1000, 0)}
+	a := newParsedArgs(map[string]any{"strategy": "Even-Spread", "start": "2026-01-01", "end": "2026-03-01"}, nil)
+	err := runRedate(ctx, a)
+	if err == nil {
+		t.Fatal("Fixed-time from config without --time-fixed must error")
+	}
+	if !strings.Contains(err.Error(), "time-fixed") {
+		t.Errorf("error should mention --time-fixed, got: %v", err)
 	}
 }
 
