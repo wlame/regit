@@ -377,15 +377,15 @@ func TestScrubbedAgentEnv_dropsSecrets(t *testing.T) {
 	t.Setenv("PATH", "/usr/bin")
 	t.Setenv("HOME", "/home/wlame")
 
-	got := strings.Join(scrubbedAgentEnv(), "\n")
+	got := strings.Join(ScrubbedEnv(), "\n")
 	for _, banned := range []string{"OPENAI_API_KEY", "GITHUB_TOKEN", "AWS_SECRET_ACCESS_KEY", "sk-secret", "ghp-secret"} {
 		if strings.Contains(got, banned) {
-			t.Errorf("scrubbedAgentEnv leaked %q", banned)
+			t.Errorf("ScrubbedEnv leaked %q", banned)
 		}
 	}
 	for _, kept := range []string{"PATH=/usr/bin", "HOME=/home/wlame"} {
 		if !strings.Contains(got, kept) {
-			t.Errorf("scrubbedAgentEnv dropped non-secret %q", kept)
+			t.Errorf("ScrubbedEnv dropped non-secret %q", kept)
 		}
 	}
 }

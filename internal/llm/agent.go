@@ -13,16 +13,19 @@ import (
 	"time"
 )
 
-// secretEnvSubstrings name environment variables the agent subprocess must never
+// secretEnvSubstrings name environment variables a child subprocess must never
 // inherit: anything holding an API key, token, secret, or password, plus common
 // cloud-credential prefixes. Matched case-insensitively against the variable name.
 var secretEnvSubstrings = []string{"API_KEY", "TOKEN", "SECRET", "PASSWORD", "AWS_", "GH_", "GITHUB_", "OPENAI", "OPENROUTER", "ANTHROPIC"}
 
-// scrubbedAgentEnv returns the process environment with every variable whose name
-// matches secretEnvSubstrings removed. The agent CLI uses its own host session for
-// auth, so dropping these cannot break it — it only prevents a prompt-injected scan
-// from reading a credential out of the inherited environment.
-func scrubbedAgentEnv() []string {
+// ScrubbedEnv returns the process environment with every variable whose name
+// matches secretEnvSubstrings removed. It is used for every subprocess regit
+// spawns on the user's behalf that could execute repo-influenced code — the agent
+// CLI (which uses its own host session for auth, so dropping these cannot break
+// it) and the --test-cmd runner (which executes the repository's own test suite).
+// Dropping the variables prevents a prompt-injected scan or a malicious test
+// script from reading a credential out of the inherited environment.
+func ScrubbedEnv() []string {
 	env := os.Environ()
 	out := make([]string, 0, len(env))
 	for _, kv := range env {
@@ -115,7 +118,7 @@ var scanFileTools = []string{"Read", "Grep", "Glob"}
 // here stays readable, so scan mode remains a documented trust boundary, not a
 // sandbox. /proc is included so the process environment (which could carry API
 // keys) cannot be read via /proc/self/environ; the agent subprocess additionally
-// runs with a scrubbed environment (see scrubbedAgentEnv).
+// runs with a scrubbed environment (see ScrubbedEnv).
 var scanDenyPaths = []string{
 	"~/.ssh/**", "~/.aws/**", "~/.gnupg/**", "~/.config/**", "~/.kube/**",
 	"~/.docker/**", "//etc/**", "//proc/**",
@@ -246,7 +249,7 @@ func (b *AgentBackend) Generate(ctx context.Context, system, user string, schema
 		// regit supplies the diff in the prompt — so the child never needs regit's
 		// secrets. Strip them so a prompt-injected scan cannot exfiltrate an API key
 		// or cloud credential from the inherited environment.
-		cmd.Env = scrubbedAgentEnv()
+		cmd.Env = ScrubbedEnv()
 		cmd.Stdin = bytes.NewReader([]byte(prompt))
 		// After the context is cancelled (deadline hit), give the child a short
 		// grace period and then force-kill it, so a wedged agent that ignores its

@@ -304,12 +304,17 @@ func sortByOriginalOrder(cumulative []model.Hunk, all []model.Hunk) {
 
 // runTest executes the configured test command in dir; a non-zero exit is
 // returned as an error whose message includes the last 40 lines of output.
+// The command runs the repository's own test suite — repo-influenced code —
+// so it gets the same secret-scrubbed environment as the agent subprocess
+// (llm.ScrubbedEnv): a malicious test script must not be able to read
+// REGIT_LLM_API_KEY or cloud credentials out of the inherited environment.
 func runTest(ctx context.Context, dir string, testCmd []string) error {
 	if len(testCmd) == 0 {
 		return nil
 	}
 	cmd := exec.CommandContext(ctx, testCmd[0], testCmd[1:]...)
 	cmd.Dir = dir
+	cmd.Env = llm.ScrubbedEnv()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%w: %s", err, tail(string(out), 40))

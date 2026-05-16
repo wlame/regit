@@ -535,3 +535,23 @@ func TestEngine_clampsTooManyGroups(t *testing.T) {
 		t.Errorf("ValidateCoverage after clamp: %v", err)
 	}
 }
+
+// TestRunTest_scrubsSecretEnv verifies the --test-cmd subprocess gets the same
+// secret-scrubbed environment as the agent subprocess (llm.ScrubbedEnv): the
+// repository's test script must not be able to read regit's API keys or cloud
+// credentials out of the inherited environment.
+func TestRunTest_scrubsSecretEnv(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("relies on sh")
+	}
+	t.Setenv("REGIT_SCRUBTEST_API_KEY", "sekret")
+	// The script exits non-zero when the secret IS visible, so a nil error
+	// proves the variable was scrubbed.
+	if err := runTest(context.Background(), t.TempDir(), []string{"sh", "-c", `test -z "$REGIT_SCRUBTEST_API_KEY"`}); err != nil {
+		t.Fatalf("secret env var leaked into --test-cmd subprocess: %v", err)
+	}
+	// Sanity check: non-secret variables still pass through.
+	if err := runTest(context.Background(), t.TempDir(), []string{"sh", "-c", `test -n "$PATH"`}); err != nil {
+		t.Fatalf("non-secret env unexpectedly scrubbed: %v", err)
+	}
+}
