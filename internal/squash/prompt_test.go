@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/wlame/regit/internal/llm"
 	"github.com/wlame/regit/internal/model"
 )
 
@@ -105,5 +106,18 @@ func TestParseProposal_noJSONObjectErrors(t *testing.T) {
 func TestParseProposal_malformedJSONErrors(t *testing.T) {
 	if _, err := ParseProposal("{invalid!}"); err == nil {
 		t.Error("ParseProposal with invalid JSON should return an error")
+	}
+}
+
+// TestBuildMessages_capsGiantMemberDiff verifies a huge chain-member diff is
+// excerpted under the shared prompt budget instead of embedded whole.
+func TestBuildMessages_capsGiantMemberDiff(t *testing.T) {
+	giant := strings.Repeat("+added line of code\n", 30_000) // ~600 KiB
+	_, user := BuildMessages(twoMemberChain(), []string{giant, giant})
+	if len(user) > llm.MaxPromptDiffBytes+8192 {
+		t.Errorf("squash prompt not capped: %d bytes", len(user))
+	}
+	if !strings.Contains(user, "diff truncated") {
+		t.Errorf("capped prompt missing the excerpt marker")
 	}
 }

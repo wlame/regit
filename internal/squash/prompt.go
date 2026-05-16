@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/wlame/regit/internal/llm"
 	"github.com/wlame/regit/internal/model"
 )
 
@@ -23,13 +24,16 @@ const systemPrompt = "You merge several consecutive git commits into a SINGLE co
 func BuildMessages(ch model.SquashChain, diffs []string) (system, user string) {
 	var b strings.Builder
 	b.WriteString("Combine these commits (oldest first) into one:\n\n")
+	// Member diffs share a bounded byte budget so one huge chain member cannot
+	// blow up the request size (see llm.MaxPromptDiffBytes).
+	share := llm.DiffShareBytes(len(diffs))
 	for i, m := range ch.Members {
 		fmt.Fprintf(&b, "Commit %d:\n  subject: %s\n", i+1, m.Subject)
 		if m.Body != "" {
 			fmt.Fprintf(&b, "  body: %s\n", strings.ReplaceAll(m.Body, "\n", "\n    "))
 		}
 		if i < len(diffs) && strings.TrimSpace(diffs[i]) != "" {
-			fmt.Fprintf(&b, "  diff:\n%s\n", diffs[i])
+			fmt.Fprintf(&b, "  diff:\n%s\n", llm.TruncateForPrompt(diffs[i], share))
 		}
 		b.WriteString("\n")
 	}

@@ -59,7 +59,10 @@ func BuildMessages(req Request) (system, user string) {
 	if req.UserHint != "" {
 		fmt.Fprintf(&b, "Additional user guidance: %s\n", req.UserHint)
 	}
-	fmt.Fprintf(&b, "\nPropose %d ranked variants.\n\nDiff:\n%s\n", n, req.Diff)
+	// The diff is capped so one giant commit cannot blow up the request size;
+	// the truncation marker tells the model it is seeing an excerpt.
+	fmt.Fprintf(&b, "\nPropose %d ranked variants.\n\nDiff:\n%s\n", n,
+		llm.TruncateForPrompt(req.Diff, llm.MaxPromptDiffBytes))
 	return system, b.String()
 }
 

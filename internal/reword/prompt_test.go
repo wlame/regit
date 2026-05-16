@@ -3,6 +3,8 @@ package reword
 import (
 	"strings"
 	"testing"
+
+	"github.com/wlame/regit/internal/llm"
 )
 
 func TestParseVariants_ok(t *testing.T) {
@@ -48,5 +50,22 @@ func TestBuildMessages_includesContext(t *testing.T) {
 		if !strings.Contains(user, want) {
 			t.Fatalf("user prompt missing %q:\n%s", want, user)
 		}
+	}
+}
+
+// TestBuildMessages_capsGiantDiff verifies one giant commit diff cannot blow up
+// the reword prompt: the embedded diff is excerpted under llm.MaxPromptDiffBytes
+// with a visible truncation marker.
+func TestBuildMessages_capsGiantDiff(t *testing.T) {
+	req := Request{
+		Diff:     strings.Repeat("+added line of code\n", 30_000), // ~600 KiB
+		Variants: 3,
+	}
+	_, user := BuildMessages(req)
+	if len(user) > llm.MaxPromptDiffBytes+4096 {
+		t.Errorf("reword prompt not capped: %d bytes", len(user))
+	}
+	if !strings.Contains(user, "diff truncated") {
+		t.Errorf("capped prompt missing the excerpt marker")
 	}
 }

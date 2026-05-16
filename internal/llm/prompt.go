@@ -63,8 +63,13 @@ func BuildMessages(req SplitRequest) (system, user string) {
 		fmt.Fprintf(&b, "Repository overview:\n%s\n\n", req.Readme)
 	}
 	b.WriteString("Hunks:\n")
+	// Every hunk header (ID, file, counts) is always emitted in full — grouping
+	// and coverage validation need the complete ID list — but the bodies share a
+	// bounded byte budget so one giant commit cannot blow up the request size.
+	share := DiffShareBytes(len(req.Hunks))
 	for _, h := range req.Hunks {
-		fmt.Fprintf(&b, "%s %s (+%d/-%d)\n%s\n", h.ID, h.File, h.Additions, h.Deletions, h.Body)
+		fmt.Fprintf(&b, "%s %s (+%d/-%d)\n%s\n", h.ID, h.File, h.Additions, h.Deletions,
+			TruncateForPrompt(h.Body, share))
 	}
 	return system, b.String()
 }
