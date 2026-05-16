@@ -2,6 +2,7 @@ package capability
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 )
 
@@ -68,5 +69,28 @@ func TestDeprecatedRewriteBarePositionalNotRewritten(t *testing.T) {
 	}
 	if warn.Len() != 0 {
 		t.Errorf("bare positional should not trigger a deprecation notice, got %q", warn.String())
+	}
+}
+
+// TestDeprecatedRewrite_dryRunFalseBecomesExecute verifies the legacy "apply"
+// spelling is honored: --dry-run=false translates to --execute instead of
+// being silently dropped (which turned an intended apply into a preview).
+func TestDeprecatedRewrite_dryRunFalseBecomesExecute(t *testing.T) {
+	var warn bytes.Buffer
+	got := DeprecatedRewrite("split", []string{"HEAD", "--dry-run=false"}, &warn)
+	found := false
+	for _, a := range got {
+		if a == "--execute" {
+			found = true
+		}
+		if strings.HasPrefix(a, "--dry-run") {
+			t.Errorf("--dry-run should not survive the rewrite: %v", got)
+		}
+	}
+	if !found {
+		t.Errorf("--dry-run=false should translate to --execute: %v", got)
+	}
+	if !strings.Contains(warn.String(), "--execute") {
+		t.Errorf("expected a translation notice, got: %s", warn.String())
 	}
 }

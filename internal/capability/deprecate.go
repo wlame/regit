@@ -11,8 +11,9 @@ import (
 // convention, emitting a one-line notice. It recognizes both the bare forms
 // (--yes, --dry-run) and the value forms (--yes=true, --dry-run=true): --yes (or
 // --yes=true) becomes --execute; --yes=false is dropped (the default is already a
-// dry-run); --dry-run in any form is dropped (dry-run is the default). Non-legacy
-// verbs and all other flags pass through untouched.
+// dry-run); --dry-run and --dry-run=true are dropped (dry-run is the default);
+// --dry-run=false — the legacy "apply" — becomes --execute. Non-legacy verbs and
+// all other flags pass through untouched.
 func DeprecatedRewrite(verb string, args []string, warn io.Writer) []string {
 	if verb != "split" && verb != "reword" {
 		return args
@@ -31,7 +32,15 @@ func DeprecatedRewrite(verb string, args []string, warn io.Writer) []string {
 				out = append(out, "--execute")
 			}
 		case "dry-run":
-			fmt.Fprintln(warn, "regit: --dry-run is the default now and was ignored")
+			// Legacy semantics: --dry-run=false meant "actually apply". Dropping
+			// it silently would turn an intended apply into a preview, so it
+			// translates to --execute; every other form is the current default.
+			if hasVal && !parseBoolDefault(val, true) {
+				fmt.Fprintln(warn, "regit: --dry-run=false is deprecated; use --execute (translated)")
+				out = append(out, "--execute")
+			} else {
+				fmt.Fprintln(warn, "regit: --dry-run is the default now and was ignored")
+			}
 		default:
 			out = append(out, a)
 		}
