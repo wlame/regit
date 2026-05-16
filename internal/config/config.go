@@ -5,7 +5,10 @@
 package config
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -119,13 +122,20 @@ func Default() Config {
 }
 
 // Load resolves the configuration: defaults, then the YAML file if present, then
-// environment overrides. A missing config file is not an error.
+// environment overrides. A missing config file is not an error. Unknown YAML
+// keys and unusable values (bad timezone, inverted workday window) ARE errors —
+// a typo'd key or clock silently falling back to a default is how a config
+// change goes unnoticed.
 func Load() (Config, error) {
 	cfg := Default()
 
 	path := configPath()
 	if data, err := os.ReadFile(path); err == nil {
-		if err := yaml.Unmarshal(data, &cfg); err != nil {
+		dec := yaml.NewDecoder(bytes.NewReader(data))
+		dec.KnownFields(true)
+		// Decode returns io.EOF for an empty (or comment-only) file; that is a
+		// valid "all defaults" config, not a parse error.
+		if err := dec.Decode(&cfg); err != nil && !errors.Is(err, io.EOF) {
 			return cfg, fmt.Errorf("parse %s: %w", path, err)
 		}
 	} else if !os.IsNotExist(err) {
@@ -133,7 +143,48 @@ func Load() (Config, error) {
 	}
 
 	applyEnvOverrides(&cfg)
+	if err := cfg.Validate(); err != nil {
+		return cfg, fmt.Errorf("config: %w", err)
+	}
 	return cfg, nil
+}
+
+// Validate reports configuration values that cannot work: an unresolvable
+// timezone, an unparsable workday clock, or an inverted workday window. Load
+// calls it after the file and environment are applied, so a bad value fails
+// fast at startup instead of silently falling back mid-run (the old behavior
+// dated everything at the workday start when end <= start).
+func (c Config) Validate() error {
+	if c.Timezone != "" && c.Timezone != "local" {
+		if _, err := time.LoadLocation(c.Timezone); err != nil {
+			return fmt.Errorf("timezone %q is not a recognized IANA zone (or \"local\")", c.Timezone)
+		}
+	}
+	start, err := parseClock(c.WorkdayStart)
+	if err != nil {
+		return fmt.Errorf("workday_start: %w", err)
+	}
+	end, err := parseClock(c.WorkdayEnd)
+	if err != nil {
+		return fmt.Errorf("workday_end: %w", err)
+	}
+	if end <= start {
+		return fmt.Errorf("workday_end %q must be after workday_start %q", c.WorkdayEnd, c.WorkdayStart)
+	}
+	return nil
+}
+
+// parseClock parses a required "HH:MM" value to minutes from midnight. Unlike
+// parseMinutes it has no silent fallback: Validate wants bad values loud.
+func parseClock(hhmm string) (int, error) {
+	if hhmm == "" {
+		return 0, fmt.Errorf("missing HH:MM value")
+	}
+	t, err := time.Parse("15:04", hhmm)
+	if err != nil {
+		return 0, fmt.Errorf("%q is not a valid HH:MM clock", hhmm)
+	}
+	return t.Hour()*60 + t.Minute(), nil
 }
 
 // configPath returns the location of the YAML config file.

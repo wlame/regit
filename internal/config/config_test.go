@@ -227,3 +227,74 @@ func TestApplyEnvOverrides_ignoresUnparsableValues(t *testing.T) {
 		t.Errorf("LinkDates = false, want true (default preserved)")
 	}
 }
+
+// writeConfig writes a config.yaml under a fresh XDG_CONFIG_HOME and points the
+// environment at it.
+func writeConfig(t *testing.T, yaml string) {
+	t.Helper()
+	dir := t.TempDir()
+	cfgDir := filepath.Join(dir, "regit")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", dir)
+}
+
+// TestLoad_unknownKeyErrors verifies strict YAML decoding: a typo'd key fails
+// loudly instead of being silently ignored (the old behavior meant a mistyped
+// "workday_strat:" never took effect and nobody noticed).
+func TestLoad_unknownKeyErrors(t *testing.T) {
+	writeConfig(t, "workday_strat: \"08:00\"\n")
+	if _, err := Load(); err == nil {
+		t.Fatal("unknown YAML key should be a load error")
+	}
+}
+
+// TestLoad_badTimezoneErrors verifies an unresolvable timezone fails at load
+// instead of silently falling back to the machine-local zone.
+func TestLoad_badTimezoneErrors(t *testing.T) {
+	writeConfig(t, "timezone: Mars/Olympus_Mons\n")
+	if _, err := Load(); err == nil {
+		t.Fatal("unknown timezone should be a load error")
+	}
+}
+
+// TestLoad_invertedWorkdayWindowErrors verifies workday_end <= workday_start is
+// rejected — the old silent behavior dated every commit at the workday start.
+func TestLoad_invertedWorkdayWindowErrors(t *testing.T) {
+	writeConfig(t, "workday_start: \"18:00\"\nworkday_end: \"09:00\"\n")
+	if _, err := Load(); err == nil {
+		t.Fatal("inverted workday window should be a load error")
+	}
+	writeConfig(t, "workday_end: \"not-a-clock\"\n")
+	if _, err := Load(); err == nil {
+		t.Fatal("unparsable workday clock should be a load error")
+	}
+}
+
+// TestLoad_emptyFileUsesDefaults verifies an empty or comment-only config file
+// is treated as "all defaults", not a decode error (KnownFields decoding
+// returns io.EOF for it).
+func TestLoad_emptyFileUsesDefaults(t *testing.T) {
+	writeConfig(t, "# nothing configured yet\n")
+	c, err := Load()
+	if err != nil {
+		t.Fatalf("comment-only config should load: %v", err)
+	}
+	if c.WorkdayStart != "09:00" {
+		t.Errorf("defaults not applied: workday_start=%s", c.WorkdayStart)
+	}
+}
+
+// TestLoad_badEnvTimezoneErrors verifies validation also covers values arriving
+// via REGIT_* env overrides, not just the file.
+func TestLoad_badEnvTimezoneErrors(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // no file
+	t.Setenv("REGIT_TIMEZONE", "Nowhere/Nope")
+	if _, err := Load(); err == nil {
+		t.Fatal("bad REGIT_TIMEZONE should be a load error")
+	}
+}

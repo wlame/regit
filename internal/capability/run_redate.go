@@ -114,6 +114,11 @@ func redateParams(ctx *RunContext, a ParsedArgs) (strategy.Params, error) {
 	p.PerDayMin, p.PerDayMax = a.Int("per-day-min"), a.Int("per-day-max")
 	p.OffsetDays, p.OffsetHours = a.Int("offset-days"), a.Int("offset-hours")
 	p.Scale = a.Float("scale")
+	// A zero or negative scale would collapse or invert the whole span; refuse
+	// it up front instead of producing an all-violations plan.
+	if a.Has("scale") && p.Scale <= 0 {
+		return p, fmt.Errorf("scale must be a positive number, got %g", p.Scale)
+	}
 
 	startMin, err := clockToMin(firstNonEmpty(a.String("workday-start"), ctx.Cfg.WorkdayStart))
 	if err != nil {
@@ -122,6 +127,12 @@ func redateParams(ctx *RunContext, a ParsedArgs) (strategy.Params, error) {
 	endMin, err := clockToMin(firstNonEmpty(a.String("workday-end"), ctx.Cfg.WorkdayEnd))
 	if err != nil {
 		return p, fmt.Errorf("workday-end: %w", err)
+	}
+	// config.Validate covers the config file, but the flags can re-invert the
+	// window per invocation; an inverted window dated everything at the start.
+	if endMin <= startMin {
+		return p, fmt.Errorf("workday-end (%02d:%02d) must be after workday-start (%02d:%02d)",
+			endMin/60, endMin%60, startMin/60, startMin%60)
 	}
 	p.DayStartMin, p.DayEndMin = startMin, endMin
 

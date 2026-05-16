@@ -253,3 +253,29 @@ func TestRedateParams_weekdaysFallBackToConfig(t *testing.T) {
 		t.Errorf("invalid config weekdays should degrade to all days, got %v", p3.WeekdayMask)
 	}
 }
+
+// TestRedateParams_rejectsNonPositiveScale verifies --scale=0 or a negative
+// scale is refused up front instead of collapsing or inverting the span.
+func TestRedateParams_rejectsNonPositiveScale(t *testing.T) {
+	ctx := &RunContext{Cfg: config.Default(), Now: time.Unix(1000, 0)}
+	for _, bad := range []float64{0, -0.5} {
+		if _, err := redateParams(ctx, newParsedArgs(map[string]any{"scale": bad}, nil)); err == nil {
+			t.Errorf("scale=%g should be rejected", bad)
+		}
+	}
+	if _, err := redateParams(ctx, newParsedArgs(map[string]any{"scale": 0.5}, nil)); err != nil {
+		t.Errorf("scale=0.5 should be accepted: %v", err)
+	}
+}
+
+// TestRedateParams_rejectsInvertedWorkdayFlags verifies the per-invocation
+// flags cannot re-invert the workday window config.Validate already guards.
+func TestRedateParams_rejectsInvertedWorkdayFlags(t *testing.T) {
+	ctx := &RunContext{Cfg: config.Default(), Now: time.Unix(1000, 0)}
+	_, err := redateParams(ctx, newParsedArgs(map[string]any{
+		"workday-start": "18:00", "workday-end": "09:00",
+	}, nil))
+	if err == nil {
+		t.Fatal("inverted workday window flags should be rejected")
+	}
+}
