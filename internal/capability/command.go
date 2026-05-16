@@ -48,6 +48,17 @@ type Param struct {
 	// drives BOTH validation and help. Empty = always applies.
 }
 
+// PositionalSpec describes a command's positional-argument slot as data, so
+// help, --llm-help, the JSON projection, and Validate all describe and enforce
+// the same arity. A nil spec on a Command means "takes no positionals" and
+// Validate rejects stray tokens.
+type PositionalSpec struct {
+	Name     string // placeholder shown in usage, e.g. "commit-ish", "range"
+	Help     string // one-line description for help surfaces
+	Required bool   // at least one value must be supplied
+	Variadic bool   // more than one value accepted
+}
+
 // Example is a correct or incorrect invocation, annotated with why (for --llm-help).
 type Example struct {
 	Cmd string // the command line
@@ -60,6 +71,7 @@ type Command struct {
 	Name        string                              // verb: "redate", "split", "retitle", "undo"
 	Summary     string                              // one-line purpose → terse --help
 	Mutating    bool                                // false = read-only; true = writes the repo
+	Positional  *PositionalSpec                     // positional-arg slot; nil = none accepted
 	Params      []Param                             // typed flags
 	Examples    []Example                           // correct AND incorrect, annotated
 	Limitations []string                            // constraints / side-effects / ordering

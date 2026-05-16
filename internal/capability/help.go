@@ -24,10 +24,41 @@ func HelpTerse() string {
 	return b.String()
 }
 
-// HelpCommand renders one command's flags (name, type hint, default, help).
+// usageLine renders "regit <verb> [<positional>…] [flags]" from the command's
+// PositionalSpec, so every help surface shows the same arity Validate enforces.
+func usageLine(c Command) string {
+	s := "regit " + c.Name
+	if p := c.Positional; p != nil {
+		arg := "<" + p.Name + ">"
+		if p.Variadic {
+			arg += "…"
+		}
+		if !p.Required {
+			arg = "[" + arg + "]"
+		}
+		s += " " + arg
+	}
+	return s + " [flags]"
+}
+
+// positionalHelp renders the one-line positional description, or "" when the
+// command takes none.
+func positionalHelp(c Command) string {
+	if c.Positional == nil {
+		return ""
+	}
+	return fmt.Sprintf("  <%s>  %s\n", c.Positional.Name, c.Positional.Help)
+}
+
+// HelpCommand renders one command's usage, positional slot, and flags (name,
+// type hint, default, help).
 func HelpCommand(c Command) string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("regit %s — %s\n\nFlags:\n", c.Name, c.Summary))
+	b.WriteString(fmt.Sprintf("regit %s — %s\n\nUsage:\n  %s\n", c.Name, c.Summary, usageLine(c)))
+	if ph := positionalHelp(c); ph != "" {
+		b.WriteString("\nArguments:\n" + ph)
+	}
+	b.WriteString("\nFlags:\n")
 	for _, p := range c.Params {
 		def := ""
 		if p.Default != "" {
@@ -106,7 +137,11 @@ func LLMHelp(format string) (string, error) {
 	for _, c := range Registry() {
 		b.WriteString(h2(c.Name))
 		b.WriteString(c.Summary + "\n\n")
-		b.WriteString("Flags:\n")
+		b.WriteString("Usage: " + usageLine(c) + "\n")
+		if ph := positionalHelp(c); ph != "" {
+			b.WriteString("Arguments:\n" + ph)
+		}
+		b.WriteString("\nFlags:\n")
 		for _, p := range c.Params {
 			applies := ""
 			if p.AppliesIf != "" {

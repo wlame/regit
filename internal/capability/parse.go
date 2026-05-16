@@ -89,10 +89,14 @@ func parseValue(p Param, raw string) (any, error) {
 	return nil, fmt.Errorf("unsupported param type")
 }
 
-// Validate enforces Required, Enum membership, and AppliesIf relevance from the
-// registry data — no per-flag branches. A required-and-applicable flag that is
-// absent, or an applicable flag whose AppliesIf predicate is false, is an error.
+// Validate enforces Required, Enum membership, AppliesIf relevance, and
+// positional arity from the registry data — no per-flag branches. A
+// required-and-applicable flag that is absent, or an applicable flag whose
+// AppliesIf predicate is false, is an error.
 func Validate(c Command, a ParsedArgs) error {
+	if err := validatePositionals(c, a); err != nil {
+		return err
+	}
 	for _, p := range c.Params {
 		applicable := relevanceHolds(p.AppliesIf, a)
 		if a.Has(p.Name) && !applicable {
@@ -109,6 +113,27 @@ func Validate(c Command, a ParsedArgs) error {
 				return fmt.Errorf("--%s must be one of: %s", p.Name, strings.Join(p.Enum, " "))
 			}
 		}
+	}
+	return nil
+}
+
+// validatePositionals enforces the command's PositionalSpec arity: a stray
+// token on a command with no positional slot (a mistyped flag value, a
+// misplaced date) was previously ignored silently; extras beyond a
+// single-value slot were dropped just as silently.
+func validatePositionals(c Command, a ParsedArgs) error {
+	got := len(a.Positional)
+	if c.Positional == nil {
+		if got > 0 {
+			return fmt.Errorf("%q takes no positional arguments, got %q", c.Name, a.Positional[0])
+		}
+		return nil
+	}
+	if c.Positional.Required && got == 0 {
+		return fmt.Errorf("%q requires a <%s> argument", c.Name, c.Positional.Name)
+	}
+	if !c.Positional.Variadic && got > 1 {
+		return fmt.Errorf("%q takes one <%s>, got %d", c.Name, c.Positional.Name, got)
 	}
 	return nil
 }

@@ -2,9 +2,12 @@ package capability
 
 import "testing"
 
-// testCmd is a small command exercising every relevance/type rule.
+// testCmd is a small command exercising every relevance/type rule. Its
+// variadic positional slot lets the positional-collection tests keep passing
+// under the arity validation.
 var testCmd = Command{
-	Name: "demo",
+	Name:       "demo",
+	Positional: &PositionalSpec{Name: "ref", Help: "x", Variadic: true},
 	Params: []Param{
 		{Name: "strategy", Type: ParamEnum, Enum: strategyNames(), Required: true, Help: "x"},
 		{Name: "pin", Type: ParamKeyVals, AppliesIf: "strategy=Manual-Pin", Help: "x"},
@@ -69,5 +72,34 @@ func TestParseLeadingAndTrailingPositional(t *testing.T) {
 	}
 	if len(a.Positional) != 2 || a.Positional[0] != "A" || a.Positional[1] != "B" {
 		t.Errorf("positionals = %v", a.Positional)
+	}
+}
+
+// TestValidate_positionalArity verifies the registry-driven positional rules:
+// a command without a slot rejects stray tokens, a required slot must be
+// filled, and a single-value slot rejects extras (all were silently ignored
+// or dropped before).
+func TestValidate_positionalArity(t *testing.T) {
+	redate, _ := Lookup("redate")
+	if _, err := Parse(redate, []string{"HEAD", "--strategy=Even-Spread"}); err == nil {
+		t.Error("redate should reject a positional argument")
+	}
+
+	squash, _ := Lookup("squash")
+	if _, err := Parse(squash, []string{}); err == nil {
+		t.Error("squash should require a <range> argument")
+	}
+
+	split, _ := Lookup("split")
+	if _, err := Parse(split, []string{"HEAD", "HEAD~1"}); err == nil {
+		t.Error("split should reject a second positional (it takes exactly one)")
+	}
+	if _, err := Parse(split, []string{}); err != nil {
+		t.Errorf("split without a positional defaults to HEAD, got: %v", err)
+	}
+
+	reword, _ := Lookup("reword")
+	if _, err := Parse(reword, []string{"HEAD~2", "HEAD"}); err != nil {
+		t.Errorf("reword is variadic, got: %v", err)
 	}
 }

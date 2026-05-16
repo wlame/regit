@@ -14,6 +14,9 @@ var registry = []Command{
 		Name:      "split",
 		Summary:   "Split one commit into 2–4 semantic commits using an LLM.",
 		Mutating:  true,
+		Positional: &PositionalSpec{
+			Name: "commit-ish", Help: "the commit to split — hash, HEAD~n, or branch (default: HEAD)",
+		},
 		Workspace: WSRestructure,
 		Selection: SelSingle,
 		Params: []Param{
@@ -47,6 +50,9 @@ var registry = []Command{
 		Name:      "reword",
 		Summary:   "Regenerate commit message(s) with an LLM (one proposal headless).",
 		Mutating:  true,
+		Positional: &PositionalSpec{
+			Name: "commit-ish", Help: "the commit(s) to reword (default: HEAD)", Variadic: true,
+		},
 		Workspace: WSRestructure,
 		Selection: SelSingle,
 		Params: []Param{
@@ -81,6 +87,10 @@ var registry = []Command{
 		Name:      "squash",
 		Summary:   "Squash consecutive commits into one per chain (LLM-summarized message).",
 		Mutating:  true,
+		Positional: &PositionalSpec{
+			Name: "range", Help: "chain spec(s), git range semantics: A^..B includes A; comma- or space-separated for several chains",
+			Required: true, Variadic: true,
+		},
 		Workspace: WSRestructure,
 		Selection: SelSet,
 		Params: []Param{

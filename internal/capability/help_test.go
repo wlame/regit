@@ -60,3 +60,33 @@ func TestLLMHelpJSONParses(t *testing.T) {
 		t.Errorf("json has %d commands, registry has %d", len(cmds), len(Registry()))
 	}
 }
+
+// TestHelp_positionalProjection verifies the PositionalSpec drives every help
+// surface: the per-command usage line, the --llm-help document, and the JSON
+// projection all describe the same slot.
+func TestHelp_positionalProjection(t *testing.T) {
+	squash, _ := Lookup("squash")
+	hc := HelpCommand(squash)
+	if !strings.Contains(hc, "regit squash <range>… [flags]") {
+		t.Errorf("HelpCommand usage line missing required variadic <range>:\n%s", hc)
+	}
+	if !strings.Contains(hc, "<range>") || !strings.Contains(hc, "chain spec") {
+		t.Errorf("HelpCommand missing the positional description:\n%s", hc)
+	}
+
+	txt, err := LLMHelp("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(txt, "regit split [<commit-ish>] [flags]") {
+		t.Errorf("LLMHelp missing split usage line")
+	}
+
+	js, err := LLMHelp("json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(js, `"Positional"`) || !strings.Contains(js, `"commit-ish"`) {
+		t.Errorf("JSON projection missing the positional spec")
+	}
+}
