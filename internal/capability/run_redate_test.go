@@ -88,17 +88,24 @@ func TestRedateParams_jitterZeroDisablesJitter(t *testing.T) {
 	}
 }
 
-// TestRedateParams_invalidLunchClockIsSilentlyDisabled documents that an invalid
-// lunch clock is swallowed (the gap is disabled), unlike workday-start/end which
-// propagate the parse error.
-func TestRedateParams_invalidLunchClockIsSilentlyDisabled(t *testing.T) {
+// TestRedateParams_invalidLunchClockErrors verifies a bad lunch clock is
+// rejected exactly like a bad workday clock — the old behavior silently
+// disabled the gap on a typo.
+func TestRedateParams_invalidLunchClockErrors(t *testing.T) {
 	ctx := &RunContext{Cfg: config.Default(), Now: time.Unix(1000, 0)}
-	p, err := redateParams(ctx, newParsedArgs(map[string]any{"lunch-start": "99:99"}, nil))
-	if err != nil {
-		t.Fatalf("redateParams should not error on a bad lunch clock: %v", err)
+	if _, err := redateParams(ctx, newParsedArgs(map[string]any{"lunch-start": "99:99"}, nil)); err == nil {
+		t.Fatal("a bad lunch clock should be a parse error, like workday clocks")
 	}
-	if p.LunchStart != 0 {
-		t.Errorf("LunchStart = %d, want 0 (invalid lunch clock should disable the gap)", p.LunchStart)
+	if _, err := redateParams(ctx, newParsedArgs(map[string]any{"lunch-end": "nope"}, nil)); err == nil {
+		t.Fatal("a bad lunch-end clock should be a parse error")
+	}
+	// Valid clocks still parse.
+	p, err := redateParams(ctx, newParsedArgs(map[string]any{"lunch-start": "12:30", "lunch-end": "13:00"}, nil))
+	if err != nil {
+		t.Fatalf("valid lunch clocks should parse: %v", err)
+	}
+	if p.LunchStart != 12*60+30 || p.LunchEnd != 13*60 {
+		t.Errorf("lunch window = %d–%d, want 750–780", p.LunchStart, p.LunchEnd)
 	}
 }
 

@@ -145,11 +145,17 @@ func redateParams(ctx *RunContext, a ParsedArgs) (strategy.Params, error) {
 	if a.Has("jitter-min") { // an explicit 0 disables jitter; only omission keeps the config default
 		p.JitterMin = a.Int("jitter-min")
 	}
+	// Lunch clocks propagate parse errors exactly like the workday clocks above;
+	// the old silent `_ =` swallow disabled the gap on a typo like "12:3O".
 	if ls := firstNonEmpty(a.String("lunch-start"), ctx.Cfg.LunchStart); ls != "" {
-		p.LunchStart, _ = clockToMin(ls)
+		if p.LunchStart, err = clockToMin(ls); err != nil {
+			return p, fmt.Errorf("lunch-start: %w", err)
+		}
 	}
 	if le := firstNonEmpty(a.String("lunch-end"), ctx.Cfg.LunchEnd); le != "" {
-		p.LunchEnd, _ = clockToMin(le)
+		if p.LunchEnd, err = clockToMin(le); err != nil {
+			return p, fmt.Errorf("lunch-end: %w", err)
+		}
 	}
 	if s := a.Int("seed"); s != 0 {
 		p.Seed = int64(s)
