@@ -3,7 +3,10 @@ package capability
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
+
+	"github.com/wlame/regit/internal/config"
 )
 
 // HelpTerse renders the top-level usage: the verb list with one-line summaries
@@ -181,8 +184,27 @@ func LLMHelp(format string) (string, error) {
 	}
 
 	b.WriteString(h2("Environment variables"))
-	b.WriteString("  REGIT_* override config (REGIT_TIMEZONE, REGIT_DEFAULT_STRATEGY, REGIT_SEED, …).\n")
-	b.WriteString("  API keys (env only): REGIT_LLM_API_KEY → OPENAI_API_KEY / OPENROUTER_API_KEY → none (local).\n\n")
+	b.WriteString("Config overrides (env beats the YAML file; the list is projected from the\n")
+	b.WriteString("same table the config loader reads):\n")
+	for _, name := range config.EnvOverrideNames() {
+		b.WriteString("  " + name + "\n")
+	}
+	b.WriteString("\nAPI keys (env only, never flags): REGIT_LLM_API_KEY overrides every provider;\n")
+	b.WriteString("otherwise the provider-standard variable applies:\n")
+	for _, provider := range sortedKeys(providerEnvKeys) {
+		b.WriteString(fmt.Sprintf("  %-12s %s\n", provider, providerEnvKeys[provider]))
+	}
+	b.WriteString("Local providers (ollama, lmstudio) need no key.\n\n")
 	b.WriteString("Source & docs: https://github.com/wlame/regit\n")
 	return b.String(), nil
+}
+
+// sortedKeys returns the map's keys in sorted order, for deterministic output.
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }

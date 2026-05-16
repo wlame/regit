@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/wlame/regit/internal/config"
 )
 
 func TestHelpTerseListsEveryVerb(t *testing.T) {
@@ -88,5 +90,29 @@ func TestHelp_positionalProjection(t *testing.T) {
 	}
 	if !strings.Contains(js, `"Positional"`) || !strings.Contains(js, `"commit-ish"`) {
 		t.Errorf("JSON projection missing the positional spec")
+	}
+}
+
+// TestLLMHelp_envSectionIsProjected verifies the env-var section of --llm-help
+// lists every override the config loader actually honors (projected from
+// config.EnvOverrideNames) and every provider API-key variable — adding a row
+// to either table updates the doc automatically.
+func TestLLMHelp_envSectionIsProjected(t *testing.T) {
+	txt, err := LLMHelp("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range config.EnvOverrideNames() {
+		if !strings.Contains(txt, name) {
+			t.Errorf("--llm-help missing env override %s", name)
+		}
+	}
+	for provider, envVar := range providerEnvKeys {
+		if !strings.Contains(txt, envVar) {
+			t.Errorf("--llm-help missing %s API key var %s", provider, envVar)
+		}
+	}
+	if !strings.Contains(txt, "REGIT_LLM_API_KEY") {
+		t.Errorf("--llm-help missing the tool-wide REGIT_LLM_API_KEY")
 	}
 }
