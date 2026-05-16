@@ -207,3 +207,25 @@ func TestApplySplit_returnsRemapForBoundaryAndTail(t *testing.T) {
 		t.Errorf("Tail[lastTail] = %s, want newHead %s", remap.Tail[tail[len(tail)-1].Hash], newHead)
 	}
 }
+
+// TestSubCommitMessage_normalizesSubject verifies that LLM-supplied subjects are
+// normalized when the commit object is CREATED, not just when displayed: an
+// embedded newline can no longer produce a multi-line subject in the real
+// commit, and escape sequences are stripped. Bodies keep their structure.
+func TestSubCommitMessage_normalizesSubject(t *testing.T) {
+	cases := []struct {
+		name, subject, body, want string
+	}{
+		{"newline folds", "Add parser\nsneaky second line", "", "Add parser sneaky second line\n"},
+		{"escape stripped", "Add\x1b]0;pwned\x07 parser", "", "Add parser\n"},
+		{"whitespace trimmed", "  Add parser  ", "", "Add parser\n"},
+		{"body preserved", "Add parser", "line one\nline two", "Add parser\n\nline one\nline two\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := subCommitMessage(tc.subject, tc.body); got != tc.want {
+				t.Errorf("subCommitMessage(%q, %q) = %q, want %q", tc.subject, tc.body, got, tc.want)
+			}
+		})
+	}
+}

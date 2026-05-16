@@ -113,10 +113,7 @@ func squashSpec(ch model.SquashChain, last model.Commit) SubCommit {
 // commitSquash creates the single squashed commit object on top of parent ("" =
 // root). The message is fed on stdin to avoid shell-escaping multi-line bodies.
 func (r *Repo) commitSquash(s SubCommit, parent string, sign SignMode) (string, error) {
-	message := s.Subject + "\n"
-	if s.Body != "" {
-		message = s.Subject + "\n\n" + s.Body + "\n"
-	}
+	message := subCommitMessage(s.Subject, s.Body)
 	env := []string{
 		"GIT_AUTHOR_NAME=" + s.AuthorName,
 		"GIT_AUTHOR_EMAIL=" + s.AuthorEmail,

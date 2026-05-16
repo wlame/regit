@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/wlame/regit/internal/model"
+	"github.com/wlame/regit/internal/termsafe"
 )
 
 // SubCommit describes one piece of a split: a fully-built tree plus the message,
@@ -93,14 +94,28 @@ func (r *Repo) ApplySplit(parentHash string, subs []SubCommit, tail []model.Comm
 	return newHead, SplitRemap{LastSub: lastSub, Tail: tailRemap}, nil
 }
 
-// commitSub creates a single sub-commit object on top of parent. The message is
-// assembled from the SubCommit's subject and optional body, then fed to
-// commit-tree via stdin to avoid shell-escaping pitfalls.
-func (r *Repo) commitSub(s SubCommit, parent string, sign SignMode) (string, error) {
-	message := s.Subject + "\n"
-	if s.Body != "" {
-		message = s.Subject + "\n\n" + s.Body + "\n"
+// subCommitMessage assembles the commit message for a synthesized (split or
+// squash) commit. The subject is LLM- or user-supplied, so it is normalized at
+// CREATION time, not just at display: escape sequences and control bytes are
+// stripped and embedded newlines fold to spaces (termsafe.Line), then the
+// result is whitespace-trimmed. Without this, a model reply containing "\n"
+// would write a multi-line subject into the real commit object — every later
+// `git log --oneline` would show only its first fragment. The body keeps its
+// newlines untouched; multi-line bodies are legitimate structure.
+func subCommitMessage(subject, body string) string {
+	subj := strings.TrimSpace(termsafe.Line(subject))
+	if body != "" {
+		return subj + "\n\n" + body + "\n"
 	}
+	return subj + "\n"
+}
+
+// commitSub creates a single sub-commit object on top of parent. The message is
+// assembled from the SubCommit's subject and optional body (see
+// subCommitMessage), then fed to commit-tree via stdin to avoid shell-escaping
+// pitfalls.
+func (r *Repo) commitSub(s SubCommit, parent string, sign SignMode) (string, error) {
+	message := subCommitMessage(s.Subject, s.Body)
 	env := []string{
 		"GIT_AUTHOR_NAME=" + s.AuthorName,
 		"GIT_AUTHOR_EMAIL=" + s.AuthorEmail,
