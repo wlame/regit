@@ -212,3 +212,44 @@ func TestRedatePreview_warnsAboutMerges(t *testing.T) {
 		t.Errorf("expected dry-run preview to warn about merge commits:\n%s", out.String())
 	}
 }
+
+// TestRedateParams_weekdaysFallBackToConfig verifies that a headless redate
+// without --weekdays uses the configured weekday set — the same default the TUI
+// seeds its strategies with — instead of silently distributing over all seven
+// days. An explicit flag still wins, and a config mask with no valid names
+// degrades to all days.
+func TestRedateParams_weekdaysFallBackToConfig(t *testing.T) {
+	cfg := config.Default()
+	cfg.Weekdays = []string{"mon", "wed"}
+	ctx := &RunContext{Cfg: cfg, Now: time.Unix(1000, 0)}
+
+	p, err := redateParams(ctx, newParsedArgs(map[string]any{}, nil))
+	if err != nil {
+		t.Fatalf("redateParams: %v", err)
+	}
+	want := [7]bool{}
+	want[int(time.Monday)], want[int(time.Wednesday)] = true, true
+	if [7]bool(p.WeekdayMask) != want {
+		t.Errorf("WeekdayMask = %v, want config days mon+wed", p.WeekdayMask)
+	}
+
+	// An explicit --weekdays flag overrides the config.
+	p2, err := redateParams(ctx, newParsedArgs(map[string]any{"weekdays": []string{"sat"}}, nil))
+	if err != nil {
+		t.Fatalf("redateParams: %v", err)
+	}
+	if !p2.WeekdayMask[int(time.Saturday)] || p2.WeekdayMask[int(time.Monday)] {
+		t.Errorf("--weekdays flag should override config, got %v", p2.WeekdayMask)
+	}
+
+	// A config mask with no valid day names degrades to all days, not none.
+	cfg.Weekdays = []string{"noday"}
+	ctx = &RunContext{Cfg: cfg, Now: time.Unix(1000, 0)}
+	p3, err := redateParams(ctx, newParsedArgs(map[string]any{}, nil))
+	if err != nil {
+		t.Fatalf("redateParams: %v", err)
+	}
+	if !p3.WeekdayMask.Any() || !p3.WeekdayMask[int(time.Sunday)] {
+		t.Errorf("invalid config weekdays should degrade to all days, got %v", p3.WeekdayMask)
+	}
+}

@@ -124,7 +124,7 @@ var registry = []Command{
 			{Name: "time", Type: ParamEnum, Enum: timeModelNames(), Help: "time-of-day model (default: config)"},
 			{Name: "start", Type: ParamDate, Help: "first calendar day of the range"},
 			{Name: "end", Type: ParamDate, Help: "last calendar day of the range"},
-			{Name: "weekdays", Type: ParamStringList, Help: "eligible weekdays, e.g. mon,tue,wed"},
+			{Name: "weekdays", Type: ParamStringList, Help: "eligible weekdays, e.g. mon,tue,wed (default: configured weekdays)"},
 			{Name: "from", Type: ParamString, Help: "freeze history before this rev (default: all)"},
 			{Name: "seed", Type: ParamInt, Default: "0", Help: "RNG seed for randomized strategies"},
 			{Name: "link-dates", Type: ParamBool, Default: "true", Help: "keep committer date == author date"},

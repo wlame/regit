@@ -94,7 +94,14 @@ func redateParams(ctx *RunContext, a ParsedArgs) (strategy.Params, error) {
 	if wd := a.List("weekdays"); len(wd) > 0 {
 		p.WeekdayMask = weekdayMask(wd)
 	} else {
-		p.WeekdayMask = strategy.AllWeekdays()
+		// No flag: fall back to the configured weekday set — the same default
+		// the TUI seeds its strategies with (see ui/palette.go) — so a headless
+		// redate and a TUI redate distribute over the same days. A config mask
+		// with no valid day names degrades to all days rather than none.
+		p.WeekdayMask = strategy.WeekdayMask(ctx.Cfg.WeekdayMask())
+		if !p.WeekdayMask.Any() {
+			p.WeekdayMask = strategy.AllWeekdays()
+		}
 	}
 
 	p.Quotas = a.KeyVals("pin")
