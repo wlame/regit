@@ -37,7 +37,11 @@ func runUndo(ctx *RunContext, a ParsedArgs) error {
 		return nil
 	}
 	if len(refs) == 0 {
-		return runtimeErr("nothing to undo: no backup refs")
+		// A repo with no backups is a benign no-op, not a runtime failure —
+		// matching squash's "nothing to squash" and reauthor's "nothing to
+		// change" convention (exit 0).
+		fmt.Fprintln(ctx.Stdout, "Nothing to undo: no backup refs.")
+		return nil
 	}
 
 	var target gitio.BackupRef
@@ -76,11 +80,15 @@ func runUndo(ctx *RunContext, a ParsedArgs) error {
 			}
 		}
 		if !found {
+			// Unlike the empty-repo no-op above, backups DO exist here — they
+			// just cannot be picked implicitly (legacy or other-branch refs).
+			// That is a guard refusal (exit 2), not a success and not a
+			// runtime failure: the user must choose one with --to.
 			if legacy > 0 {
-				return runtimeErr("nothing to undo for branch %s (%d legacy backup(s) exist; restore one explicitly with --to=<ref>)",
+				return guardErr("nothing to undo for branch %s (%d legacy backup(s) exist; restore one explicitly with --to=<ref>)",
 					state.Branch, legacy)
 			}
-			return runtimeErr("nothing to undo for branch %s (regit undo --list shows all backups)", state.Branch)
+			return guardErr("nothing to undo for branch %s (regit undo --list shows all backups)", state.Branch)
 		}
 	}
 

@@ -272,7 +272,7 @@ var registry = []Command{
 			"Always creates a pre-undo backup of the current tip first, so the undo itself can be undone.",
 			"Refuses (exit 2) when HEAD has advanced past the head the backup's apply produced, unless --force; backups from before this guard existed have no paired record and are never blocked.",
 		},
-		ExitCodes: map[int]string{0: "ok", 1: "usage error", 2: "guard blocked (backup from another branch, or HEAD moved past the backup without --force)", 3: "restore error"},
+		ExitCodes: map[int]string{0: "ok / nothing to undo", 1: "usage error", 2: "guard blocked (backup from another branch, or HEAD moved past the backup without --force)", 3: "restore error"},
 	},
 }
 

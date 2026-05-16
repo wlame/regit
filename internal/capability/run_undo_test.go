@@ -385,3 +385,18 @@ func TestRunUndo_legacyBackupDegradesGuard(t *testing.T) {
 			len(refsBefore), len(refsAfter))
 	}
 }
+
+// TestUndoNothingToUndoExitsZero verifies a repo with no backups makes plain
+// `undo` a benign no-op (nil error → exit 0), matching squash's
+// "nothing to squash" convention, instead of the old exit-3 runtime error.
+func TestUndoNothingToUndoExitsZero(t *testing.T) {
+	_, repo := newTestRepo(t, 2)
+	var out bytes.Buffer
+	ctx := &RunContext{Repo: repo, Cfg: config.Default(), Stdout: &out, Stderr: &out, Now: time.Unix(1000, 0)}
+	if err := runUndo(ctx, newParsedArgs(map[string]any{}, nil)); err != nil {
+		t.Fatalf("undo with no backups should be a no-op, got: %v", err)
+	}
+	if !bytes.Contains(out.Bytes(), []byte("Nothing to undo")) {
+		t.Errorf("expected a 'Nothing to undo' notice:\n%s", out.String())
+	}
+}
