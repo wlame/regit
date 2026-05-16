@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/wlame/regit/internal/termsafe"
 )
 
 // wrapWidth is the column past which Render wraps a long invocation onto a
@@ -28,7 +30,7 @@ func Render(name string, argMap map[string]string) string {
 
 	var parts []string
 	parts = append(parts, "regit", c.Name)
-	if pos := argMap["_positional"]; pos != "" {
+	if pos := termsafe.Line(argMap["_positional"]); pos != "" {
 		parts = append(parts, pos)
 	}
 
@@ -38,6 +40,11 @@ func Render(name string, argMap map[string]string) string {
 		if pName == "_positional" {
 			return
 		}
+		// argMap values can carry repo- or LLM-derived text (a reauthor name
+		// prefilled from an untrusted commit, a retitle pattern). shellQuote makes
+		// them shell-safe but passes raw control bytes through, so a crafted value
+		// could still smuggle escape sequences into the footer and command.log.
+		val = termsafe.Line(val)
 		if val == "" || val == defaults[pName] {
 			return
 		}

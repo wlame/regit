@@ -149,3 +149,26 @@ func mustLookup(t *testing.T, name string) Command {
 	}
 	return c
 }
+
+// TestRender_sanitizesControlBytes verifies that repo- or LLM-derived argMap
+// values cannot smuggle terminal escape sequences into the rendered footer /
+// command.log line: control bytes are stripped and newlines folded, in both
+// flag values and the positional slot.
+func TestRender_sanitizesControlBytes(t *testing.T) {
+	line := Render("reauthor", map[string]string{
+		"name":    "Eve\x1b]0;pwned\x07",
+		"email":   "eve@example.com",
+		"execute": "true",
+	})
+	if strings.Contains(line, "\x1b") || strings.Contains(line, "\x07") {
+		t.Fatalf("rendered line contains raw control bytes: %q", line)
+	}
+	if !strings.Contains(line, "Eve") {
+		t.Fatalf("sanitization dropped the legitimate value: %q", line)
+	}
+
+	pos := Render("split", map[string]string{"_positional": "HEAD\x1b[2J", "execute": "true"})
+	if strings.Contains(pos, "\x1b") {
+		t.Fatalf("positional slot leaked an escape byte: %q", pos)
+	}
+}
