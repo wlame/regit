@@ -15,7 +15,15 @@ func resolveTargets(repo *gitio.Repo, commits []model.Commit, spec string) ([]mo
 	if spec == "" {
 		return commits, nil
 	}
+	// Without these checks, Cut on "A...B" yields hi=".B" and "A.." yields
+	// hi="" — both fed to FindCommit as bogus refs with a baffling error.
+	if strings.Contains(spec, "...") {
+		return nil, fmt.Errorf("range %q: three-dot ranges are not supported; use two-dot A..B (git range semantics, A excluded)", spec)
+	}
 	if lo, hi, ok := strings.Cut(spec, ".."); ok {
+		if hi == "" {
+			return nil, fmt.Errorf("range %q: missing endpoint after \"..\" — use A..B (e.g. %sHEAD)", spec, spec)
+		}
 		hiIdx, err := FindCommit(repo, commits, hi)
 		if err != nil {
 			return nil, err

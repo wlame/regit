@@ -2,6 +2,7 @@ package capability
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -105,5 +106,25 @@ func TestResolveTargets(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestResolveTargets_rejectsMalformedRanges verifies three-dot ranges and a
+// missing right endpoint fail with a clear message — Cut on "A...B" used to
+// yield the bogus ref ".B" and "A.." an empty one, both surfacing as a
+// baffling FindCommit error.
+func TestResolveTargets_rejectsMalformedRanges(t *testing.T) {
+	_, repo := newTestRepo(t, 3)
+	commits, _ := repo.ReadCommits()
+
+	for _, spec := range []string{"HEAD~2...HEAD", "HEAD~1.."} {
+		_, err := resolveTargets(repo, commits, spec)
+		if err == nil {
+			t.Errorf("spec %q should be rejected", spec)
+			continue
+		}
+		if !strings.Contains(err.Error(), "A..B") {
+			t.Errorf("spec %q error should point at A..B syntax, got: %v", spec, err)
+		}
 	}
 }
