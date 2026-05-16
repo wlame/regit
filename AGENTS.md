@@ -353,7 +353,11 @@ regit squash <range-ish>
   …), no trailer (`Co-Authored-By:`, `Signed-off-by:`).
 
 - **Config env vars are `REGIT_*`**, not `GHIST_*` (an old name that was renamed).
-  The config package is the single place they are read.
+  The config package is the single place they are read. Loading is STRICT:
+  unknown YAML keys, an unresolvable timezone, an unparsable workday clock, or an
+  inverted workday window are `Load` errors (`Config.Validate`), never silent
+  fallbacks. Headless redate defaults its weekday mask from `cfg.Weekdays` (same
+  as the TUI); `--weekdays` overrides it.
 
 - **API keys come from env vars only.** Resolution order: `REGIT_LLM_API_KEY`
   (tool-wide) → `OPENAI_API_KEY` / `OPENROUTER_API_KEY` (provider-standard) →
@@ -403,6 +407,12 @@ regit squash <range-ish>
   (`Line`/`Block`) strips ANSI/OSC escape sequences and stray control bytes; every
   render site that emits a commit subject, author, path, body, or LLM subject routes
   through it, so a crafted commit cannot spoof the terminal or write the clipboard.
+  Two boundaries sanitize beyond display: `capability.Render` scrubs every argMap
+  value (footer + command.log lines carry no control bytes), and split/squash
+  subjects are normalized when the commit object is CREATED
+  (`gitio.subCommitMessage` — newlines fold, escapes strip, whitespace trims), so
+  an LLM reply can never write a multi-line or escape-carrying subject into real
+  history.
 
 - **`--sign` re-signs; the default drops signatures after warning.** `pipeline.go`'s
   `signMode` resolves `--sign` to `gitio.ReSign` and fails fast (exit 2) if the
@@ -433,7 +443,8 @@ regit squash <range-ish>
   `/proc`, `~/.netrc`, `~/.git-credentials`, `.env`/`.env.*`, `*.pem`, `id_rsa*`,
   `id_ed25519*`, …. The subprocess also runs with a **scrubbed environment**
   (`scrubbedAgentEnv`, dropping `*API_KEY*`/`*TOKEN*`/`*SECRET*`/cloud vars) so
-  `Read(/proc/self/environ)` cannot exfiltrate regit's secrets, and a user's
+  `Read(/proc/self/environ)` cannot exfiltrate regit's secrets (the `--test-cmd`
+  subprocess runs with the same `llm.ScrubbedEnv`), and a user's
   `--agent-args` are APPENDED to (never replace) the protections — an attempt to
   override `--permission-mode`/`--allowedTools`/`--disallowedTools` is refused. Any
   other path stays readable — treat `--agent-scan` as a trust boundary, never a
