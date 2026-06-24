@@ -665,3 +665,121 @@ func TestEngine_cacheHitRevalidatesCoverage(t *testing.T) {
 		t.Errorf("trees not rebuilt correctly: %v", trees)
 	}
 }
+
+// newThreeHunkRepo creates a repo whose child commit changes three separate
+// files (≥3 hunks), for tests that need proposals with more than two groups.
+func newThreeHunkRepo(t *testing.T) (*gitio.Repo, string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	gitE(t, dir, "init", "-q")
+	gitE(t, dir, "config", "commit.gpgsign", "false")
+	gitE(t, dir, "symbolic-ref", "HEAD", "refs/heads/main")
+
+	files := map[string][2]string{
+		"a.txt": {"hello\nworld\n", "HELLO\nworld\n"},
+		"b.txt": {"foo\nbar\n", "foo\nBAR\n"},
+		"c.txt": {"one\ntwo\n", "one\nTWO\n"},
+	}
+	for name, v := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(v[0]), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitE(t, dir, "add", "-A")
+	gitE(t, dir, "commit", "-q", "-m", "parent")
+	parent := gitE(t, dir, "rev-parse", "HEAD^{tree}")
+	for name, v := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(v[1]), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitE(t, dir, "add", "-A")
+	gitE(t, dir, "commit", "-q", "-m", "child: update a, b, c")
+	child := gitE(t, dir, "rev-parse", "HEAD^{tree}")
+
+	repo, err := gitio.Open(dir)
+	if err != nil {
+		t.Fatalf("gitio.Open: %v", err)
+	}
+	return repo, parent, child
+}
+
+// hunkForFile returns the hunk touching the given file.
+func hunkForFile(t *testing.T, hs []model.Hunk, file string) model.Hunk {
+	t.Helper()
+	for _, h := range hs {
+		if h.File == file {
+			return h
+		}
+	}
+	t.Fatalf("no hunk for %s", file)
+	return model.Hunk{}
+}
+
+// TestEngine_repairRegroupIsClamped verifies an oversized repair regroup is
+// clamped to the pre-repair group count, exactly like the initial proposal is
+// clamped — the repair path must not be a door around the MaxCommits cap.
+func TestEngine_repairRegroupIsClamped(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX sh not available on Windows")
+	}
+	repo, parent, child := newThreeHunkRepo(t)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	childCommit := commits[1]
+	hs, err := repo.Hunks(parent, child)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hs) < 3 {
+		t.Fatalf("need ≥3 hunks, got %d", len(hs))
+	}
+	hA, hB, hC := hunkForFile(t, hs, "a.txt"), hunkForFile(t, hs, "b.txt"), hunkForFile(t, hs, "c.txt")
+
+	// Test passes only once b.txt contains BAR: the initial stage 1 (a.txt
+	// only) fails, triggering a repair.
+	scriptPath := filepath.Join(t.TempDir(), "check.sh")
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\ngrep -q BAR b.txt\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	initial := model.SplitProposal{
+		ShouldSplit: true,
+		Groups: []model.HunkGroup{
+			{Order: 1, HunkIDs: []string{hA.ID}, Subject: "first"},
+			{Order: 2, HunkIDs: []string{hB.ID, hC.ID}, Subject: "second"},
+		},
+	}
+	// The repair reply exceeds the 2 groups it was asked for.
+	oversized := model.SplitProposal{
+		ShouldSplit: true,
+		Groups: []model.HunkGroup{
+			{Order: 1, HunkIDs: []string{hB.ID}, Subject: "r1"},
+			{Order: 2, HunkIDs: []string{hA.ID}, Subject: "r2"},
+			{Order: 3, HunkIDs: []string{hC.ID}, Subject: "r3"},
+		},
+	}
+
+	backend := &sequentialBackend{proposals: []model.SplitProposal{initial, oversized}}
+	eng := NewEngine(repo, backend, NewCache(t.TempDir()))
+	opts := Options{
+		MaxCommits: 4, LinesPerCommit: 100, MinSplitLines: 1,
+		RepairAttempts: 2, TestCmd: []string{"sh", scriptPath}, Now: time.Unix(0, 0),
+	}
+
+	got, trees, err := eng.Propose(context.Background(), childCommit, parent, "", opts)
+	if err != nil {
+		t.Fatalf("Propose: %v", err)
+	}
+	if len(got.Groups) != 2 {
+		t.Fatalf("oversized regroup not clamped: got %d groups, want 2", len(got.Groups))
+	}
+	if err := model.ValidateCoverage(got.Hunks, got.Groups); err != nil {
+		t.Errorf("clamped regroup lost coverage: %v", err)
+	}
+	if len(trees) != 2 || trees[len(trees)-1] != child {
+		t.Fatalf("trees wrong after clamped repair: %v", trees)
+	}
+}

@@ -238,6 +238,14 @@ func (e *Engine) buildAndValidate(ctx context.Context, commit model.Commit, pare
 			UserHint:      opts.UserHint,
 		}, llm.SchemaJSON())
 		if rerr == nil && regrouped.ShouldSplit && len(regrouped.Groups) >= 2 {
+			// The repair request asks for at most len(ordered) groups, but a
+			// model reply can exceed that; clamp exactly like Propose clamps
+			// the initial proposal, or the repair path would be the one door
+			// through which an oversized split escapes the MaxCommits cap.
+			if len(regrouped.Groups) > len(ordered) {
+				clamped := clampGroups(model.SplitProposal{Hunks: prop.Hunks, Groups: regrouped.Groups}, len(ordered))
+				regrouped.Groups = clamped.Groups
+			}
 			prop.Groups = regrouped.Groups
 		} else {
 			// Could not regroup; mark WIP and finish.
