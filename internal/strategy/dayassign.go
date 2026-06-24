@@ -247,15 +247,22 @@ func (RateFill) AssignDays(commits []model.Commit, p Params) ([]time.Time, error
 	rng := newSeeded(p.Seed)
 	out := make([]time.Time, len(commits))
 	ci := 0
-	di := 0
-	for ci < len(commits) {
-		day := days[di%len(days)]
+	for di := 0; ci < len(commits); di++ {
+		if di == len(days) {
+			// More commits than the range can hold at this rate: stack the
+			// remainder on the last day (matching ManualPin's overflow rule).
+			// The old modulo wrap restarted at the FIRST day, handing every
+			// overflow commit a date earlier than its predecessor.
+			for ; ci < len(commits); ci++ {
+				out[ci] = days[len(days)-1]
+			}
+			break
+		}
 		n := lo + rng.Intn(hi-lo+1)
 		for k := 0; k < n && ci < len(commits); k++ {
-			out[ci] = day
+			out[ci] = days[di]
 			ci++
 		}
-		di++
 	}
 	return out, nil
 }

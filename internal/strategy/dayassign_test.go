@@ -197,6 +197,30 @@ func TestRateFill_placesAllCommitsWithinBounds(t *testing.T) {
 	}
 }
 
+// TestRateFill_overflowStacksOnLastDay verifies that when the eligible range
+// cannot hold every commit at the configured rate, the remainder stacks on the
+// LAST day (like ManualPin) — the old modulo wrap restarted at the first day,
+// handing overflow commits dates earlier than their predecessors.
+func TestRateFill_overflowStacksOnLastDay(t *testing.T) {
+	commits := makeCommits(10)
+	p := paramsRange("2026-03-02", "2026-03-03") // two eligible days
+	p.PerDayMin, p.PerDayMax = 1, 1              // capacity 2 < 10 commits
+	days, err := RateFill{}.AssignDays(commits, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Dates must be monotonically non-decreasing — no backward wrap.
+	for i := 1; i < len(days); i++ {
+		if days[i].Before(days[i-1]) {
+			t.Fatalf("dates jump backward at %d: %s < %s", i, days[i], days[i-1])
+		}
+	}
+	last := days[len(days)-1]
+	if dayKey(last) != "2026-03-03" {
+		t.Errorf("overflow should stack on the last day, ended on %s", dayKey(last))
+	}
+}
+
 func TestRateFill_deterministicForSeed(t *testing.T) {
 	commits := makeCommits(7)
 	p := paramsRange("2026-03-01", "2026-03-31")
