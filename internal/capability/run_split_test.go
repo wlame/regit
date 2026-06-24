@@ -375,3 +375,41 @@ func TestBuildSplitOptionsContextKeyFromConfig(t *testing.T) {
 		t.Errorf("default ContextKey = %q, want %q", got, "readme")
 	}
 }
+
+// TestRunSplitDryRunMessageHonorsNoCache verifies the dry-run footer does not
+// claim "proposal cached" when --no-cache sent the proposal to a throwaway
+// temp cache that is deleted on return.
+func TestRunSplitDryRunMessageHonorsNoCache(t *testing.T) {
+	_, repo := newSplittableCapabilityRepo(t)
+	cfg := config.Default()
+	cfg.Split.MinSplitLines = 1
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := commits[1]
+	payload := twoGroupPayload(t, repo, child)
+
+	run := func(noCache bool) string {
+		var out bytes.Buffer
+		ctx := &RunContext{
+			Repo: repo, Cfg: cfg, Stdout: &out, Stderr: &out,
+			Now: time.Unix(1000, 0), Backend: stubBackend{payload: payload},
+		}
+		args := map[string]any{}
+		if noCache {
+			args["no-cache"] = true
+		}
+		if err := runSplit(ctx, newParsedArgs(args, []string{"HEAD"})); err != nil {
+			t.Fatalf("runSplit(noCache=%v): %v", noCache, err)
+		}
+		return out.String()
+	}
+
+	if got := run(true); bytes.Contains([]byte(got), []byte("proposal cached")) {
+		t.Errorf("--no-cache dry run must not claim the proposal was cached:\n%s", got)
+	}
+	if got := run(false); !bytes.Contains([]byte(got), []byte("proposal cached")) {
+		t.Errorf("default dry run should still mention the cached proposal:\n%s", got)
+	}
+}

@@ -96,7 +96,13 @@ func runSplit(ctx *RunContext, a ParsedArgs) error {
 	reportImpact(ctx, ctx.Stdout, rewritten)
 
 	if !a.Bool("execute") {
-		fmt.Fprintln(ctx.Stdout, "\n(dry run — nothing applied; proposal cached; pass --execute to apply)")
+		// Under --no-cache the proposal went to a throwaway temp cache that is
+		// already gone, so claiming "proposal cached" would be a lie.
+		note := "proposal cached; "
+		if a.Bool("no-cache") {
+			note = ""
+		}
+		fmt.Fprintf(ctx.Stdout, "\n(dry run — nothing applied; %spass --execute to apply)\n", note)
 		return nil
 	}
 
