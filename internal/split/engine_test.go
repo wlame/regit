@@ -555,3 +555,53 @@ func TestRunTest_scrubsSecretEnv(t *testing.T) {
 		t.Fatalf("non-secret env unexpectedly scrubbed: %v", err)
 	}
 }
+
+// tallyBackend returns a fixed raw payload and counts Generate calls, so a
+// test can assert the cache short-circuited the backend.
+type tallyBackend struct {
+	payload string
+	calls   *int
+}
+
+func (b tallyBackend) Name() string { return "tally" }
+func (b tallyBackend) Generate(_ context.Context, _, _ string, _ []byte, _ func(string) error) (string, error) {
+	*b.calls++
+	return b.payload, nil
+}
+
+// TestEngine_cachesDontSplitVerdict verifies a "don't split" LLM verdict is
+// cached like a positive proposal: it cost a real backend call, so an
+// identical re-run must be served from the cache instead of re-asking.
+func TestEngine_cachesDontSplitVerdict(t *testing.T) {
+	repo, parent, _ := newSplittableRepo(t)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	childCommit := commits[1]
+
+	calls := 0
+	backend := tallyBackend{
+		payload: `{"should_split":false,"reason":"one cohesive change","groups":[]}`,
+		calls:   &calls,
+	}
+	cache := NewCache(t.TempDir())
+	opts := Options{MaxCommits: 4, LinesPerCommit: 1, MinSplitLines: 1, Now: time.Unix(0, 0)}
+
+	for i := 0; i < 2; i++ {
+		prop, trees, err := NewEngine(repo, backend, cache).Propose(
+			context.Background(), childCommit, parent, "", opts)
+		if err != nil {
+			t.Fatalf("Propose #%d: %v", i+1, err)
+		}
+		if prop.ShouldSplit || trees != nil {
+			t.Fatalf("Propose #%d: expected a don't-split verdict, got %+v", i+1, prop)
+		}
+		if prop.Reason != "one cohesive change" {
+			t.Errorf("Propose #%d: verdict reason lost: %q", i+1, prop.Reason)
+		}
+	}
+	if calls != 1 {
+		t.Errorf("backend called %d times; the second run should hit the cached verdict", calls)
+	}
+}

@@ -102,6 +102,16 @@ func (e *Engine) Propose(ctx context.Context, commit model.Commit, parentTree, r
 	prop.Hunks = hunks
 
 	if !prop.ShouldSplit || len(prop.Groups) < 2 {
+		// The don't-split verdict cost a real LLM call too — cache it so the
+		// next identical run skips the backend instead of re-asking every time.
+		if !hit {
+			_ = e.cache.Put(CacheEntry{
+				CommitHash:  commit.Hash,
+				Fingerprint: fp,
+				Proposal:    prop,
+				CreatedAt:   opts.Now,
+			})
+		}
 		return prop, nil, nil
 	}
 
