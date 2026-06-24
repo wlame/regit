@@ -189,6 +189,7 @@ func (e *Engine) buildAndValidate(ctx context.Context, commit model.Commit, pare
 		trees := make([]string, len(ordered))
 		byID := indexHunks(prop.Hunks)
 		failed := -1
+		var failErr error
 		var cumulative []model.Hunk
 
 		for i, g := range ordered {
@@ -209,6 +210,7 @@ func (e *Engine) buildAndValidate(ctx context.Context, commit model.Commit, pare
 				if err := runTest(ctx, wt.Dir, opts.TestCmd); err != nil {
 					ordered[i].TestsPass = false
 					failed = i
+					failErr = err
 					break
 				}
 			}
@@ -228,9 +230,13 @@ func (e *Engine) buildAndValidate(ctx context.Context, commit model.Commit, pare
 			return e.rebuildAll(parentTree, prop, wt)
 		}
 
-		// Ask the backend to regroup, feeding back which stage failed.
+		// Ask the backend to regroup, feeding back which stage failed AND what
+		// the test command actually printed — the model cannot fix a grouping
+		// it only knows "failed". runTest already bounds the output to the
+		// last 40 lines; the byte cap here guards against very long lines.
 		repairMsg := commit.Message + "\n\n(stage \"" + ordered[failed].Subject +
-			"\" failed tests; regroup so each stage builds)"
+			"\" failed tests; regroup so each stage builds)\n\nFailing test output:\n" +
+			llm.TruncateForPrompt(failErr.Error(), 8<<10)
 		regrouped, rerr := llm.ProposeSplit(ctx, e.backend, llm.SplitRequest{
 			CommitMessage: repairMsg,
 			Hunks:         prop.Hunks,

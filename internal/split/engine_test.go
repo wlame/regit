@@ -232,8 +232,9 @@ func TestEngine_proposeSkipsSmallCommit(t *testing.T) {
 // the first call returns proposals[0], the second returns proposals[1], etc.
 // It tracks the total call count in `calls`.
 type sequentialBackend struct {
-	proposals []model.SplitProposal
-	calls     int
+	proposals   []model.SplitProposal
+	calls       int
+	userPrompts []string // the user prompt of each Generate call, for assertions
 }
 
 func (s *sequentialBackend) Name() string { return "sequential" }
@@ -244,7 +245,8 @@ func (s *sequentialBackend) Name() string { return "sequential" }
 // returns an error so a runaway repair loop fails loudly rather than silently
 // looping. The validate param is intentionally ignored: llm.ProposeSplit validates
 // the returned raw via ParseAndValidate, so the mock returns pre-validated JSON.
-func (s *sequentialBackend) Generate(_ context.Context, _, _ string, _ []byte, _ func(string) error) (string, error) {
+func (s *sequentialBackend) Generate(_ context.Context, _, user string, _ []byte, _ func(string) error) (string, error) {
+	s.userPrompts = append(s.userPrompts, user)
 	idx := s.calls
 	s.calls++
 	if idx >= len(s.proposals) {
@@ -781,5 +783,62 @@ func TestEngine_repairRegroupIsClamped(t *testing.T) {
 	}
 	if len(trees) != 2 || trees[len(trees)-1] != child {
 		t.Fatalf("trees wrong after clamped repair: %v", trees)
+	}
+}
+
+// TestEngine_repairPromptCarriesTestOutput verifies the regroup request
+// includes the failing test command's output — the model cannot fix a grouping
+// it only knows "failed".
+func TestEngine_repairPromptCarriesTestOutput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX sh not available on Windows")
+	}
+	repo, parent, child := newSplittableRepo(t)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	childCommit := commits[1]
+	hs, err := repo.Hunks(parent, child)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Fails with a distinctive marker until b.txt contains BAR.
+	scriptPath := filepath.Join(t.TempDir(), "check.sh")
+	script := "#!/bin/sh\nif grep -q BAR b.txt; then exit 0; fi\necho 'MARKER_FAILURE: b.txt lacks BAR'; exit 1\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	initial := model.SplitProposal{
+		ShouldSplit: true,
+		Groups: []model.HunkGroup{
+			{Order: 1, HunkIDs: []string{hs[0].ID}, Subject: "first"},
+			{Order: 2, HunkIDs: idsFrom(hs[1:]), Subject: "second"},
+		},
+	}
+	regroup := model.SplitProposal{
+		ShouldSplit: true,
+		Groups: []model.HunkGroup{
+			{Order: 1, HunkIDs: idsFrom(hs[1:]), Subject: "r1"},
+			{Order: 2, HunkIDs: []string{hs[0].ID}, Subject: "r2"},
+		},
+	}
+
+	backend := &sequentialBackend{proposals: []model.SplitProposal{initial, regroup}}
+	eng := NewEngine(repo, backend, NewCache(t.TempDir()))
+	opts := Options{
+		MaxCommits: 4, LinesPerCommit: 1, MinSplitLines: 1,
+		RepairAttempts: 2, TestCmd: []string{"sh", scriptPath}, Now: time.Unix(0, 0),
+	}
+	if _, _, err := eng.Propose(context.Background(), childCommit, parent, "", opts); err != nil {
+		t.Fatalf("Propose: %v", err)
+	}
+	if len(backend.userPrompts) < 2 {
+		t.Fatalf("expected a repair call, got %d prompts", len(backend.userPrompts))
+	}
+	if !strings.Contains(backend.userPrompts[1], "MARKER_FAILURE") {
+		t.Errorf("repair prompt lacks the failing test output:\n%s", backend.userPrompts[1])
 	}
 }
