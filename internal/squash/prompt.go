@@ -58,21 +58,10 @@ type proposalJSON struct {
 	Body    string `json:"body"`
 }
 
-// extractJSON returns the substring from the first '{' to the last '}', so
-// reasoning prose around the JSON is tolerated.
-func extractJSON(raw string) string {
-	start := strings.IndexByte(raw, '{')
-	end := strings.LastIndexByte(raw, '}')
-	if start < 0 || end < 0 || end < start {
-		return ""
-	}
-	return raw[start : end+1]
-}
-
 // validateProposalJSON is the validate callback passed to Backend.Generate: it
 // fails (triggering a retry) when the response is not parseable or lacks a subject.
 func validateProposalJSON(raw string) error {
-	js := extractJSON(raw)
+	js := llm.ExtractJSON(raw)
 	if js == "" {
 		return fmt.Errorf("no JSON object found in response")
 	}
@@ -88,7 +77,7 @@ func validateProposalJSON(raw string) error {
 
 // ParseProposal parses a validated model response into a Proposal.
 func ParseProposal(raw string) (Proposal, error) {
-	js := extractJSON(raw)
+	js := llm.ExtractJSON(raw)
 	if js == "" {
 		return Proposal{}, fmt.Errorf("no JSON object found in response")
 	}

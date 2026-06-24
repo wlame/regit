@@ -56,27 +56,6 @@ func TestValidateProposalJSON_requiresSubject(t *testing.T) {
 	}
 }
 
-// TestExtractJSON_invalidInputReturnsEmpty verifies that extractJSON returns ""
-// when the input contains no JSON object delimiters or they are in the wrong order.
-func TestExtractJSON_invalidInputReturnsEmpty(t *testing.T) {
-	cases := []struct {
-		name  string
-		input string
-	}{
-		{"empty string", ""},
-		{"no braces", "just plain text"},
-		{"only open brace", "{ no close"},
-		{"close before open", "} { misorder "},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := extractJSON(tc.input); got != "" {
-				t.Errorf("extractJSON(%q) = %q, want empty string", tc.input, got)
-			}
-		})
-	}
-}
-
 // TestValidateProposalJSON_noObjectErrors verifies that text with no JSON object
 // is rejected before any unmarshal attempt.
 func TestValidateProposalJSON_noObjectErrors(t *testing.T) {
