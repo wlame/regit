@@ -1,104 +1,28 @@
 package split
 
 import (
-	"crypto/sha256"
-	"encoding/json"
-	"fmt"
-	"os"
-	"path/filepath"
-	"time"
+	"strconv"
 
 	"github.com/wlame/regit/internal/model"
+	"github.com/wlame/regit/internal/promptcache"
 )
 
-// cacheVersion is bumped whenever the CacheEntry schema changes in a
-// backward-incompatible way. Get rejects entries whose version does not match.
-const cacheVersion = 1
+// Cache and CacheEntry are the split-proposal instantiation of the shared
+// promptcache implementation (one JSON file per commit hash under
+// <gitDir>/regit/cache/split/, invalidated by fingerprint).
+type (
+	Cache      = promptcache.Cache[model.SplitProposal]
+	CacheEntry = promptcache.Entry[model.SplitProposal]
+)
 
-// CacheEntry is one persisted split proposal keyed by commit hash. Fingerprint
-// captures every input that affects the proposal, so a stale entry (different
-// model, flags, hint, or diff) is detected as a miss. CreatedAt is supplied by
-// the caller; the cache package never calls time.Now() itself.
-type CacheEntry struct {
-	Version     int
-	CommitHash  string
-	Fingerprint string
-	Proposal    model.SplitProposal
-	// CreatedAt records when the entry was created. Callers are expected to pass
-	// the current time; the cache itself remains clock-free for testability.
-	CreatedAt time.Time
-}
-
-// Cache stores split proposals as JSON files under
-// <gitDir>/regit/cache/split/<commitHash>.json. One file per commit hash means
-// reads and writes are cheap single-file operations.
-type Cache struct{ dir string }
-
-// NewCache roots a cache at the repository's git dir (e.g. ".git"). The cache
-// directory is created lazily on the first Put.
+// NewCache roots a split cache at the repository's git dir (e.g. ".git").
 func NewCache(gitDir string) *Cache {
-	return &Cache{dir: filepath.Join(gitDir, "regit", "cache", "split")}
+	return promptcache.New[model.SplitProposal](gitDir, "split")
 }
 
-// Fingerprint hashes all proposal-affecting inputs into a 32-character hex
-// string. Any change to diffHash, modelName, contextKey, userHint, or
-// maxCommits produces a different fingerprint, which causes Get to return a
-// miss for the old entry.
+// Fingerprint hashes all proposal-affecting inputs. Any change to diffHash,
+// modelName, contextKey, userHint, or maxCommits produces a different
+// fingerprint, which causes Get to return a miss for the old entry.
 func Fingerprint(diffHash, modelName, contextKey, userHint string, maxCommits int) string {
-	h := sha256.New()
-	// Unit-separator (0x1F) delimiters prevent collisions across adjacent fields.
-	fmt.Fprintf(h, "%s\x1f%s\x1f%s\x1f%s\x1f%d", diffHash, modelName, contextKey, userHint, maxCommits)
-	return fmt.Sprintf("%x", h.Sum(nil))[:32]
+	return promptcache.Fingerprint(diffHash, modelName, contextKey, userHint, strconv.Itoa(maxCommits))
 }
-
-// contentHash returns a short hex digest of s, used to fold variable-length inputs
-// (e.g. README content) into a fingerprint component without bloating it.
-func contentHash(s string) string {
-	sum := sha256.Sum256([]byte(s))
-	return fmt.Sprintf("%x", sum[:8])
-}
-
-// path returns the JSON file path for the given commit hash.
-func (c *Cache) path(commitHash string) string {
-	return filepath.Join(c.dir, commitHash+".json")
-}
-
-// Get returns the cached proposal when an entry exists whose Version and
-// Fingerprint both match; otherwise ok is false. A file that cannot be read or
-// parsed is silently treated as a miss so a corrupt cache never blocks the
-// caller.
-func (c *Cache) Get(commitHash, fingerprint string) (model.SplitProposal, bool) {
-	data, err := os.ReadFile(c.path(commitHash))
-	if err != nil {
-		return model.SplitProposal{}, false
-	}
-	var e CacheEntry
-	if err := json.Unmarshal(data, &e); err != nil {
-		return model.SplitProposal{}, false
-	}
-	if e.Version != cacheVersion || e.Fingerprint != fingerprint {
-		return model.SplitProposal{}, false
-	}
-	return e.Proposal, true
-}
-
-// Put serialises the entry to disk, creating the cache directory as needed.
-// It always stamps Version = cacheVersion regardless of what the caller
-// passed in CacheEntry.Version, so the stored file is always self-consistent.
-func (c *Cache) Put(e CacheEntry) error {
-	if e.CommitHash == "" {
-		return fmt.Errorf("cache: refusing to write entry with empty commit hash")
-	}
-	if err := os.MkdirAll(c.dir, 0o755); err != nil {
-		return err
-	}
-	e.Version = cacheVersion
-	data, err := json.MarshalIndent(e, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(c.path(e.CommitHash), data, 0o644)
-}
-
-// Clear removes the entire split cache directory and all entries within it.
-func (c *Cache) Clear() error { return os.RemoveAll(c.dir) }

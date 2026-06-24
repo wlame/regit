@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/wlame/regit/internal/model"
+	"github.com/wlame/regit/internal/promptcache"
 )
 
 func TestCache_putThenGetHitAndMiss(t *testing.T) {
@@ -15,7 +16,7 @@ func TestCache_putThenGetHitAndMiss(t *testing.T) {
 	if _, ok := c.Get("abc", fp); ok {
 		t.Fatal("expected miss before put")
 	}
-	if err := c.Put(CacheEntry{Version: 1, CommitHash: "abc", Fingerprint: fp, Proposal: prop, CreatedAt: time.Unix(0, 0)}); err != nil {
+	if err := c.Put(CacheEntry{Version: 1, Key: "abc", Fingerprint: fp, Payload: prop, CreatedAt: time.Unix(0, 0)}); err != nil {
 		t.Fatal(err)
 	}
 	got, ok := c.Get("abc", fp)
@@ -52,13 +53,13 @@ func TestFingerprint_changesWithInputs(t *testing.T) {
 // mechanism that stops an edited README (or the TUI's empty README) from colliding
 // with a stale cached proposal.
 func TestContentHash_distinguishesReadmeContent(t *testing.T) {
-	if contentHash("readme v1") == contentHash("readme v2") {
+	if promptcache.ContentHash("readme v1") == promptcache.ContentHash("readme v2") {
 		t.Error("different README content must hash differently")
 	}
-	if contentHash("") == contentHash("some content") {
+	if promptcache.ContentHash("") == promptcache.ContentHash("some content") {
 		t.Error("empty vs non-empty README must hash differently")
 	}
-	if contentHash("same") != contentHash("same") {
+	if promptcache.ContentHash("same") != promptcache.ContentHash("same") {
 		t.Error("identical content must hash identically")
 	}
 }
@@ -68,7 +69,7 @@ func TestCache_putRejectsEmptyCommitHash(t *testing.T) {
 	fp := Fingerprint("d", "m", "c", "h", 4)
 	prop := model.SplitProposal{CommitHash: "abc", ShouldSplit: true}
 
-	err := c.Put(CacheEntry{Version: 1, CommitHash: "", Fingerprint: fp, Proposal: prop, CreatedAt: time.Unix(0, 0)})
+	err := c.Put(CacheEntry{Version: 1, Key: "", Fingerprint: fp, Payload: prop, CreatedAt: time.Unix(0, 0)})
 	if err == nil {
 		t.Fatal("expected error on empty commit hash")
 	}

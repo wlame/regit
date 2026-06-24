@@ -459,6 +459,7 @@ The codebase is layered so the interesting logic is pure and testable:
 - `internal/squash` — commit-squash engine (chain summarization, cache, prompt)
 - `internal/reword` — commit-rewording engine (variants, cache, prompt building)
 - `internal/llm` — LLM backend abstraction (OpenAI-compatible HTTP + agent CLI)
+- `internal/promptcache` — the shared LLM-result cache the split/reword/squash caches instantiate
 - `internal/config` — YAML + env configuration
 - `internal/capability` — the command registry: every action as data + headless Run (CLI/TUI/help project from it)
 - `internal/ui` — Bubble Tea terminal interface

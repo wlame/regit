@@ -12,6 +12,7 @@ import (
 	"github.com/wlame/regit/internal/gitio"
 	"github.com/wlame/regit/internal/llm"
 	"github.com/wlame/regit/internal/model"
+	"github.com/wlame/regit/internal/promptcache"
 )
 
 // Options tunes one reword run. Now is injected so the package never reads the
@@ -91,7 +92,7 @@ func (e *Engine) Generate(ctx context.Context, c model.Commit, parentTree, readm
 	// editing the README must invalidate old entries) and whether agent-scan ran
 	// (scan lets the agent browse extra files, so its output genuinely differs and
 	// must not collide with a non-scan result).
-	ctxKey := fmt.Sprintf("%s\x1freadme=%s\x1fscan=%t", contextKey, contentHash(readme), opts.AgentScan)
+	ctxKey := fmt.Sprintf("%s\x1freadme=%s\x1fscan=%t", contextKey, promptcache.ContentHash(readme), opts.AgentScan)
 	fp := Fingerprint(diffHash(diff), e.backend.Name(), ctxKey, opts.UserHint, opts.Variants)
 
 	// Return the cached result if it is still valid for these exact inputs.
@@ -132,9 +133,9 @@ func (e *Engine) Generate(ctx context.Context, c model.Commit, parentTree, readm
 	// Persist to cache; ignore write errors so a read-only .git dir never
 	// blocks the user from seeing results.
 	_ = e.cache.Put(CacheEntry{
-		CommitHash:  c.Hash,
+		Key:         c.Hash,
 		Fingerprint: fp,
-		Result:      r,
+		Payload:     r,
 		CreatedAt:   opts.Now,
 	})
 

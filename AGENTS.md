@@ -55,6 +55,7 @@ internal/
   safety/           Guards, backup refs, undo stack
   split/            Commit-splitting orchestrator
   squash/           Commit-squash engine (chain summarization, cache, prompt)
+  promptcache/      Shared LLM-result cache (split/reword/squash instantiate it)
   reword/           Commit-rewording engine (variants, cache, prompt building)
   llm/              LLM backend abstraction
   config/           YAML + REGIT_* env configuration
@@ -476,17 +477,19 @@ internal/gitio/
   hunks.go              Hunks(), BuildTreeFromHunks(), Worktree
   refs.go               UpdateRef, BackupRefPrefix, BranchRef, AppliedRefPrefix, RecordAppliedHead/AppliedHeadFor
   changeset.go          DiffChangeSet (git diff --raw), CommitTrees (batched tree OIDs)
+internal/promptcache/
+  cache.go              Generic Cache[T]/Entry[T] + Fingerprint/ContentHash (one impl for all three LLM caches)
 internal/split/
   engine.go             Engine, Propose, buildAndValidate, rebuildAll
-  cache.go              Cache, CacheEntry (.git/regit/cache/split/)
+  cache.go              promptcache instantiation (.git/regit/cache/split/)
   size.go               ShouldSkipSplit, EffectiveMaxCommits, Fingerprint
   subcommits.go         BuildSubCommits (groups + trees → []gitio.SubCommit)
 internal/squash/
   engine.go             Engine, Summarize, Proposal, Cache
-  cache.go              Cache, CacheEntry (.git/regit/cache/squash/)
+  cache.go              promptcache instantiation (.git/regit/cache/squash/)
 internal/reword/
   engine.go             Engine, Generate (normal + agent-scan modes), diffHash
-  cache.go              Cache, CacheEntry (.git/regit/cache/reword/)
+  cache.go              promptcache instantiation (.git/regit/cache/reword/)
   types.go              Result, Variant, Selection, DefaultSelection, Options, Request
   prompt.go             BuildMessages, BuildScanMessages, SchemaJSON, ParseVariants
 internal/llm/

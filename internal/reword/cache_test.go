@@ -14,8 +14,8 @@ func TestRewordCache_putGetMiss(t *testing.T) {
 	if _, ok := c.Get("h", fp); ok {
 		t.Fatal("expected miss")
 	}
-	if err := c.Put(CacheEntry{CommitHash: "h", Fingerprint: fp,
-		Result: Result{CommitHash: "h", Variants: []Variant{{Title: "T"}}}, CreatedAt: time.Unix(0, 0)}); err != nil {
+	if err := c.Put(CacheEntry{Key: "h", Fingerprint: fp,
+		Payload: Result{CommitHash: "h", Variants: []Variant{{Title: "T"}}}, CreatedAt: time.Unix(0, 0)}); err != nil {
 		t.Fatal(err)
 	}
 	got, ok := c.Get("h", fp)
@@ -28,7 +28,7 @@ func TestRewordCache_putGetMiss(t *testing.T) {
 }
 
 func TestRewordCache_emptyHashRejected(t *testing.T) {
-	if err := NewCache(t.TempDir()).Put(CacheEntry{CommitHash: ""}); err == nil {
+	if err := NewCache(t.TempDir()).Put(CacheEntry{Key: ""}); err == nil {
 		t.Fatal("expected error for empty commit hash")
 	}
 }
@@ -39,9 +39,9 @@ func TestRewordCache_versionMismatchMiss(t *testing.T) {
 	fp := Fingerprint("d", "m", "readme", "hint", 3)
 	// Write a valid entry via Put.
 	if err := c.Put(CacheEntry{
-		CommitHash:  "h1",
+		Key:         "h1",
 		Fingerprint: fp,
-		Result:      Result{CommitHash: "h1", Variants: []Variant{{Title: "T"}}},
+		Payload:     Result{CommitHash: "h1", Variants: []Variant{{Title: "T"}}},
 		CreatedAt:   time.Unix(0, 0),
 	}); err != nil {
 		t.Fatal(err)

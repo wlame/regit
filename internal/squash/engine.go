@@ -65,7 +65,7 @@ func (e *Engine) Summarize(ctx context.Context, ch model.SquashChain, opts Optio
 		return Proposal{}, err
 	}
 	// Cache writes are non-fatal: a miss next run is the worst outcome.
-	_ = e.cache.Put(CacheEntry{CommitHash: ch.Last().Hash, Fingerprint: fp, Proposal: p, CreatedAt: opts.Now})
+	_ = e.cache.Put(CacheEntry{Key: ch.Last().Hash, Fingerprint: fp, Payload: p, CreatedAt: opts.Now})
 	return p, nil
 }
 

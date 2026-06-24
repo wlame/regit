@@ -640,7 +640,7 @@ func TestEngine_cacheHitRevalidatesCoverage(t *testing.T) {
 	if _, _, err := eng.Propose(context.Background(), childCommit, parent, "", opts); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(cache.path(childCommit.Hash))
+	data, err := os.ReadFile(cache.Path(childCommit.Hash))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -648,9 +648,9 @@ func TestEngine_cacheHitRevalidatesCoverage(t *testing.T) {
 	if err := json.Unmarshal(data, &entry); err != nil {
 		t.Fatal(err)
 	}
-	entry.Proposal.Groups[0].HunkIDs = []string{"H999"}
+	entry.Payload.Groups[0].HunkIDs = []string{"H999"}
 	corrupted, _ := json.Marshal(entry)
-	if err := os.WriteFile(cache.path(childCommit.Hash), corrupted, 0o644); err != nil {
+	if err := os.WriteFile(cache.Path(childCommit.Hash), corrupted, 0o644); err != nil {
 		t.Fatal(err)
 	}
 

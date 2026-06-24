@@ -10,7 +10,7 @@ func TestCache_putGetRoundTrip(t *testing.T) {
 	c := NewCache(dir)
 	fp := Fingerprint("chainKeyABC", "http:llama", "false\x1f")
 	want := Proposal{Subject: "Add user model", Body: "Combined body."}
-	if err := c.Put(CacheEntry{CommitHash: "last123", Fingerprint: fp, Proposal: want, CreatedAt: time.Unix(0, 0)}); err != nil {
+	if err := c.Put(CacheEntry{Key: "last123", Fingerprint: fp, Payload: want, CreatedAt: time.Unix(0, 0)}); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
 	got, ok := c.Get("last123", fp)
@@ -25,7 +25,7 @@ func TestCache_putGetRoundTrip(t *testing.T) {
 func TestCache_missOnFingerprintChange(t *testing.T) {
 	dir := t.TempDir()
 	c := NewCache(dir)
-	c.Put(CacheEntry{CommitHash: "last123", Fingerprint: Fingerprint("k", "m", "a"), Proposal: Proposal{Subject: "x"}, CreatedAt: time.Unix(0, 0)})
+	c.Put(CacheEntry{Key: "last123", Fingerprint: Fingerprint("k", "m", "a"), Payload: Proposal{Subject: "x"}, CreatedAt: time.Unix(0, 0)})
 	if _, ok := c.Get("last123", Fingerprint("k", "m", "b")); ok {
 		t.Error("a different fingerprint must miss")
 	}
@@ -34,7 +34,7 @@ func TestCache_missOnFingerprintChange(t *testing.T) {
 func TestCache_clearRemovesEntries(t *testing.T) {
 	dir := t.TempDir()
 	c := NewCache(dir)
-	c.Put(CacheEntry{CommitHash: "h", Fingerprint: "fp", Proposal: Proposal{Subject: "x"}, CreatedAt: time.Unix(0, 0)})
+	c.Put(CacheEntry{Key: "h", Fingerprint: "fp", Payload: Proposal{Subject: "x"}, CreatedAt: time.Unix(0, 0)})
 	if err := c.Clear(); err != nil {
 		t.Fatal(err)
 	}
@@ -48,9 +48,9 @@ func TestCache_clearRemovesEntries(t *testing.T) {
 func TestCache_putEmptyHashRefuses(t *testing.T) {
 	c := NewCache(t.TempDir())
 	err := c.Put(CacheEntry{
-		CommitHash:  "",
+		Key:         "",
 		Fingerprint: "abc",
-		Proposal:    Proposal{Subject: "x"},
+		Payload:     Proposal{Subject: "x"},
 	})
 	if err == nil {
 		t.Error("Put with empty CommitHash should return an error")

@@ -11,6 +11,7 @@ import (
 	"github.com/wlame/regit/internal/gitio"
 	"github.com/wlame/regit/internal/llm"
 	"github.com/wlame/regit/internal/model"
+	"github.com/wlame/regit/internal/promptcache"
 )
 
 // Options tunes one split run. Now is injected so the package never reads the
@@ -76,7 +77,7 @@ func (e *Engine) Propose(ctx context.Context, commit model.Commit, parentTree, r
 	// the README must invalidate old entries) and the test command (a --test-cmd run
 	// can bake WIP markers into the cached proposal that a plain run must not
 	// inherit). Both are folded into the context component here.
-	ctxKey := fmt.Sprintf("%s\x1freadme=%s\x1ftest=%s", opts.ContextKey, contentHash(readme), opts.TestCmd)
+	ctxKey := fmt.Sprintf("%s\x1freadme=%s\x1ftest=%s", opts.ContextKey, promptcache.ContentHash(readme), opts.TestCmd)
 	fp := Fingerprint(commit.TreeHash, e.backend.Name(), ctxKey, opts.UserHint, maxK)
 
 	// Try the cache before hitting the backend.
@@ -115,9 +116,9 @@ func (e *Engine) Propose(ctx context.Context, commit model.Commit, parentTree, r
 		// next identical run skips the backend instead of re-asking every time.
 		if !hit {
 			_ = e.cache.Put(CacheEntry{
-				CommitHash:  commit.Hash,
+				Key:         commit.Hash,
 				Fingerprint: fp,
-				Proposal:    prop,
+				Payload:     prop,
 				CreatedAt:   opts.Now,
 			})
 		}
@@ -148,9 +149,9 @@ func (e *Engine) Propose(ctx context.Context, commit model.Commit, parentTree, r
 	// the backend. Use opts.Now as CreatedAt so the engine never reads the clock.
 	// Cache write failure is non-fatal; the next run simply re-requests the proposal.
 	_ = e.cache.Put(CacheEntry{
-		CommitHash:  commit.Hash,
+		Key:         commit.Hash,
 		Fingerprint: fp,
-		Proposal:    prop,
+		Payload:     prop,
 		CreatedAt:   opts.Now,
 	})
 
