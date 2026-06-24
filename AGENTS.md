@@ -190,10 +190,15 @@ the file. Never read `os.Getenv` anywhere else for configuration values.
 ## The capability registry (`internal/capability`)
 
 `internal/capability` is the single source of truth for every non-interactive
-action. Each action is a `Command` row (name, typed `Param`s, examples, limits,
+action. Each action is a `Command` row (name, typed `Param`s, an optional
+`PositionalSpec` describing its positional-argument slot, examples, limits,
 and a headless `Run`). The CLI dispatch (`cmd/regit`), the TUI feature menu
 (`internal/ui`), the transparency footer, and `--help`/`--llm-help` are all
-PROJECTIONS of this table — they cannot drift apart.
+PROJECTIONS of this table — they cannot drift apart. `PositionalSpec` drives
+both the usage/arguments lines in every help surface and positional-arity
+validation in `Parse` (a stray positional on a flag-only verb is a usage
+error); the `--llm-help` environment section is likewise projected from
+`config.EnvOverrideNames()` and the provider API-key table.
 
 - **Layering:** `engines → capability → ui → cmd/regit`. `capability` imports the
   engine packages but **never** `internal/ui`. TUI closures stay in `ui`, keyed by

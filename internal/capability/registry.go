@@ -11,9 +11,9 @@ import (
 // verbs append a row here.
 var registry = []Command{
 	{
-		Name:      "split",
-		Summary:   "Split one commit into 2–4 semantic commits using an LLM.",
-		Mutating:  true,
+		Name:     "split",
+		Summary:  "Split one commit into 2–4 semantic commits using an LLM.",
+		Mutating: true,
 		Positional: &PositionalSpec{
 			Name: "commit-ish", Help: "the commit to split — hash, HEAD~n, or branch (default: HEAD)",
 		},
@@ -47,9 +47,9 @@ var registry = []Command{
 		Run:       runSplit,
 	},
 	{
-		Name:      "reword",
-		Summary:   "Regenerate commit message(s) with an LLM (one proposal headless).",
-		Mutating:  true,
+		Name:     "reword",
+		Summary:  "Regenerate commit message(s) with an LLM (one proposal headless).",
+		Mutating: true,
 		Positional: &PositionalSpec{
 			Name: "commit-ish", Help: "the commit(s) to reword (default: HEAD)", Variadic: true,
 		},
@@ -84,9 +84,9 @@ var registry = []Command{
 		Run:       runReword,
 	},
 	{
-		Name:      "squash",
-		Summary:   "Squash consecutive commits into one per chain (LLM-summarized message).",
-		Mutating:  true,
+		Name:     "squash",
+		Summary:  "Squash consecutive commits into one per chain (LLM-summarized message).",
+		Mutating: true,
 		Positional: &PositionalSpec{
 			Name: "range", Help: "chain spec(s), git range semantics: A^..B includes A; comma- or space-separated for several chains",
 			Required: true, Variadic: true,
