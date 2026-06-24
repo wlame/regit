@@ -605,3 +605,63 @@ func TestEngine_cachesDontSplitVerdict(t *testing.T) {
 		t.Errorf("backend called %d times; the second run should hit the cached verdict", calls)
 	}
 }
+
+// TestEngine_cacheHitRevalidatesCoverage verifies a cached proposal whose
+// grouping no longer covers the commit's hunks (a corrupt or hand-edited cache
+// file) is treated as a miss and re-requested, instead of being fed into tree
+// building.
+func TestEngine_cacheHitRevalidatesCoverage(t *testing.T) {
+	repo, parent, child := newSplittableRepo(t)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	childCommit := commits[1]
+	hs, err := repo.Hunks(parent, child)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	good := model.SplitProposal{
+		ShouldSplit: true,
+		Groups: []model.HunkGroup{
+			{Order: 1, HunkIDs: []string{hs[0].ID}, Subject: "first"},
+			{Order: 2, HunkIDs: idsFrom(hs[1:]), Subject: "second"},
+		},
+	}
+	cache := NewCache(t.TempDir())
+	opts := Options{MaxCommits: 4, LinesPerCommit: 1, MinSplitLines: 1, Now: time.Unix(0, 0)}
+
+	// Seed the cache through a normal run, then corrupt the stored grouping so
+	// it references a hunk ID that does not exist.
+	eng := NewEngine(repo, backendReturning(good), cache)
+	if _, _, err := eng.Propose(context.Background(), childCommit, parent, "", opts); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(cache.path(childCommit.Hash))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entry CacheEntry
+	if err := json.Unmarshal(data, &entry); err != nil {
+		t.Fatal(err)
+	}
+	entry.Proposal.Groups[0].HunkIDs = []string{"H999"}
+	corrupted, _ := json.Marshal(entry)
+	if err := os.WriteFile(cache.path(childCommit.Hash), corrupted, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// The corrupt entry matches by fingerprint but fails coverage — the engine
+	// must fall back to the backend and return a valid proposal.
+	prop, trees, err := eng.Propose(context.Background(), childCommit, parent, "", opts)
+	if err != nil {
+		t.Fatalf("Propose after corruption: %v", err)
+	}
+	if err := model.ValidateCoverage(prop.Hunks, prop.Groups); err != nil {
+		t.Errorf("returned proposal has invalid coverage: %v", err)
+	}
+	if len(trees) != 2 || trees[len(trees)-1] != childCommit.TreeHash {
+		t.Errorf("trees not rebuilt correctly: %v", trees)
+	}
+}

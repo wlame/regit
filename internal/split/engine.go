@@ -81,6 +81,15 @@ func (e *Engine) Propose(ctx context.Context, commit model.Commit, parentTree, r
 
 	// Try the cache before hitting the backend.
 	prop, hit := e.cache.Get(commit.Hash, fp)
+	if hit && prop.ShouldSplit {
+		// A cache entry is plain JSON on disk — corruptible, hand-editable. A
+		// fresh proposal passes ValidateCoverage inside ProposeSplit; a cached
+		// one skipped that gate, so re-check it here and fall back to a fresh
+		// request rather than feeding a bad grouping into tree building.
+		if err := model.ValidateCoverage(hunks, prop.Groups); err != nil {
+			hit = false
+		}
+	}
 	if !hit {
 		prop, err = llm.ProposeSplit(ctx, e.backend, llm.SplitRequest{
 			CommitMessage: commit.Message,
