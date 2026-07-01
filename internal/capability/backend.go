@@ -2,7 +2,6 @@ package capability
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -70,7 +69,7 @@ func BuildBackend(cfg config.Config, o BackendOptions) (llm.Backend, error) {
 	// Determine base URL: explicit flag > config > provider default.
 	baseURL := o.BaseURL
 	if baseURL == "" {
-		baseURL = defaultBaseURL(provider, cfg.LLM.BaseURL)
+		baseURL = llm.DefaultBaseURL(provider, cfg.LLM.BaseURL)
 	}
 	// An unknown provider resolves to an empty base URL, which would otherwise fail
 	// obscurely at request time. Fail fast with the list of known providers.
@@ -82,7 +81,7 @@ func BuildBackend(cfg config.Config, o BackendOptions) (llm.Backend, error) {
 	if timeoutSec <= 0 {
 		timeoutSec = 60 // sane default; zero would reject all requests
 	}
-	return llm.NewHTTPBackend(baseURL, modelName, resolveAPIKey(provider), time.Duration(timeoutSec)*time.Second), nil
+	return llm.NewHTTPBackend(baseURL, modelName, llm.ResolveAPIKey(provider), time.Duration(timeoutSec)*time.Second), nil
 }
 
 // protectedScanFlags are the agent-scan flags a user's --agent-args must not
@@ -115,44 +114,4 @@ func splitProviderModel(s string) (provider, modelName string) {
 		return s, ""
 	}
 	return s[:idx], s[idx+1:]
-}
-
-// providerBaseURLs maps well-known provider names to their default OpenAI-
-// compatible base URLs. A table avoids a chain of if/else and makes adding a
-// new provider a one-line change.
-var providerBaseURLs = map[string]string{
-	"ollama":     "http://localhost:11434/v1",
-	"lmstudio":   "http://localhost:1234/v1",
-	"openai":     "https://api.openai.com/v1",
-	"openrouter": "https://openrouter.ai/api/v1",
-}
-
-// defaultBaseURL returns the base URL for the given provider. The override
-// (from --llm-base-url or config.LLM.BaseURL) wins when non-empty.
-func defaultBaseURL(provider, override string) string {
-	if override != "" {
-		return override
-	}
-	return providerBaseURLs[provider]
-}
-
-// providerEnvKeys maps provider names to their conventional API-key env var.
-var providerEnvKeys = map[string]string{
-	"openai":     "OPENAI_API_KEY",
-	"openrouter": "OPENROUTER_API_KEY",
-}
-
-// resolveAPIKey looks up the API key for the given provider from environment
-// variables only — never from flags or config files. Resolution order:
-//  1. REGIT_LLM_API_KEY (tool-wide override)
-//  2. Provider-standard var (OPENAI_API_KEY, OPENROUTER_API_KEY, …)
-//  3. "" for local providers (ollama, lmstudio) that need no key
-func resolveAPIKey(provider string) string {
-	if key := os.Getenv("REGIT_LLM_API_KEY"); key != "" {
-		return key
-	}
-	if envVar, ok := providerEnvKeys[provider]; ok {
-		return os.Getenv(envVar)
-	}
-	return ""
 }

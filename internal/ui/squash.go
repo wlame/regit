@@ -597,8 +597,8 @@ func buildSquashEngine(m *Model) (*squash.Engine, error) {
 	if cfg.LLM.Provider == "" {
 		return nil, nil // no LLM configured → caller uses no-LLM defaults
 	}
-	baseURL := defaultRewordBaseURL(cfg.LLM.Provider, cfg.LLM.BaseURL) // reuse the helper in reword.go
-	apiKey := resolveRewordAPIKey(cfg.LLM.Provider)                    // reuse the helper in reword.go
+	baseURL := llm.DefaultBaseURL(cfg.LLM.Provider, cfg.LLM.BaseURL)
+	apiKey := llm.ResolveAPIKey(cfg.LLM.Provider)
 	timeoutSec := cfg.LLM.TimeoutSec
 	if timeoutSec <= 0 {
 		timeoutSec = 60

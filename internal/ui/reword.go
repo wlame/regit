@@ -3,7 +3,6 @@ package ui
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -148,10 +147,10 @@ func buildRewordEngine(m *Model) (*reword.Engine, error) {
 	}
 
 	// Determine base URL from config.
-	baseURL := defaultRewordBaseURL(provider, cfg.LLM.BaseURL)
+	baseURL := llm.DefaultBaseURL(provider, cfg.LLM.BaseURL)
 
 	// API key comes only from environment (never from config file or CLI args).
-	apiKey := resolveRewordAPIKey(provider)
+	apiKey := llm.ResolveAPIKey(provider)
 	timeoutSec := cfg.LLM.TimeoutSec
 	if timeoutSec <= 0 {
 		timeoutSec = 60
@@ -166,38 +165,6 @@ func buildRewordEngine(m *Model) (*reword.Engine, error) {
 	cache := reword.NewCache(gitDir)
 	eng := reword.NewEngine(m.repo, backend, cache)
 	return eng, nil
-}
-
-// providerRewordBaseURLs maps well-known provider names to their default
-// OpenAI-compatible base URLs.
-var providerRewordBaseURLs = map[string]string{
-	"ollama":     "http://localhost:11434/v1",
-	"lmstudio":   "http://localhost:1234/v1",
-	"openai":     "https://api.openai.com/v1",
-	"openrouter": "https://openrouter.ai/api/v1",
-}
-
-func defaultRewordBaseURL(provider, override string) string {
-	if override != "" {
-		return override
-	}
-	return providerRewordBaseURLs[provider]
-}
-
-// providerRewordEnvKeys maps provider names to their conventional API-key env var.
-var providerRewordEnvKeys = map[string]string{
-	"openai":     "OPENAI_API_KEY",
-	"openrouter": "OPENROUTER_API_KEY",
-}
-
-func resolveRewordAPIKey(provider string) string {
-	if key := os.Getenv("REGIT_LLM_API_KEY"); key != "" {
-		return key
-	}
-	if envVar, ok := providerRewordEnvKeys[provider]; ok {
-		return os.Getenv(envVar)
-	}
-	return ""
 }
 
 // generateRewordCmd fires an async Generate call and returns the result as a

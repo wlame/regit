@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/wlame/regit/internal/config"
+	"github.com/wlame/regit/internal/llm"
 )
 
 // HelpTerse renders the top-level usage: the verb list with one-line summaries
@@ -191,8 +192,9 @@ func LLMHelp(format string) (string, error) {
 	}
 	b.WriteString("\nAPI keys (env only, never flags): REGIT_LLM_API_KEY overrides every provider;\n")
 	b.WriteString("otherwise the provider-standard variable applies:\n")
-	for _, provider := range sortedKeys(providerEnvKeys) {
-		b.WriteString(fmt.Sprintf("  %-12s %s\n", provider, providerEnvKeys[provider]))
+	envKeys := llm.ProviderEnvKeys()
+	for _, provider := range sortedKeys(envKeys) {
+		b.WriteString(fmt.Sprintf("  %-12s %s\n", provider, envKeys[provider]))
 	}
 	b.WriteString("Local providers (ollama, lmstudio) need no key.\n\n")
 	b.WriteString("Source & docs: https://github.com/wlame/regit\n")

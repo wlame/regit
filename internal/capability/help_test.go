@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/wlame/regit/internal/config"
+	"github.com/wlame/regit/internal/llm"
 )
 
 func TestHelpTerseListsEveryVerb(t *testing.T) {
@@ -107,7 +108,7 @@ func TestLLMHelp_envSectionIsProjected(t *testing.T) {
 			t.Errorf("--llm-help missing env override %s", name)
 		}
 	}
-	for provider, envVar := range providerEnvKeys {
+	for provider, envVar := range llm.ProviderEnvKeys() {
 		if !strings.Contains(txt, envVar) {
 			t.Errorf("--llm-help missing %s API key var %s", provider, envVar)
 		}

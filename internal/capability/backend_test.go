@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/wlame/regit/internal/config"
+	"github.com/wlame/regit/internal/llm"
 )
 
 func TestBuildBackendErrorsWithoutLLM(t *testing.T) {
@@ -73,9 +74,9 @@ func TestDefaultBaseURL(t *testing.T) {
 		{"unknown", "", ""},
 	}
 	for _, tc := range cases {
-		got := defaultBaseURL(tc.provider, tc.override)
+		got := llm.DefaultBaseURL(tc.provider, tc.override)
 		if got != tc.want {
-			t.Errorf("defaultBaseURL(%q, %q) = %q, want %q",
+			t.Errorf("DefaultBaseURL(%q, %q) = %q, want %q",
 				tc.provider, tc.override, got, tc.want)
 		}
 	}
