@@ -204,9 +204,8 @@ func (b *AgentBackend) Name() string {
 // with the inline schema JSON before the subprocess is launched. The args slice
 // is copied so the backend is safe for concurrent use.
 //
-// Unlike the HTTP backend, the agent path previously had no retry loop. This
-// implementation adds one (up to maxAttempts) using validate, strengthening
-// the user prompt on each validation failure.
+// Retries follow the shared contract (see generateWithRetry), identical to the
+// HTTP backend's.
 func (b *AgentBackend) Generate(ctx context.Context, system, user string, schema []byte, validate func(string) error) (string, error) {
 	// Build the runtime args by substituting any SchemaPlaceholder element with
 	// the inline schema JSON. We copy b.args so the backend is reusable across
@@ -231,8 +230,7 @@ func (b *AgentBackend) Generate(ctx context.Context, system, user string, schema
 		defer cancel()
 	}
 
-	var lastErr error
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
+	return generateWithRetry("agent", user, validate, func(user string) (string, error) {
 		// Combine system + user text into a single stdin payload. Agent CLIs
 		// such as `claude -p` receive a single prompt string rather than a
 		// structured message array; appending the return-JSON instruction
@@ -258,24 +256,12 @@ func (b *AgentBackend) Generate(ctx context.Context, system, user string, schema
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 		if err := cmd.Run(); err != nil {
-			// Transport/subprocess error: retry with the unchanged prompt, matching
-			// HTTPBackend.Generate's documented contract (transport error → retry,
-			// do NOT append the strengthen text).
-			lastErr = fmt.Errorf("agent %s: %w: %s", b.command, err, stderr.String())
-			continue
+			return "", fmt.Errorf("agent %s: %w: %s", b.command, err, stderr.String())
 		}
 		// unwrapAgentJSON extracts the inner JSON from the envelope before
 		// handing it to the caller's validate function.
-		raw := unwrapAgentJSON(stdout.String())
-		if verr := validate(raw); verr == nil {
-			return raw, nil
-		} else {
-			lastErr = verr
-			user += "\n\nYour previous answer was invalid: " + verr.Error() +
-				". Return ONLY valid JSON matching the requested schema."
-		}
-	}
-	return "", fmt.Errorf("agent generation failed after %d attempts: %w", maxAttempts, lastErr)
+		return unwrapAgentJSON(stdout.String()), nil
+	})
 }
 
 // unwrapAgentJSON pulls the plan JSON out of an agent envelope. It prefers a

@@ -62,31 +62,11 @@ const maxResponseBytes = 16 << 20 // 16 MiB
 const maxErrorBodyBytes = 2 << 10 // 2 KiB
 
 // Generate runs the given prompt against the endpoint and returns the raw model
-// text. It retries up to maxAttempts when validate(raw) returns an error,
-// strengthening the user prompt on each validation failure so the model can
-// self-correct. Transport errors retry with the unchanged prompt.
+// text, under the shared retry contract (see generateWithRetry).
 func (b *HTTPBackend) Generate(ctx context.Context, system, user string, schema []byte, validate func(string) error) (string, error) {
-	var lastErr error
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		raw, err := b.call(ctx, system, user, schema)
-		if err != nil {
-			// Transport-level error (network failure, timeout, non-200 HTTP status).
-			// Retrying with the unchanged prompt is correct here: there is nothing
-			// useful to tell the model about a network hiccup.
-			lastErr = err
-			continue
-		}
-		if verr := validate(raw); verr == nil {
-			return raw, nil
-		} else {
-			lastErr = verr
-			// Strengthen the instruction for the retry so the model knows exactly
-			// what constraint it violated.
-			user += "\n\nYour previous answer was invalid: " + verr.Error() +
-				". Return ONLY valid JSON matching the requested schema."
-		}
-	}
-	return "", fmt.Errorf("llm generation failed after %d attempts: %w", maxAttempts, lastErr)
+	return generateWithRetry("llm", user, validate, func(user string) (string, error) {
+		return b.call(ctx, system, user, schema)
+	})
 }
 
 // chatRequest is the subset of the OpenAI chat schema we send.
