@@ -77,6 +77,12 @@ func (c *Cache[T]) Get(key, fingerprint string) (T, bool) {
 // Put serialises the entry to disk, creating the cache directory as needed.
 // It always stamps Version = Version regardless of what the caller passed, so
 // the stored file is always self-consistent.
+//
+// The write is ATOMIC: data goes to a temp file in the same directory which is
+// then renamed over the target. A crash mid-write, a full disk, or a second
+// regit writing the same key concurrently can therefore never leave a
+// truncated JSON file — readers see either the old complete entry or the new
+// one, never a torn mix.
 func (c *Cache[T]) Put(e Entry[T]) error {
 	if e.Key == "" {
 		return fmt.Errorf("cache: refusing to write entry with empty key")
@@ -89,7 +95,26 @@ func (c *Cache[T]) Put(e Entry[T]) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(c.Path(e.Key), data, 0o644)
+	tmp, err := os.CreateTemp(c.dir, "put-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	// The remove is a no-op after a successful rename; it only cleans up the
+	// temp file on the error paths.
+	defer os.Remove(tmpName)
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	// CreateTemp creates 0600; match WriteFile's historical 0644.
+	if err := os.Chmod(tmpName, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, c.Path(e.Key))
 }
 
 // Clear removes the entire cache directory and all entries within it.

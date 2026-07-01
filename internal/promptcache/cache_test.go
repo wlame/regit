@@ -3,6 +3,9 @@ package promptcache
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -124,5 +127,43 @@ func TestContentHash_distinguishesContent(t *testing.T) {
 	}
 	if ContentHash("same") != ContentHash("same") {
 		t.Error("content hash not deterministic")
+	}
+}
+
+// TestCache_putIsAtomic hammers one key with concurrent Puts and verifies a
+// reader always sees a complete entry — under the old direct WriteFile, two
+// interleaved writers could leave a torn JSON file — and that no temp files
+// leak afterwards.
+func TestCache_putIsAtomic(t *testing.T) {
+	c := newCache(t)
+	big := strings.Repeat("x", 64*1024)
+	fp := Fingerprint("f")
+
+	var wg sync.WaitGroup
+	for w := 0; w < 8; w++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			for i := 0; i < 20; i++ {
+				_ = c.Put(Entry[payload]{Key: "k", Fingerprint: fp, Payload: payload{Text: big, N: n}})
+				if got, ok := c.Get("k", fp); ok && got.Text != big {
+					t.Errorf("torn read: payload text length %d", len(got.Text))
+					return
+				}
+			}
+		}(w)
+	}
+	wg.Wait()
+
+	got, ok := c.Get("k", fp)
+	if !ok || got.Text != big {
+		t.Fatalf("final entry incomplete (ok=%v, len=%d)", ok, len(got.Text))
+	}
+	leftovers, err := filepath.Glob(filepath.Join(filepath.Dir(c.Path("k")), "*.tmp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(leftovers) > 0 {
+		t.Errorf("temp files leaked: %v", leftovers)
 	}
 }
