@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/wlame/regit/internal/gitio"
+	"github.com/wlame/regit/internal/gittest"
 )
 
 // gitCmd runs a git command in dir with identity env vars set so commits work
@@ -16,7 +17,7 @@ func gitCmd(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
+	cmd.Env = gittest.Env(dir,
 		"GIT_AUTHOR_NAME=t",
 		"GIT_AUTHOR_EMAIL=t@e",
 		"GIT_COMMITTER_NAME=t",

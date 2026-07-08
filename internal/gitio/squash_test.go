@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wlame/regit/internal/gittest"
 	"github.com/wlame/regit/internal/model"
 )
 
@@ -52,7 +53,7 @@ func newGitCmd(dir string, env []string, args ...string) *exec.Cmd {
 	c := exec.Command("git", args...)
 	c.Dir = dir
 	if env != nil {
-		c.Env = append(os.Environ(), env...)
+		c.Env = gittest.Env(dir, env...)
 	}
 	return c
 }

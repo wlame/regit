@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/wlame/regit/internal/gitio"
+	"github.com/wlame/regit/internal/gittest"
 	"github.com/wlame/regit/internal/llm"
 	"github.com/wlame/regit/internal/model"
 )
@@ -86,7 +87,7 @@ func gitE(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
+	cmd.Env = gittest.Env(dir,
 		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e",
 		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@e",
 		"GIT_AUTHOR_DATE=2026-01-01T00:00:00+00:00",

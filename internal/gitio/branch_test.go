@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/wlame/regit/internal/gittest"
 )
 
 // branchTestRepo builds a repo whose `main` has two commits and a `feature`
@@ -17,7 +19,7 @@ func branchTestRepo(t *testing.T) *Repo {
 	run := func(args ...string) {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
-		cmd.Env = append(os.Environ(),
+		cmd.Env = gittest.Env(dir,
 			"GIT_AUTHOR_DATE=2026-06-05T14:00:00+00:00",
 			"GIT_COMMITTER_DATE=2026-06-05T14:00:00+00:00")
 		if out, err := cmd.CombinedOutput(); err != nil {

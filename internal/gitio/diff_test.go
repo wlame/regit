@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/wlame/regit/internal/gittest"
 )
 
 // gitT runs a git command in dir and fails the test on error.
@@ -13,7 +15,7 @@ func gitT(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
+	cmd.Env = gittest.Env(dir,
 		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e",
 		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@e")
 	out, err := cmd.CombinedOutput()

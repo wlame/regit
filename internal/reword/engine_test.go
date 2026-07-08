@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/wlame/regit/internal/gitio"
+	"github.com/wlame/regit/internal/gittest"
 	"github.com/wlame/regit/internal/model"
 )
 
@@ -38,7 +39,7 @@ func rewordRepo(t *testing.T) (*gitio.Repo, string, model.Commit) {
 	run := func(stdin string, args ...string) string {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
-		cmd.Env = append(os.Environ(),
+		cmd.Env = gittest.Env(dir,
 			"GIT_AUTHOR_DATE=2026-01-01T10:00:00+00:00",
 			"GIT_COMMITTER_DATE=2026-01-01T10:00:00+00:00",
 		)

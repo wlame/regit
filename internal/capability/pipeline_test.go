@@ -13,6 +13,7 @@ import (
 
 	"github.com/wlame/regit/internal/config"
 	"github.com/wlame/regit/internal/gitio"
+	"github.com/wlame/regit/internal/gittest"
 	"github.com/wlame/regit/internal/model"
 	"github.com/wlame/regit/internal/safety"
 )
@@ -86,7 +87,7 @@ func TestApplyOrPreview_headMovedMapsToGuardExitCode(t *testing.T) {
 	runGit := func(args ...string) {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
-		cmd.Env = append(os.Environ(),
+		cmd.Env = gittest.Env(dir,
 			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
 			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -214,7 +215,7 @@ func signedCommitCapabilityRepo(t *testing.T) (string, *gitio.Repo) {
 	run := func(args ...string) {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
-		cmd.Env = append(os.Environ(),
+		cmd.Env = gittest.Env(dir,
 			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
 			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -341,7 +342,7 @@ func capRepoWithUpstream(t *testing.T) (*RunContext, *bytes.Buffer) {
 	run := func(args ...string) {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
-		cmd.Env = append(os.Environ(),
+		cmd.Env = gittest.Env(dir,
 			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
 			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
 		if out, err := cmd.CombinedOutput(); err != nil {

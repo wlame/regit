@@ -13,6 +13,7 @@ import (
 
 	"github.com/wlame/regit/internal/config"
 	"github.com/wlame/regit/internal/gitio"
+	"github.com/wlame/regit/internal/gittest"
 )
 
 // squashTestRepo builds a linear repo of n commits and returns the repo plus its
@@ -24,7 +25,7 @@ func squashTestRepo(t *testing.T, n int) (*gitio.Repo, []string) {
 		c := exec.Command("git", args...)
 		c.Dir = dir
 		if env != nil {
-			c.Env = append(os.Environ(), env...)
+			c.Env = gittest.Env(dir, env...)
 		}
 		if out, err := c.CombinedOutput(); err != nil {
 			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
@@ -72,7 +73,7 @@ func squashTestRepoWithPush(t *testing.T, n, pushedCount int) (*gitio.Repo, []st
 		c := exec.Command("git", args...)
 		c.Dir = dir
 		if env != nil {
-			c.Env = append(os.Environ(), env...)
+			c.Env = gittest.Env(dir, env...)
 		}
 		if out, err := c.CombinedOutput(); err != nil {
 			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)

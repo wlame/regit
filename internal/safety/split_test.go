@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/wlame/regit/internal/gitio"
+	"github.com/wlame/regit/internal/gittest"
 	"github.com/wlame/regit/internal/model"
 )
 
@@ -24,7 +25,7 @@ func buildSplitRepo(t *testing.T) (*gitio.Repo, model.Commit, string, []model.Co
 	runGit := func(env []string, args ...string) string {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
-		cmd.Env = append(os.Environ(), env...)
+		cmd.Env = gittest.Env(dir, env...)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)

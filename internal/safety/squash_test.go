@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/wlame/regit/internal/gitio"
+	"github.com/wlame/regit/internal/gittest"
 	"github.com/wlame/regit/internal/model"
 )
 
@@ -21,7 +22,7 @@ func newLinearRepo(t *testing.T, n int) *gitio.Repo {
 		c := exec.Command("git", args...)
 		c.Dir = dir
 		if env != nil {
-			c.Env = append(os.Environ(), env...)
+			c.Env = gittest.Env(dir, env...)
 		}
 		if out, err := c.CombinedOutput(); err != nil {
 			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)

@@ -465,6 +465,7 @@ The codebase is layered so the interesting logic is pure and testable:
 - `internal/ui` — Bubble Tea terminal interface
 - `internal/model` — shared domain types
 - `internal/termsafe` — strips terminal escape sequences from untrusted repo/LLM text before display
+- `internal/gittest` — hermetic git environment for test fixtures (never reads the host git config)
 - `internal/docs` — generated-docs renderer; `just docs-sync` rewrites the marked README/AGENTS.md blocks
 
 ## License
