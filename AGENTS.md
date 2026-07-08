@@ -283,8 +283,13 @@ The mechanism is data-driven. Each operation produces a list of
   change-set from `gitio.DiffChangeSet` (`git diff --raw`, statuses A/M/D; rename
   detection is off), so exactly the declared paths change and nothing else moves.
 
-`gitio.VerifyTreesUnchanged` is now just the ∅-expectation HEAD case and remains
-as a thin shim. On success `verify` returns a `model.VerificationSummary` that
+Content checks are complemented by a STRUCTURAL check
+(`safety.Manager.verifyChainStructure`): after replay, both first-parent chains
+are walked to prove the new chain has exactly the expected number of commits
+and sits on the same untouched boundary parent as the original (or that both
+are rooted) — a remap bug that dropped, duplicated, or reparented commits would
+pass pairwise tree equality but not this. `gitio.VerifyTreesUnchanged` is now
+just the ∅-expectation HEAD case and remains as a thin shim. On success `verify` returns a `model.VerificationSummary` that
 both surfaces render (`verified N commits, 0 paths changed` — the TUI command log
 and the headless `Applied.` / `Split into …` output).
 
@@ -403,6 +408,12 @@ regit squash <range-ish>
   Rewrites store messages as faithful UTF-8 with no `encoding` header (see
   `commitTreeArgs`) — re-labeling already-transcoded bytes was the old mojibake bug.
 
+- **Every git invocation is bounded by a timeout** (`gitTimeout`, 10 min): a
+  wedged git or credential/gpg helper turns into a clear error instead of a
+  hang. Guard INPUTS fail closed: a `rev-list --remotes` failure aborts
+  `ReadCommits` (never "nothing is pushed"), and an `AppliedHeadFor` read error
+  makes undo require `--force` (never "guard off").
+
 - **`runGit` scrubs repository-location `GIT_*` env** (`GIT_DIR`, `GIT_INDEX_FILE`,
   `GIT_WORK_TREE`, `GIT_OBJECT_DIRECTORY`, …) before every call, so an exported
   `GIT_INDEX_FILE` cannot make a worktree op clobber the user's real index. It does
@@ -427,6 +438,11 @@ regit squash <range-ish>
   heads-up in the preview whenever the active range contains already-signed
   commits, but still proceeds — the user opts in to re-signing, not out of
   dropping.
+
+- **Undo has ONE implementation: `safety.Manager.Restore`.** The session-stack
+  `Manager.Undo` and the headless `regit undo` both funnel through it (backup
+  selection stays in `run_undo.go`; guard sentinels `ErrUndoHeadMoved` /
+  `ErrBackupOtherBranch` map to exit 2). Only the Manager moves branch refs.
 
 - **`undo` refuses to unwind past new work unless `--force`.** Each backup ref
   is paired with a `refs/regit/applied/<branch>/<ts>-<seq>` ref (same
