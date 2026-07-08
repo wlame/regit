@@ -1,7 +1,9 @@
 package gitio
 
 import (
+	"errors"
 	"fmt"
+	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
@@ -115,9 +117,18 @@ func (r *Repo) RecordAppliedHead(backupRef, head string) error {
 // yields ("", false, nil).
 func (r *Repo) AppliedHeadFor(backupRef string) (string, bool, error) {
 	ref := appliedRefFor(backupRef)
-	hash, err := r.ResolveRef(ref)
+	// --quiet makes a missing ref (or one git itself ignores as broken) exit 1
+	// with no message — the expected legacy-backup case, where the guard simply
+	// does not apply. Any OTHER failure (unreadable repo, fs error) must
+	// propagate so the caller can degrade CLOSED: the old behavior folded every
+	// error into "absent", silently switching the advanced-HEAD guard off.
+	hash, err := r.git("rev-parse", "--verify", "--quiet", ref)
 	if err != nil {
-		return "", false, nil // absent → guard simply does not apply
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return "", false, nil // absent → guard does not apply
+		}
+		return "", false, fmt.Errorf("read applied ref %s: %w", ref, err)
 	}
 	return hash, true, nil
 }

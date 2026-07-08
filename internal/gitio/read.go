@@ -133,7 +133,14 @@ func (r *Repo) ReadCommits() ([]model.Commit, error) {
 		return nil, err
 	}
 
-	pushed, _ := r.pushedHashes() // best-effort; empty set if no upstream
+	// A pushedHashes failure propagates rather than reading as "nothing
+	// pushed": IsPushed feeds the pushed-history confirmation gate, and a
+	// guard input must fail closed. (No remotes at all is still the benign
+	// empty set, not an error.)
+	pushed, err := r.pushedHashes()
+	if err != nil {
+		return nil, err
+	}
 
 	tokens := strings.Split(out, "\x00")
 	var commits []model.Commit
@@ -156,10 +163,13 @@ func (r *Repo) ReadCommits() ([]model.Commit, error) {
 // unwarned.
 func (r *Repo) pushedHashes() (map[string]bool, error) {
 	// --remotes with no argument means "all refs under refs/remotes"; if there
-	// are none, rev-list prints nothing and we return an empty set.
+	// are none, rev-list prints nothing (exit 0) and we return an empty set.
+	// A FAILURE, by contrast, must propagate: swallowing it into an empty set
+	// (the old behavior) reported every commit as unpushed, silently switching
+	// off the pushed-history confirmation gate — the guard must degrade CLOSED.
 	out, err := r.gitRaw("rev-list", "--remotes")
 	if err != nil {
-		return map[string]bool{}, nil // best-effort: no remotes / bare → empty
+		return nil, fmt.Errorf("list pushed commits: %w", err)
 	}
 	set := make(map[string]bool)
 	for _, h := range strings.Fields(out) {

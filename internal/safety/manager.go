@@ -299,8 +299,15 @@ func (m *Manager) Restore(backupRef string, force bool, unixTS int64) (string, e
 	// Advanced-HEAD guard: if this backup recorded the head its apply produced,
 	// and the branch no longer points there, work has happened since — undoing
 	// would unwind it. Refuse unless forced. A legacy backup (no paired applied
-	// ref) reports ok=false, so it degrades to the old behavior: no guard.
-	if applied, ok, _ := m.repo.AppliedHeadFor(backupRef); ok && applied != current && !force {
+	// ref) reports ok=false, so it degrades to the old behavior: no guard. A
+	// read FAILURE, by contrast, degrades CLOSED: we cannot prove the unwind is
+	// safe, so it too requires force.
+	applied, ok, aerr := m.repo.AppliedHeadFor(backupRef)
+	if aerr != nil && !force {
+		return "", fmt.Errorf("%w: cannot check the advanced-HEAD guard (%v); re-run with --force to unwind anyway",
+			ErrUndoHeadMoved, aerr)
+	}
+	if ok && applied != current && !force {
 		return "", fmt.Errorf("%w (apply produced %s, branch is now %s); re-run with --force to unwind it",
 			ErrUndoHeadMoved, shortHash(applied), shortHash(current))
 	}

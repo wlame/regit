@@ -1,6 +1,8 @@
 package gitio
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -66,5 +68,56 @@ func TestDeleteAppliedRef_removesPairedRef(t *testing.T) {
 	// The backup ref itself must be untouched.
 	if got, err := r.ResolveRef(backup); err != nil || got != head {
 		t.Errorf("DeleteAppliedRef must not touch the backup ref itself; got %s err=%v", got, err)
+	}
+}
+
+// TestPushedDetection_failsClosedOnBrokenRemoteRef verifies a rev-list
+// --remotes failure (here: a corrupt remote-tracking ref) propagates out of
+// ReadCommits instead of silently reporting every commit as unpushed — the
+// pushed-history confirmation gate must degrade closed, not open.
+func TestPushedDetection_failsClosedOnBrokenRemoteRef(t *testing.T) {
+	repo, dir := testRepo(t)
+
+	// Sanity: a healthy repo with no remotes reads fine (empty pushed set).
+	if _, err := repo.ReadCommits(); err != nil {
+		t.Fatalf("healthy ReadCommits: %v", err)
+	}
+
+	// Corrupt ref: a refs/remotes file whose content is not a hash.
+	brokenDir := filepath.Join(dir, ".git", "refs", "remotes", "origin")
+	if err := os.MkdirAll(brokenDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(brokenDir, "main"), []byte("notahash\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.ReadCommits(); err == nil {
+		t.Fatal("ReadCommits must fail when pushed detection fails, not report everything unpushed")
+	}
+}
+
+// TestAppliedHeadFor_absentVsPresent verifies the guard-input contract: a
+// missing applied ref is the benign legacy case (ok=false, no error), while a
+// recorded one round-trips.
+func TestAppliedHeadFor_absentVsPresent(t *testing.T) {
+	repo, _ := testRepo(t)
+	head, err := repo.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	backup, err := repo.CreateBackupRef("main", 1000, head)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok, err := repo.AppliedHeadFor(backup); ok || err != nil {
+		t.Fatalf("no applied ref recorded: want ok=false, err=nil; got ok=%v err=%v", ok, err)
+	}
+	if err := repo.RecordAppliedHead(backup, head); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := repo.AppliedHeadFor(backup)
+	if !ok || err != nil || got != head {
+		t.Fatalf("recorded applied head: got %q ok=%v err=%v, want %q", got, ok, err, head)
 	}
 }
