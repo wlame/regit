@@ -1,6 +1,7 @@
 package safety
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -332,4 +333,44 @@ func appendCommit(t *testing.T, repo *gitio.Repo) {
 	}
 	run("add", "extra.txt")
 	run("commit", "-q", "-m", "concurrent")
+}
+
+// TestManagerRestore_sentinelErrors verifies Restore — the single undo
+// implementation both Manager.Undo and headless `regit undo` funnel through —
+// reports its guard refusals via errors.Is-able sentinels, which the CLI maps
+// to exit code 2.
+func TestManagerRestore_sentinelErrors(t *testing.T) {
+	repo := buildRepo(t)
+	mgr := NewManager(repo)
+	state, _ := repo.ReadState()
+	oldHead, _ := repo.ResolveRef("HEAD")
+	res, err := mgr.Apply(spreadPlan(t, repo), state, ApplyOptions{UnixTimestamp: 1, ExpectedHead: oldHead})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Advance HEAD past the recorded applied head with a plain commit.
+	appendCommit(t, repo)
+
+	_, err = mgr.Restore(res.BackupRef, false, 2)
+	if !errors.Is(err, ErrUndoHeadMoved) {
+		t.Fatalf("advanced HEAD should refuse with ErrUndoHeadMoved, got: %v", err)
+	}
+	// Forced restore proceeds.
+	restored, err := mgr.Restore(res.BackupRef, true, 3)
+	if err != nil {
+		t.Fatalf("forced Restore: %v", err)
+	}
+	if restored != oldHead {
+		t.Errorf("restored %s, want %s", shortHash(restored), shortHash(oldHead))
+	}
+
+	// Cross-branch refusal: a backup naming another branch.
+	otherRef := "refs/regit/backup/other-branch/999-0"
+	if err := repo.UpdateRef(otherRef, oldHead, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mgr.Restore(otherRef, false, 4); !errors.Is(err, ErrBackupOtherBranch) {
+		t.Fatalf("cross-branch restore should refuse with ErrBackupOtherBranch, got: %v", err)
+	}
 }

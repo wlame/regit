@@ -1,10 +1,12 @@
 package capability
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/wlame/regit/internal/gitio"
+	"github.com/wlame/regit/internal/safety"
 )
 
 // runUndo restores the branch to a backup ref. It is a recovery operation and is
@@ -92,23 +94,17 @@ func runUndo(ctx *RunContext, a ParsedArgs) error {
 		}
 	}
 
-	// Advanced-HEAD guard: if this backup recorded the head its apply produced,
-	// and the branch no longer points there, work has happened since — undoing
-	// would unwind it. Refuse unless --force. A legacy backup (no paired applied
-	// ref, e.g. one created before this ref pairing existed) reports ok=false,
-	// so it degrades to today's behavior: no guard.
-	if applied, ok, _ := ctx.Repo.AppliedHeadFor(target.Name); ok && applied != state.HeadHash && !a.Bool("force") {
-		return guardErr("HEAD moved past this backup (apply produced %s, branch is now %s); re-run with --force to unwind it",
-			Short(applied), Short(state.HeadHash))
-	}
-	// Pre-undo backup so the undo is reversible (appears in `undo --list`).
-	if _, err := ctx.Repo.CreateBackupRef(state.Branch, ctx.Now.Unix(), state.HeadHash); err != nil {
-		return runtimeErr("pre-undo backup: %v", err)
-	}
-
-	if err := ctx.Repo.UpdateRef(gitio.BranchRef(state.Branch), target.Hash, state.HeadHash); err != nil {
+	// The restore itself — branch guard, advanced-HEAD guard, pre-undo backup,
+	// compare-and-swap ref move — is the Manager's single implementation
+	// (safety.Manager.Restore); this file only selects WHICH backup to restore.
+	// Sentinel errors map the Manager's guard refusals to exit code 2.
+	restored, err := safety.NewManager(ctx.Repo).Restore(target.Name, a.Bool("force"), ctx.Now.Unix())
+	if err != nil {
+		if errors.Is(err, safety.ErrUndoHeadMoved) || errors.Is(err, safety.ErrBackupOtherBranch) {
+			return guardErr("%v", err)
+		}
 		return runtimeErr("restore: %v", err)
 	}
-	fmt.Fprintf(ctx.Stdout, "Restored %s to %s (was %s)\n", state.Branch, Short(target.Hash), Short(state.HeadHash))
+	fmt.Fprintf(ctx.Stdout, "Restored %s to %s (was %s)\n", state.Branch, Short(restored), Short(state.HeadHash))
 	return nil
 }
