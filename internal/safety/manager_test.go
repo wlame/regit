@@ -420,3 +420,111 @@ func TestVerifyChainStructure_detectsShapeBugs(t *testing.T) {
 		t.Error("differing boundary parents must fail verification")
 	}
 }
+
+// buildMergeRepo creates a repo whose first-parent history contains a real
+// merge commit: c1 → c2 → M(second parent: side) → c3.
+func buildMergeRepo(t *testing.T) *gitio.Repo {
+	t.Helper()
+	dir := t.TempDir()
+	run := func(env []string, args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = gittest.Env(dir, env...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	date := []string{"GIT_AUTHOR_DATE=2026-06-05T14:00:00+00:00", "GIT_COMMITTER_DATE=2026-06-05T14:00:00+00:00"}
+	commitFile := func(name, msg string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(name+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		run(nil, "add", ".")
+		run(date, "commit", "-q", "-m", msg)
+	}
+
+	run(nil, "init", "-q")
+	run(nil, "symbolic-ref", "HEAD", "refs/heads/main")
+	run(nil, "config", "commit.gpgsign", "false")
+	commitFile("c1.txt", "c1")
+	run(nil, "checkout", "-q", "-b", "side")
+	commitFile("side.txt", "side work")
+	run(nil, "checkout", "-q", "main")
+	commitFile("c2.txt", "c2")
+	run(date, "merge", "--no-ff", "-q", "-m", "merge side", "side")
+	commitFile("c3.txt", "c3")
+
+	repo, err := gitio.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return repo
+}
+
+// TestManagerApply_replaysMergeHistory is the merge-commit replay integration
+// test: a redate over a first-parent history containing a real merge must
+// succeed end to end, rewrite the merge's FIRST parent only (the side branch
+// keeps its original commit), preserve every tree, and pass both verifiers.
+func TestManagerApply_replaysMergeHistory(t *testing.T) {
+	repo := buildMergeRepo(t)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) != 4 {
+		t.Fatalf("first-parent history = %d commits, want 4 (c1 c2 M c3)", len(commits))
+	}
+	var mergeOld model.Commit
+	for _, c := range commits {
+		if c.IsMerge {
+			mergeOld = c
+		}
+	}
+	if mergeOld.Hash == "" || len(mergeOld.ParentHashes) != 2 {
+		t.Fatalf("fixture lacks a 2-parent merge commit: %+v", mergeOld)
+	}
+	sideParent := mergeOld.ParentHashes[1]
+
+	plan := model.NewPlan(commits)
+	base := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
+	for i, c := range commits {
+		d := base.AddDate(0, 0, i)
+		plan.SetEdit(c.Hash, model.Edit{NewAuthorDate: &d, NewCommitDate: &d})
+	}
+
+	state, _ := repo.ReadState()
+	res, err := NewManager(repo).Apply(plan, state, ApplyOptions{UnixTimestamp: 1, ExpectedHead: state.HeadHash})
+	if err != nil {
+		t.Fatalf("Apply over merge history: %v", err)
+	}
+	if res.Verification.Commits != 4 {
+		t.Errorf("verified %d commits, want 4", res.Verification.Commits)
+	}
+
+	after, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != 4 {
+		t.Fatalf("rewritten first-parent history = %d commits, want 4", len(after))
+	}
+	var mergeNew model.Commit
+	for i, c := range after {
+		if c.TreeHash != commits[i].TreeHash {
+			t.Errorf("commit %d tree changed: %s -> %s", i, commits[i].TreeHash, c.TreeHash)
+		}
+		if c.IsMerge {
+			mergeNew = c
+		}
+	}
+	if mergeNew.Hash == "" || len(mergeNew.ParentHashes) != 2 {
+		t.Fatalf("merge commit lost its second parent after replay: %+v", mergeNew)
+	}
+	if mergeNew.ParentHashes[1] != sideParent {
+		t.Errorf("side branch was rewritten: second parent %s, want original %s",
+			shortHash(mergeNew.ParentHashes[1]), shortHash(sideParent))
+	}
+	if mergeNew.Hash == mergeOld.Hash {
+		t.Error("merge commit should have been rewritten (dates changed)")
+	}
+}
