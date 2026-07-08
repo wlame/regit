@@ -113,30 +113,39 @@ func remapParents(parents []string, remap map[string]string) []string {
 // edit, honoring the "drop body, keep subject" action.
 //
 // When the edit does not touch the message at all, the original raw message is
-// replayed verbatim (modulo a single trailing newline) — rebuilding it from a
-// subject/body split would re-structure messages whose first paragraph spans
-// several lines or that lack a blank line after the title.
+// replayed verbatim (modulo a single trailing newline). When only ONE part is
+// edited, the other part is spliced from the RAW message rather than rebuilt
+// from the subject/body split: the split is lossy about structure — a wrapped
+// first paragraph has no blank line after its first line, and some messages
+// separate title and body with more than one — and reassembling from it
+// silently reshaped the untouched part (a subject-only retitle used to insert
+// a blank line into a wrapped paragraph). A caller-supplied NEW body is the
+// one case that gets the normalized single-blank separator: we author it.
 func buildMessage(c model.Commit, e model.Edit) string {
+	raw := strings.TrimRight(c.Message, "\n")
 	if e.NewSubject == nil && e.NewBody == nil && !e.DropBody {
-		return strings.TrimRight(c.Message, "\n") + "\n"
+		return raw + "\n"
 	}
 
-	subject := c.Subject
+	subject, rest, hadRest := strings.Cut(raw, "\n")
 	if e.NewSubject != nil {
 		subject = *e.NewSubject
 	}
-
-	body := c.Body
-	if e.DropBody {
-		body = ""
-	} else if e.NewBody != nil {
-		body = *e.NewBody
-	}
-
-	if body == "" {
+	switch {
+	case e.DropBody:
 		return subject + "\n"
+	case e.NewBody != nil:
+		if *e.NewBody == "" {
+			return subject + "\n"
+		}
+		return subject + "\n\n" + *e.NewBody + "\n"
+	case !hadRest:
+		return subject + "\n"
+	default:
+		// Subject-only edit: everything after the first line — including its
+		// original blank-line structure (or the absence of one) — is verbatim.
+		return subject + "\n" + rest + "\n"
 	}
-	return subject + "\n\n" + body + "\n"
 }
 
 // buildCommitEnv produces the GIT_*_DATE and identity environment for one commit.

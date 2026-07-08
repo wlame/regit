@@ -60,6 +60,24 @@ func TestBuildMessage(t *testing.T) {
 		{"new subject", c, model.Edit{NewSubject: strptr("New title")}, "New title\n\ndetails here\n"},
 		{"new body", c, model.Edit{NewBody: strptr("rewritten")}, "Fix bug\n\nrewritten\n"},
 		{"drop wins over new body", c, model.Edit{DropBody: true, NewBody: strptr("ignored")}, "Fix bug\n"},
+		// A subject-only edit must splice into the raw message, leaving the
+		// remainder verbatim: no blank line may be inserted into a wrapped
+		// first paragraph (the old subject/body reassembly did exactly that).
+		{"new subject keeps wrapped paragraph shape", tricky,
+			model.Edit{NewSubject: strptr("New title")},
+			"New title\nfirst comment line\nsecond comment line\n"},
+		// A multi-blank separator survives a subject-only edit untouched.
+		{"new subject keeps extra blank lines",
+			model.Commit{Message: "Fix bug\n\n\ndetails here", Subject: "Fix bug", Body: "details here"},
+			model.Edit{NewSubject: strptr("New title")},
+			"New title\n\n\ndetails here\n"},
+		// A subject-only edit of a single-line message stays single-line.
+		{"new subject on single-line message",
+			model.Commit{Message: "Fix bug", Subject: "Fix bug"},
+			model.Edit{NewSubject: strptr("New title")},
+			"New title\n"},
+		// An explicitly empty new body drops the body like DropBody.
+		{"empty new body drops the body", c, model.Edit{NewBody: strptr("")}, "Fix bug\n"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
