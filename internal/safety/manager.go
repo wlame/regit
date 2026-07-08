@@ -132,8 +132,14 @@ func (m *Manager) Apply(plan *model.Plan, state model.RepoState, opts ApplyOptio
 
 	// 3. Prove every rewritten commit changed exactly nothing before we commit to
 	//    the new history. (Empty expectations => verified by tree-hash equality.)
+	//    The structural check then proves the new chain has the same length and
+	//    sits on the same boundary parent — a remap bug that dropped or
+	//    reparented commits would pass pairwise tree checks but not this.
 	verification, err := m.verify(emptyExpectations(remap))
 	if err != nil {
+		return ApplyResult{}, err
+	}
+	if err := m.verifyChainStructure(oldHead, newHead, len(remap), len(remap)); err != nil {
 		return ApplyResult{}, err
 	}
 
@@ -225,6 +231,12 @@ func (m *Manager) ApplySplit(commit model.Commit, parentHash string, subs []giti
 	}, emptyExpectations(splitRemap.Tail)...)
 	verification, err := m.verify(exps)
 	if err != nil {
+		return ApplyResult{}, err
+	}
+	// Structural check: the old chain held the target plus its tail; the new one
+	// must hold exactly len(subs) sub-commits plus the same tail, over the same
+	// boundary parent.
+	if err := m.verifyChainStructure(oldHead, newHead, 1+len(tail), len(subs)+len(tail)); err != nil {
 		return ApplyResult{}, err
 	}
 

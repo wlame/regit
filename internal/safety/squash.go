@@ -71,6 +71,17 @@ func (m *Manager) ApplySquash(commits []model.Commit, plan model.SquashPlan, sta
 	if err != nil {
 		return ApplyResult{}, err
 	}
+	// Structural check: the rewritten suffix loses exactly len(Members)-1
+	// commits per collapsed chain and keeps everything else 1:1, over the same
+	// boundary parent.
+	oldLen := len(plan.RewrittenCommits(commits))
+	newLen := oldLen
+	for _, ch := range plan.Chains {
+		newLen -= len(ch.Members) - 1
+	}
+	if err := m.verifyChainStructure(oldHead, newHead, oldLen, newLen); err != nil {
+		return ApplyResult{}, err
+	}
 
 	// --- Move branch (compare-and-swap) ---
 	if err := m.repo.UpdateRef(gitio.BranchRef(branch), newHead, oldHead); err != nil {

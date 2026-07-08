@@ -374,3 +374,48 @@ func TestManagerRestore_sentinelErrors(t *testing.T) {
 		t.Fatalf("cross-branch restore should refuse with ErrBackupOtherBranch, got: %v", err)
 	}
 }
+
+// TestVerifyChainStructure_detectsShapeBugs exercises the structural verifier
+// directly: correct lengths over the same boundary pass; a dropped or
+// duplicated commit (wrong new length) and a reparented chain (different
+// boundary) are caught — cases pairwise tree equality can never notice.
+func TestVerifyChainStructure_detectsShapeBugs(t *testing.T) {
+	repo := buildRepo(t) // two commits: root + child
+	mgr := NewManager(repo)
+	head, _ := repo.ResolveRef("HEAD")
+
+	// Identity "rewrite": both chains are the same 1-commit chain over the
+	// same parent.
+	if err := mgr.verifyChainStructure(head, head, 1, 1); err != nil {
+		t.Errorf("identical chains should verify: %v", err)
+	}
+	// Root case: the full 2-commit history on both sides.
+	if err := mgr.verifyChainStructure(head, head, 2, 2); err != nil {
+		t.Errorf("rooted chains should verify: %v", err)
+	}
+	// A remap that lost a commit: claims 2 rewritten commits but the walk
+	// roots after 2 entries while the old side expects a boundary below 1.
+	if err := mgr.verifyChainStructure(head, head, 1, 2); err == nil {
+		t.Error("mismatched chain lengths must fail verification")
+	}
+	// A chain that claims to extend past the root.
+	if err := mgr.verifyChainStructure(head, head, 3, 3); err == nil {
+		t.Error("chains shorter than claimed must fail verification")
+	}
+
+	// Reparented chain: a new head whose boundary parent differs. Create a
+	// sibling commit on top of the ROOT (not head), so walking 1 step from it
+	// lands on the root while the old walk lands on head's parent... they
+	// differ only if we compare at depth 1 from different heads.
+	root, err := repo.FirstParents(head, 2)
+	if err != nil || len(root) != 2 {
+		t.Fatalf("expected a 2-commit history, got %v (%v)", root, err)
+	}
+	appendCommit(t, repo) // new head on top of the old head
+	newHead, _ := repo.ResolveRef("HEAD")
+	// Old side: 1 commit over boundary = old head's parent (the root).
+	// New side: 1 commit over boundary = old head. Boundaries differ → fail.
+	if err := mgr.verifyChainStructure(head, newHead, 1, 1); err == nil {
+		t.Error("differing boundary parents must fail verification")
+	}
+}

@@ -100,6 +100,21 @@ func (r *Repo) IsDirty() (bool, error) {
 	return strings.TrimSpace(status) != "", nil
 }
 
+// FirstParents returns up to n commit hashes of rev's first-parent chain,
+// newest first (rev itself is entry 0). A chain shorter than n (rev is close
+// to a root) returns just the commits that exist. The safety verifier uses it
+// for the structural chain check that complements per-pair tree equality.
+func (r *Repo) FirstParents(rev string, n int) ([]string, error) {
+	if n <= 0 {
+		return nil, nil
+	}
+	out, err := r.git("rev-list", "--first-parent", "-n", strconv.Itoa(n), rev)
+	if err != nil {
+		return nil, fmt.Errorf("rev-list --first-parent %s: %w", short(rev), err)
+	}
+	return strings.Fields(out), nil
+}
+
 // ReadCommits returns the first-parent linear history of the current branch in
 // root-first order (oldest commit at index 0), which is the order the rewrite
 // engine replays. Commits already present on any remote-tracking ref are

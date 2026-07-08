@@ -57,6 +57,40 @@ func (m *Manager) verify(expectations []model.Expectation) (model.VerificationSu
 	return summary, nil
 }
 
+// verifyChainStructure asserts the rewrite preserved history's SHAPE — the
+// structural complement to verify's content check. Pairwise tree equality
+// cannot notice a remap bug that dropped, duplicated, or reparented commits
+// (every surviving pair could still be tree-identical). This walks both
+// first-parent chains from the old and new heads and checks:
+//
+//  1. the new chain has exactly newLen rewritten commits above the boundary
+//     (and the old chain oldLen), and
+//  2. one step below the boundary both walks land on the SAME commit — the
+//     untouched parent history — or both chains end at a root (a rewrite of a
+//     root history must itself be rooted).
+//
+// Like verify, it runs after replay but before the branch ref moves, so a
+// failure aborts with the repository unchanged.
+func (m *Manager) verifyChainStructure(oldHead, newHead string, oldLen, newLen int) error {
+	oldChain, err := m.repo.FirstParents(oldHead, oldLen+1)
+	if err != nil {
+		return err
+	}
+	newChain, err := m.repo.FirstParents(newHead, newLen+1)
+	if err != nil {
+		return err
+	}
+	switch {
+	case len(oldChain) == oldLen && len(newChain) == newLen:
+		return nil // both chains rooted exactly at the rewrite boundary
+	case len(oldChain) == oldLen+1 && len(newChain) == newLen+1 && oldChain[oldLen] == newChain[newLen]:
+		return nil // both chains sit on the same untouched boundary parent
+	}
+	return fmt.Errorf(
+		"chain verification failed: expected %d rewritten commit(s) over the same boundary as the original %d (old walk %d, new walk %d)",
+		newLen, oldLen, len(oldChain), len(newChain))
+}
+
 // verifyError renders a multi-line abort message listing each discrepancy.
 func verifyError(e model.Expectation, actual model.ChangeSet) error {
 	diffs := e.Expected.Mismatch(actual)
