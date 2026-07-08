@@ -91,19 +91,38 @@ type ApplyResult struct {
 	Verification model.VerificationSummary // result of the change-set verifier
 }
 
-// Apply runs the full guarded rewrite for the plan against the given state. It
-// returns an error (and changes nothing) if a guard blocks the operation or
-// confirmation is required but absent.
-func (m *Manager) Apply(plan *model.Plan, state model.RepoState, opts ApplyOptions) (ApplyResult, error) {
-	guard := CheckGuards(state, plan)
-	if guard.Blocked {
-		return ApplyResult{}, fmt.Errorf("rewrite blocked: %s", guard.BlockReason)
-	}
-	if guard.NeedsConfirmation && !opts.Confirmed {
-		return ApplyResult{}, fmt.Errorf("confirmation required: %s", guard.ConfirmReason)
-	}
-	if !plan.HasChanges() {
-		return ApplyResult{}, fmt.Errorf("nothing to apply: no commits were edited")
+// rewriteResult is what an operation's rewrite step hands back to runApply:
+// the replayed head (no ref moved yet), the change-set expectations to verify,
+// and the first-parent chain lengths for the structural check.
+type rewriteResult struct {
+	NewHead        string
+	Expectations   []model.Expectation
+	OldLen, NewLen int
+}
+
+// applyOp parameterizes one history-rewriting operation for runApply. The
+// apply protocol itself is fixed; an operation contributes only its two
+// varying parts as data:
+//
+//   - Guards: the op-specific pre-checks against the caller's snapshot
+//     (merge-commit refusals, pushed-history confirmation, plan validity).
+//   - Rewrite: the replay itself, producing new objects WITHOUT moving any
+//     ref, plus what the verifier must prove about them.
+type applyOp struct {
+	Guards  func() error
+	Rewrite func(oldHead string) (rewriteResult, error)
+}
+
+// runApply is the single guarded apply skeleton every history rewrite runs
+// through: guards → preflight → backup → rewrite → verify (content +
+// structure) → move branch (compare-and-swap) → record applied head. Apply,
+// ApplySplit, and ApplySquash used to each hand-roll this sequence — which is
+// exactly how the shallow-clone block was once forgotten on two of the three
+// paths. Now a step added here (or reordered) holds for every operation by
+// construction.
+func (m *Manager) runApply(op applyOp, opts ApplyOptions) (ApplyResult, error) {
+	if err := op.Guards(); err != nil {
+		return ApplyResult{}, err
 	}
 
 	branch, err := m.repo.CurrentBranch()
@@ -118,33 +137,33 @@ func (m *Manager) Apply(plan *model.Plan, state model.RepoState, opts ApplyOptio
 		return ApplyResult{}, err
 	}
 
-	// 1. Backup the current tip before touching anything.
+	// Backup the current tip before touching anything.
 	backupRef, err := m.repo.CreateBackupRef(branch, opts.UnixTimestamp, oldHead)
 	if err != nil {
 		return ApplyResult{}, err
 	}
 
-	// 2. Replay history with the new dates/messages.
-	newHead, remap, err := m.repo.Replay(plan, opts.Sign)
+	// Replay history. New objects are created but no ref moves yet, so any
+	// failure below leaves the repository byte-for-byte unchanged (only an
+	// unreferenced backup ref and dangling objects remain).
+	res, err := op.Rewrite(oldHead)
 	if err != nil {
 		return ApplyResult{}, err
 	}
 
-	// 3. Prove every rewritten commit changed exactly nothing before we commit to
-	//    the new history. (Empty expectations => verified by tree-hash equality.)
-	//    The structural check then proves the new chain has the same length and
-	//    sits on the same boundary parent — a remap bug that dropped or
-	//    reparented commits would pass pairwise tree checks but not this.
-	verification, err := m.verify(emptyExpectations(remap))
+	// Prove the rewrite changed exactly what the operation promised (content)
+	// and preserved history's shape (chain length + boundary parent) before
+	// committing to the new history.
+	verification, err := m.verify(res.Expectations)
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	if err := m.verifyChainStructure(oldHead, newHead, len(remap), len(remap)); err != nil {
+	if err := m.verifyChainStructure(oldHead, res.NewHead, res.OldLen, res.NewLen); err != nil {
 		return ApplyResult{}, err
 	}
 
-	// 4. Move the branch, using compare-and-swap so a concurrent change aborts us.
-	if err := m.repo.UpdateRef(gitio.BranchRef(branch), newHead, oldHead); err != nil {
+	// Move the branch, using compare-and-swap so a concurrent change aborts us.
+	if err := m.repo.UpdateRef(gitio.BranchRef(branch), res.NewHead, oldHead); err != nil {
 		return ApplyResult{}, fmt.Errorf("move branch %s: %w", branch, err)
 	}
 
@@ -152,10 +171,46 @@ func (m *Manager) Apply(plan *model.Plan, state model.RepoState, opts ApplyOptio
 	// undo can detect whether the branch has since advanced past this point.
 	// Non-fatal: on failure the advanced-HEAD guard simply degrades to off for
 	// this backup (undo still creates its pre-undo backup).
-	_ = m.repo.RecordAppliedHead(backupRef, newHead)
+	_ = m.repo.RecordAppliedHead(backupRef, res.NewHead)
 
 	m.undoStack = append(m.undoStack, backupRef)
-	return ApplyResult{BackupRef: backupRef, OldHead: oldHead, NewHead: newHead, Verification: verification}, nil
+	return ApplyResult{BackupRef: backupRef, OldHead: oldHead, NewHead: res.NewHead, Verification: verification}, nil
+}
+
+// Apply runs the full guarded rewrite for the plan against the given state. It
+// returns an error (and changes nothing) if a guard blocks the operation or
+// confirmation is required but absent.
+func (m *Manager) Apply(plan *model.Plan, state model.RepoState, opts ApplyOptions) (ApplyResult, error) {
+	return m.runApply(applyOp{
+		Guards: func() error {
+			guard := CheckGuards(state, plan)
+			if guard.Blocked {
+				return fmt.Errorf("rewrite blocked: %s", guard.BlockReason)
+			}
+			if guard.NeedsConfirmation && !opts.Confirmed {
+				return fmt.Errorf("confirmation required: %s", guard.ConfirmReason)
+			}
+			if !plan.HasChanges() {
+				return fmt.Errorf("nothing to apply: no commits were edited")
+			}
+			return nil
+		},
+		Rewrite: func(string) (rewriteResult, error) {
+			newHead, remap, err := m.repo.Replay(plan, opts.Sign)
+			if err != nil {
+				return rewriteResult{}, err
+			}
+			// Every rewritten commit must be content-identical (empty
+			// expectations ⇒ tree-hash equality) and the chain keeps its
+			// length 1:1.
+			return rewriteResult{
+				NewHead:      newHead,
+				Expectations: emptyExpectations(remap),
+				OldLen:       len(remap),
+				NewLen:       len(remap),
+			}, nil
+		},
+	}, opts)
 }
 
 // ApplySplit replaces one commit with sub-commits and replays the tail, guarded
@@ -168,92 +223,53 @@ func (m *Manager) Apply(plan *model.Plan, state model.RepoState, opts ApplyOptio
 //     (end-to-end content guarantee, verified by m.verify over the boundary
 //     pair (C → Cₖ) and all replayed tail expectations).
 func (m *Manager) ApplySplit(commit model.Commit, parentHash string, subs []gitio.SubCommit, tail []model.Commit, state model.RepoState, opts ApplyOptions) (ApplyResult, error) {
-	// --- Guards ---
-
-	if commit.IsMerge {
-		return ApplyResult{}, fmt.Errorf("cannot split a merge commit %s", shortHash(commit.Hash))
-	}
-	if state.IsDirty {
-		return ApplyResult{}, fmt.Errorf("rewrite blocked: working tree is dirty")
-	}
-	if len(subs) < 2 {
-		return ApplyResult{}, fmt.Errorf("nothing to split: fewer than two sub-commits")
-	}
-	// Pushed commits require the caller to have obtained explicit confirmation.
-	// The rewrite set is the target commit plus its tail: everything Replay-style
-	// re-hashing actually touches (the sub-commits themselves are new objects with
-	// no prior existence, so only the ORIGINAL commit and its downstream tail can
-	// already be pushed).
-	if model.AnyPushed(append([]model.Commit{commit}, tail...)) && !opts.Confirmed {
-		return ApplyResult{}, fmt.Errorf("confirmation required: commits are already pushed")
-	}
-
-	// --- Pre-flight state ---
-
-	branch, err := m.repo.CurrentBranch()
-	if err != nil {
-		return ApplyResult{}, err
-	}
-	oldHead, err := m.repo.ResolveRef("HEAD")
-	if err != nil {
-		return ApplyResult{}, err
-	}
-	if err := m.preflight(branch, oldHead, opts); err != nil {
-		return ApplyResult{}, err
-	}
-
-	// Local invariant: the last sub-commit must reproduce the original tree so
-	// that the commit history remains self-consistent after the split.
-	if subs[len(subs)-1].Tree != commit.TreeHash {
-		return ApplyResult{}, fmt.Errorf("refusing split: last sub-commit tree %s != original commit tree %s",
-			subs[len(subs)-1].Tree, commit.TreeHash)
-	}
-
-	// --- Backup ---
-
-	backupRef, err := m.repo.CreateBackupRef(branch, opts.UnixTimestamp, oldHead)
-	if err != nil {
-		return ApplyResult{}, err
-	}
-
-	// --- Replay ---
-
-	newHead, splitRemap, err := m.repo.ApplySplit(parentHash, subs, tail, opts.Sign)
-	if err != nil {
-		return ApplyResult{}, err
-	}
-
-	// --- Global invariant: every commit changed exactly what the split promised.
-	//     The boundary pair (original commit -> last sub-commit Ck) must be
-	//     content-identical, as must every replayed tail pair.
-	exps := append([]model.Expectation{
-		{OldCommit: commit.Hash, NewCommit: splitRemap.LastSub},
-	}, emptyExpectations(splitRemap.Tail)...)
-	verification, err := m.verify(exps)
-	if err != nil {
-		return ApplyResult{}, err
-	}
-	// Structural check: the old chain held the target plus its tail; the new one
-	// must hold exactly len(subs) sub-commits plus the same tail, over the same
-	// boundary parent.
-	if err := m.verifyChainStructure(oldHead, newHead, 1+len(tail), len(subs)+len(tail)); err != nil {
-		return ApplyResult{}, err
-	}
-
-	// --- Move branch (compare-and-swap so a concurrent change aborts us) ---
-
-	if err := m.repo.UpdateRef(gitio.BranchRef(branch), newHead, oldHead); err != nil {
-		return ApplyResult{}, fmt.Errorf("move branch %s: %w", branch, err)
-	}
-
-	// Record the head this apply produced, paired with the backup, so a later
-	// undo can detect whether the branch has since advanced past this point.
-	// Non-fatal: on failure the advanced-HEAD guard simply degrades to off for
-	// this backup (undo still creates its pre-undo backup).
-	_ = m.repo.RecordAppliedHead(backupRef, newHead)
-
-	m.undoStack = append(m.undoStack, backupRef)
-	return ApplyResult{BackupRef: backupRef, OldHead: oldHead, NewHead: newHead, Verification: verification}, nil
+	return m.runApply(applyOp{
+		Guards: func() error {
+			if commit.IsMerge {
+				return fmt.Errorf("cannot split a merge commit %s", shortHash(commit.Hash))
+			}
+			if state.IsDirty {
+				return fmt.Errorf("rewrite blocked: working tree is dirty")
+			}
+			if len(subs) < 2 {
+				return fmt.Errorf("nothing to split: fewer than two sub-commits")
+			}
+			// Pushed commits require the caller to have obtained explicit
+			// confirmation. The rewrite set is the target commit plus its tail:
+			// everything Replay-style re-hashing actually touches (the
+			// sub-commits themselves are new objects with no prior existence,
+			// so only the ORIGINAL commit and its downstream tail can already
+			// be pushed).
+			if model.AnyPushed(append([]model.Commit{commit}, tail...)) && !opts.Confirmed {
+				return fmt.Errorf("confirmation required: commits are already pushed")
+			}
+			// Local invariant: the last sub-commit must reproduce the original
+			// tree so the history remains self-consistent after the split.
+			if subs[len(subs)-1].Tree != commit.TreeHash {
+				return fmt.Errorf("refusing split: last sub-commit tree %s != original commit tree %s",
+					subs[len(subs)-1].Tree, commit.TreeHash)
+			}
+			return nil
+		},
+		Rewrite: func(string) (rewriteResult, error) {
+			newHead, splitRemap, err := m.repo.ApplySplit(parentHash, subs, tail, opts.Sign)
+			if err != nil {
+				return rewriteResult{}, err
+			}
+			// Global invariant: the boundary pair (original commit → last
+			// sub-commit Cₖ) must be content-identical, as must every replayed
+			// tail pair. Structurally, the old chain held the target plus its
+			// tail; the new one holds len(subs) sub-commits plus the same tail.
+			return rewriteResult{
+				NewHead: newHead,
+				Expectations: append([]model.Expectation{
+					{OldCommit: commit.Hash, NewCommit: splitRemap.LastSub},
+				}, emptyExpectations(splitRemap.Tail)...),
+				OldLen: 1 + len(tail),
+				NewLen: len(subs) + len(tail),
+			}, nil
+		},
+	}, opts)
 }
 
 // CanUndo reports whether there is a backup to roll back to.

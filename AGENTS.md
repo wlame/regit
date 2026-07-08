@@ -153,10 +153,13 @@ tree-OID reads that feed the verifier), `VerifyTreesUnchanged` (the ∅-case shi
 `NewWorktree`/`Worktree.Close` (isolated scratch space).
 **Never add a git call anywhere else.**
 
-**`internal/safety`** — `Manager` runs the guarded apply protocol:
-`CheckGuards` → backup ref → replay → `verify` (the change-set verifier, see
-"Change-set verification" below) → move branch (compare-and-swap). Also exposes
-`ApplySplit` for the splitting flow and `ApplySquash` for the squashing flow.
+**`internal/safety`** — `Manager` runs the guarded apply protocol through ONE
+op-parameterized skeleton (`runApply`): guards → `preflight` → backup ref →
+rewrite → `verify` (content, see "Change-set verification" below) →
+`verifyChainStructure` (shape) → move branch (compare-and-swap) → record
+applied head. `Apply`, `ApplySplit`, and `ApplySquash` each contribute only an
+`applyOp` (their guards + rewrite closure) — a protocol step added to
+`runApply` holds for every operation by construction.
 
 **`internal/split`** — orchestrates one split: extract hunks → skip-split
 guards → LLM grouping → build intermediate trees → validate/repair loop →
@@ -514,7 +517,7 @@ internal/llm/
   agent.go              AgentBackend (CLI driver), ScanDefaultArgs
   schema.go             Split-specific SchemaJSON (JSON schema for structured output)
 internal/safety/
-  manager.go            Manager, Apply, ApplySplit (both call verify), Undo, ApplyResult.Verification
+  manager.go            Manager, runApply (the single apply skeleton), Apply, ApplySplit, Restore/Undo
   squash.go             Manager.ApplySquash (squashed chains + tail replay, verified like every apply)
   verify.go             Manager.verify, emptyExpectations, verifyError (the change-set verifier)
   guards.go             CheckGuards, Guard
