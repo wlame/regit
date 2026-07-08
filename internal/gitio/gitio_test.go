@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -543,5 +544,36 @@ func TestGitDir_returnsAbsolutePath(t *testing.T) {
 	want := filepath.Join(dir, ".git")
 	if gitDir != want {
 		t.Errorf("GitDir = %q, want %q", gitDir, want)
+	}
+}
+
+// TestRunGit_timesOutOnHungGit verifies the per-invocation ceiling: a git that
+// never returns (simulated by a fake `git` on PATH that sleeps) is killed with
+// a clear timeout error instead of blocking regit forever.
+func TestRunGit_timesOutOnHungGit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("relies on a sh-script fake git")
+	}
+	fakeDir := t.TempDir()
+	script := "#!/bin/sh\nexec sleep 60\n" // exec: the kill lands on the sleeper itself, not a wrapper
+	if err := os.WriteFile(filepath.Join(fakeDir, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	old := gitTimeout
+	gitTimeout = 200 * time.Millisecond
+	defer func() { gitTimeout = old }()
+
+	start := time.Now()
+	_, err := runGit(t.TempDir(), nil, nil, "status")
+	if err == nil {
+		t.Fatal("hung git should return a timeout error")
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Errorf("want a timeout error, got: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("timeout took %s; the process was not killed promptly", elapsed)
 	}
 }

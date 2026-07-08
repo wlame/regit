@@ -9,9 +9,11 @@ package gitio
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // Repo represents an open git repository rooted at an absolute path. All git
@@ -109,10 +111,19 @@ func scrubGitEnv(env []string) []string {
 	return out
 }
 
+// gitTimeout bounds any single git invocation so a wedged git — a credential
+// or gpg helper waiting for input that never comes, a hung network filesystem —
+// cannot block regit forever. Ten minutes is far beyond any legitimate single
+// command, even on a huge repository; the ceiling exists to turn "hangs
+// forever" into a clear error. It is a variable so tests can shorten it.
+var gitTimeout = 10 * time.Minute
+
 // runGit is the single choke point for executing git. Keeping it in one place
 // makes the command surface easy to audit and to stub in tests if ever needed.
 func runGit(dir string, extraEnv []string, stdin []byte, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 	// Always run against a scrubbed copy of the ambient environment (see
 	// gitLocationEnv), then append any caller overrides (GIT_AUTHOR_DATE etc.) so
@@ -122,10 +133,17 @@ func runGit(dir string, extraEnv []string, stdin []byte, args ...string) (string
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
 	}
+	// After the deadline kills git, give any helper children (gpg, ssh) a short
+	// grace period before the wait is abandoned, so a wedged helper is still
+	// reaped instead of leaking (mirrors the agent subprocess handling).
+	cmd.WaitDelay = 10 * time.Second
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return "", fmt.Errorf("git %s: timed out after %s", strings.Join(args, " "), gitTimeout)
+		}
 		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return stdout.String(), nil
