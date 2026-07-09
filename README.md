@@ -273,6 +273,7 @@ regit split <commit-ish>          # commit to split (default: HEAD)
   --test-cmd="go test ./..."      # validate each intermediate commit before applying
   --execute                       # apply the split (default: dry-run preview)
   --force                         # allow rewriting already-pushed commits
+  --sign                          # re-sign rewritten commits with your configured signing key
   --no-cache                      # ignore any cached proposal (force a fresh LLM call)
   --clear-cache                   # delete the split cache directory and exit
   --repo=<path>                   # path to the git repository (default: current dir)
@@ -366,6 +367,7 @@ regit reword [<commit-ish>...]     # commits to reword (default: HEAD)
                                    # (Read/Grep/Glob; no exec; requires --agent)
   --execute                        # apply the reword (default: dry-run preview)
   --force                          # allow rewriting already-pushed commits
+  --sign                           # re-sign rewritten commits with your configured signing key
   --no-cache                       # ignore cached proposals (force a fresh LLM call)
   --clear-cache                    # delete the reword cache directory and exit
   --repo=<path>                    # path to the git repository (default: current dir)
