@@ -3,9 +3,7 @@ package capability
 import (
 	"fmt"
 	"io"
-	"strings"
 
-	"github.com/wlame/regit/internal/gitio"
 	"github.com/wlame/regit/internal/model"
 )
 
@@ -30,7 +28,7 @@ func runReauthor(ctx *RunContext, a ParsedArgs) error {
 	if err != nil {
 		return runtimeErr("read commits: %v", err)
 	}
-	targets, err := reauthorTargets(ctx.Repo, commits, a.String("commits"))
+	targets, err := resolveTargetSet(ctx.Repo, commits, a.String("commits"))
 	if err != nil {
 		return usageErr("%v", err)
 	}
@@ -58,37 +56,6 @@ func runReauthor(ctx *RunContext, a ParsedArgs) error {
 		plan.SetEdit(h, e)
 	}
 	return applyOrPreview(ctx, plan, a, previewAuthors)
-}
-
-// reauthorTargets resolves the --commits spec to a root-first set of commits.
-// Empty spec → all commits. Otherwise the spec is split on commas and each part
-// is resolved independently (a single ref or an A..B range) and unioned, so an
-// arbitrary TUI selection (rendered as a comma-joined hash list) round-trips.
-func reauthorTargets(repo *gitio.Repo, commits []model.Commit, spec string) ([]model.Commit, error) {
-	if strings.TrimSpace(spec) == "" {
-		return commits, nil
-	}
-	want := map[string]bool{}
-	for _, part := range strings.Split(spec, ",") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		sub, err := resolveTargets(repo, commits, part)
-		if err != nil {
-			return nil, err
-		}
-		for _, c := range sub {
-			want[c.Hash] = true
-		}
-	}
-	out := make([]model.Commit, 0, len(want))
-	for _, c := range commits { // preserve root-first order
-		if want[c.Hash] {
-			out = append(out, c)
-		}
-	}
-	return out, nil
 }
 
 // previewAuthors lists each changed commit's old → new author (and committer when

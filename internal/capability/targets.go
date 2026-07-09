@@ -47,6 +47,38 @@ func resolveTargets(repo *gitio.Repo, commits []model.Commit, spec string) ([]mo
 	return commits[idx : idx+1], nil
 }
 
+// resolveTargetSet resolves a --commits spec that may be a comma-separated
+// union of parts, each a single ref or an A..B range. Empty spec → all
+// commits. The result preserves root-first order. This is the selection
+// counterpart of resolveTargets, shared by reauthor and redate so a TUI
+// selection logged as a comma-joined hash list round-trips on any verb.
+func resolveTargetSet(repo *gitio.Repo, commits []model.Commit, spec string) ([]model.Commit, error) {
+	if strings.TrimSpace(spec) == "" {
+		return commits, nil
+	}
+	want := map[string]bool{}
+	for _, part := range strings.Split(spec, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		sub, err := resolveTargets(repo, commits, part)
+		if err != nil {
+			return nil, err
+		}
+		for _, c := range sub {
+			want[c.Hash] = true
+		}
+	}
+	out := make([]model.Commit, 0, len(want))
+	for _, c := range commits { // preserve root-first order
+		if want[c.Hash] {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
 func indexByHash(commits []model.Commit) map[string]int {
 	m := make(map[string]int, len(commits))
 	for i, c := range commits {

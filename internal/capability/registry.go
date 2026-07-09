@@ -136,6 +136,7 @@ var registry = []Command{
 			{Name: "end", Type: ParamDate, Help: "last calendar day of the range"},
 			{Name: "weekdays", Type: ParamStringList, Help: "eligible weekdays, e.g. mon,tue,wed (default: configured weekdays)"},
 			{Name: "from", Type: ParamString, Help: "freeze history before this rev (default: all)"},
+			{Name: "commits", Type: ParamString, Help: "target commits: A..B, a single ref, or a comma-separated list (default: whole active range)"},
 			{Name: "seed", Type: ParamInt, Default: "0", Help: "RNG seed for randomized strategies"},
 			{Name: "link-dates", Type: ParamBool, Default: "true", Help: "keep committer date == author date"},
 			{Name: "pin", Type: ParamKeyVals, AppliesIf: "strategy=Manual-Pin", Required: true, Help: "DAY=N per-day quotas"},

@@ -3,6 +3,7 @@ package capability
 import (
 	"fmt"
 	"io"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -50,11 +51,43 @@ func runRedate(ctx *RunContext, a ParsedArgs) error {
 	if err != nil {
 		return usageErr("%v", err)
 	}
+
+	// --commits narrows the strategy's targets to a subset of the active
+	// range; the default (no flag) is the whole active range, same as every
+	// other verb. A named commit that lies before --from's boundary is frozen
+	// and cannot be reached this way — silently no-op'ing it would be more
+	// surprising than refusing outright, so it is a hard usage error instead.
+	targets := plan.Active()
+	if spec := a.String("commits"); spec != "" {
+		targets, err = resolveTargetSet(ctx.Repo, commits, spec)
+		if err != nil {
+			return usageErr("%v", err)
+		}
+		idxOf := indexByHash(commits)
+		for _, c := range targets {
+			if plan.IsFrozen(idxOf[c.Hash]) {
+				return usageErr("commit %s is frozen (before --from); it cannot be redated", Short(c.Hash))
+			}
+		}
+	}
+
+	// Partition the (possibly narrowed) targets into anchor-bounded segments
+	// and validate any --pin/--pick days against each segment's calendar
+	// window and capacity before staging anything: headless has no
+	// interactive eviction, so an out-of-window day or an over-capacity
+	// segment must be a hard usage error, not a partially-applied plan.
+	loc := ctx.Cfg.Location()
+	segs := strategy.SegmentTargets(plan, targets, ctx.Now)
+	wins := strategy.Windows(segs, loc, ctx.Now)
+	if err := validatePinsInWindows(&params, wins, loc); err != nil {
+		return usageErr("%v", err)
+	}
+
 	linkDates := ctx.Cfg.LinkDates
 	if a.Has("link-dates") {
 		linkDates = a.Bool("link-dates")
 	}
-	warnings, err := strategy.Apply(plan, plan.Active(), strat, tm, params, linkDates, ctx.Now)
+	warnings, err := strategy.Apply(plan, targets, strat, tm, params, linkDates, ctx.Now)
 	if err != nil {
 		return usageErr("%v", err)
 	}
@@ -78,7 +111,7 @@ func runRedate(ctx *RunContext, a ParsedArgs) error {
 			return guardErr("range contains %d merge commit(s); their side branches keep their original dates — pass --allow-merges to proceed", merges)
 		}
 	}
-	return applyOrPreview(ctx, plan, a, previewDates(ctx.Cfg.Location()))
+	return applyOrPreview(ctx, plan, a, previewDates(loc))
 }
 
 // redateParams builds strategy.Params from flags, falling back to config.
@@ -243,4 +276,55 @@ func firstNonEmpty(a, b string) string {
 		return a
 	}
 	return b
+}
+
+// validatePinsInWindows checks every --pin / --pick day against the segment
+// windows and capacities. Headless has no interactive eviction, so both an
+// out-of-window day and an over-capacity segment are hard usage errors; the
+// message lists each segment's valid window so the caller can correct the
+// flags without a TUI. On success it stamps p.PinOwner so Apply scopes each
+// day to exactly one segment (shared boundary days included).
+func validatePinsInWindows(p *strategy.Params, wins []strategy.Window, loc *time.Location) error {
+	days := make(map[string]int) // day -> weight (1 per pick, quota per pin)
+	for k := range p.Picked {
+		days[k] = 1
+	}
+	for k, q := range p.Quotas {
+		days[k] = q
+	}
+	if len(days) == 0 {
+		return nil
+	}
+	order := make([]string, 0, len(days))
+	for k := range days {
+		order = append(order, k)
+	}
+	sort.Strings(order) // headless replay order: chronological, deterministic
+	owner, overflow := strategy.AttributePins(order, days, wins, loc)
+
+	describeWindows := func() string {
+		parts := make([]string, len(wins))
+		for i, w := range wins {
+			start := "…"
+			if !w.StartDay.IsZero() {
+				start = w.StartDay.Format("2006-01-02")
+			}
+			parts[i] = fmt.Sprintf("segment %d (%d commit(s)): %s..%s",
+				i+1, w.Size, start, w.EndDay.Format("2006-01-02"))
+		}
+		return strings.Join(parts, "; ")
+	}
+
+	for _, k := range order {
+		if _, ok := owner[k]; !ok {
+			return fmt.Errorf("day %s is outside every available window — %s", k, describeWindows())
+		}
+	}
+	if len(overflow) > 0 {
+		seg := owner[overflow[0]]
+		return fmt.Errorf("segment %d holds at most %d commit(s); day %s does not fit — %s",
+			seg+1, wins[seg].Size, overflow[0], describeWindows())
+	}
+	p.PinOwner = owner
+	return nil
 }

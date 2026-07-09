@@ -13,12 +13,22 @@ import (
 	"github.com/wlame/regit/internal/config"
 	"github.com/wlame/regit/internal/gitio"
 	"github.com/wlame/regit/internal/gittest"
+	"github.com/wlame/regit/internal/model"
 )
 
+// TestRedateEvenSpreadDryRun proves a dry-run preview both leaves HEAD alone
+// and actually proposes new dates. Now must be farFutureNow — a clock fixed
+// before the requested --start/--end range (see farFutureNow's doc) caps
+// every window before the range even begins, so the strategy finds no
+// overlap and stages zero edits; previewDates still prints an old -> new
+// line for every active commit regardless of whether anything changed, so a
+// bare Contains(out, "->") check passes vacuously even with no real edits.
+// parseDateChanges distinguishes a printed line whose old and new dates
+// actually differ from one where they don't, closing that hole.
 func TestRedateEvenSpreadDryRun(t *testing.T) {
 	_, repo := newTestRepo(t, 4)
 	var out bytes.Buffer
-	ctx := &RunContext{Repo: repo, Cfg: config.Default(), Stdout: &out, Stderr: &out, Now: time.Unix(1_700_000_000, 0)}
+	ctx := &RunContext{Repo: repo, Cfg: config.Default(), Stdout: &out, Stderr: &out, Now: farFutureNow}
 	a, err := Parse(mustLookup(t, "redate"), []string{
 		"--strategy=Even-Spread", "--time=Working-hours",
 		"--start=2026-01-01", "--end=2026-03-01",
@@ -34,8 +44,19 @@ func TestRedateEvenSpreadDryRun(t *testing.T) {
 	if before.HeadHash != after.HeadHash {
 		t.Error("dry-run redate moved HEAD")
 	}
-	if !bytes.Contains(out.Bytes(), []byte("->")) {
-		t.Errorf("expected a date plan:\n%s", out.String())
+	changes := parseDateChanges(t, out.String())
+	if len(changes) == 0 {
+		t.Fatalf("expected a date plan:\n%s", out.String())
+	}
+	anyChanged := false
+	for _, changed := range changes {
+		if changed {
+			anyChanged = true
+			break
+		}
+	}
+	if !anyChanged {
+		t.Errorf("expected at least one commit's date to actually change:\n%s", out.String())
 	}
 }
 
@@ -288,5 +309,171 @@ func TestRedateParams_rejectsInvertedWorkdayFlags(t *testing.T) {
 	}, nil))
 	if err == nil {
 		t.Fatal("inverted workday window flags should be rejected")
+	}
+}
+
+// redateScopedTestRepo builds a 4-commit repo (c1..c4) with author dates one
+// calendar day apart — 2026-01-01 .. 2026-01-04, noon UTC — so a segment
+// spanning more than one commit also spans more than one calendar day. This
+// is required to exercise --commits scoping and window/capacity validation
+// deterministically: newTestRepo's commits all land within the same
+// wall-clock instant the test runs in, which would collapse every segment's
+// window to a single day and make an "outside the window" or "two picks
+// inside one window" scenario impossible to construct reliably.
+func redateScopedTestRepo(t *testing.T) (*gitio.Repo, []model.Commit) {
+	t.Helper()
+	dir := t.TempDir()
+	run := func(env []string, args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = gittest.Env(dir, env...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run(nil, "init", "-q", "-b", "main")
+	run(nil, "config", "commit.gpgsign", "false")
+	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < 4; i++ {
+		f := filepath.Join(dir, "f.txt")
+		if err := os.WriteFile(f, []byte{byte('a' + i)}, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		run(nil, "add", "f.txt")
+		d := base.AddDate(0, 0, i).Format(time.RFC3339)
+		run([]string{"GIT_AUTHOR_DATE=" + d, "GIT_COMMITTER_DATE=" + d},
+			"commit", "-q", "-m", "commit "+string(rune('A'+i)))
+	}
+	repo, err := gitio.Open(dir)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatalf("read commits: %v", err)
+	}
+	return repo, commits
+}
+
+// parseDateChanges scans a redate preview's "Date plan" lines (see
+// previewDates) and reports, per printed short hash, whether the old and new
+// dates on that line actually differ. previewDates always prints an
+// "old -> new" line for every active commit, changed or not, so a plain
+// substring check for "->" cannot distinguish a real proposal from a no-op.
+func parseDateChanges(t *testing.T, output string) map[string]bool {
+	t.Helper()
+	changed := map[string]bool{}
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(line)
+		// short-hash  YYYY-MM-DD HH:MM -> YYYY-MM-DD HH:MM
+		if len(fields) != 6 || fields[3] != "->" {
+			continue
+		}
+		before := fields[1] + " " + fields[2]
+		after := fields[4] + " " + fields[5]
+		changed[fields[0]] = before != after
+	}
+	return changed
+}
+
+// TestRedate_CommitsFlagScopesTargets proves --commits narrows the
+// strategy's targets to the given subset: only the named commit gets a
+// proposed date, every other active commit's line shows its date unchanged.
+func TestRedate_CommitsFlagScopesTargets(t *testing.T) {
+	repo, commits := redateScopedTestRepo(t)
+	c2, c3 := commits[1], commits[2]
+	loc := config.Default().Location()
+	compressDay := c3.OrigAuthorDate.In(loc).Format("2006-01-02")
+
+	var out bytes.Buffer
+	ctx := &RunContext{Repo: repo, Cfg: config.Default(), Stdout: &out, Stderr: &out, Now: farFutureNow}
+	a := parseRedate(t, "--strategy=Compress", "--compress-day="+compressDay, "--commits="+c2.Hash)
+	if err := runRedate(ctx, a); err != nil {
+		t.Fatalf("runRedate: %v", err)
+	}
+
+	changes := parseDateChanges(t, out.String())
+	for _, c := range commits {
+		got, ok := changes[Short(c.Hash)]
+		if !ok {
+			t.Fatalf("no date-plan line found for %s:\n%s", Short(c.Hash), out.String())
+		}
+		want := c.Hash == c2.Hash
+		if got != want {
+			t.Errorf("commit %s: date changed=%v, want %v", Short(c.Hash), got, want)
+		}
+	}
+}
+
+// TestRedate_PickOutsideWindowsFails proves a --pick day outside every
+// available segment window is a hard usage error naming the segment and its
+// window bounds: headless has no interactive eviction to fall back on, so
+// the caller needs the bounds printed back to correct the flag.
+func TestRedate_PickOutsideWindowsFails(t *testing.T) {
+	repo, commits := redateScopedTestRepo(t)
+	c1, c2, c3 := commits[0], commits[1], commits[2]
+	loc := config.Default().Location()
+	c1Day := c1.OrigAuthorDate.In(loc).Format("2006-01-02")
+	c3Day := c3.OrigAuthorDate.In(loc).Format("2006-01-02")
+	outside := c3.OrigAuthorDate.In(loc).AddDate(0, 6, 0).Format("2006-01-02")
+
+	ctx := &RunContext{
+		Repo: repo, Cfg: config.Default(), Stdout: io.Discard, Stderr: io.Discard, Now: farFutureNow,
+	}
+	err := runRedate(ctx,
+		parseRedate(t, "--strategy=Picked-Days", "--commits="+c2.Hash, "--pick="+outside))
+	if ExitCode(err) != 1 {
+		t.Fatalf("expected a usage error (exit 1), got err=%v code=%d", err, ExitCode(err))
+	}
+	if !strings.Contains(err.Error(), "segment 1") {
+		t.Errorf("error should name the segment, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), c1Day) || !strings.Contains(err.Error(), c3Day) {
+		t.Errorf("error should include the window bounds %s..%s, got: %v", c1Day, c3Day, err)
+	}
+}
+
+// TestRedate_PickOverCapacityFails proves two --pick days that both land
+// inside a single-commit segment's window are refused: the segment (capacity
+// 1, since --commits selects only c2) can only absorb one of them.
+func TestRedate_PickOverCapacityFails(t *testing.T) {
+	repo, commits := redateScopedTestRepo(t)
+	c1, c2 := commits[0], commits[1]
+	loc := config.Default().Location()
+	day1 := c1.OrigAuthorDate.In(loc).Format("2006-01-02") // segment's floor day
+	day2 := c2.OrigAuthorDate.In(loc).Format("2006-01-02") // segment's own day
+
+	ctx := &RunContext{
+		Repo: repo, Cfg: config.Default(), Stdout: io.Discard, Stderr: io.Discard, Now: farFutureNow,
+	}
+	args := "--pick=" + day1 + "," + day2
+	err := runRedate(ctx, parseRedate(t, "--strategy=Picked-Days", "--commits="+c2.Hash, args))
+	if ExitCode(err) != 1 {
+		t.Fatalf("expected a usage error (exit 1), got err=%v code=%d", err, ExitCode(err))
+	}
+	if !strings.Contains(err.Error(), "segment 1") {
+		t.Errorf("error should name the segment, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "1 commit(s)") {
+		t.Errorf("error should name the segment's capacity, got: %v", err)
+	}
+}
+
+// TestRedate_FrozenCommitInCommitsFails proves --commits cannot reach behind
+// --from: naming a frozen commit is a usage error, not a silent no-op.
+func TestRedate_FrozenCommitInCommitsFails(t *testing.T) {
+	repo, commits := redateScopedTestRepo(t)
+	c1, c3 := commits[0], commits[2]
+
+	ctx := &RunContext{
+		Repo: repo, Cfg: config.Default(), Stdout: io.Discard, Stderr: io.Discard, Now: farFutureNow,
+	}
+	err := runRedate(ctx, parseRedate(t, "--strategy=Even-Spread",
+		"--start=2026-01-01", "--end=2026-03-01", "--from="+c3.Hash, "--commits="+c1.Hash))
+	if ExitCode(err) != 1 {
+		t.Fatalf("expected a usage error (exit 1), got err=%v code=%d", err, ExitCode(err))
+	}
+	if !strings.Contains(err.Error(), "frozen") {
+		t.Errorf("error should mention \"frozen\", got: %v", err)
 	}
 }
