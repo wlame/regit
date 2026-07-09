@@ -18,7 +18,7 @@ platforms := "linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 wi
 
 # Show the list of available recipes when `just` is run with no arguments.
 default:
-    @just --list
+    @just --list --unsorted
 
 # Compile the binary into ./{{bin_dir}}/{{binary}}, stamping the version.
 build:
@@ -40,12 +40,14 @@ build-all:
     echo "done — binaries in {{bin_dir}}/"
 
 # Print the version a build would stamp.
-print-version:
+version:
     @echo {{version}}
 
-# Install the binary into $GOBIN (or $GOPATH/bin) so `regit` is on your PATH.
+# A bare `go install` would leave `regit --version` reporting "dev"; this stamps
+# the same version a `just build` would.
+# Install the version-stamped binary into $GOBIN (or $GOPATH/bin).
 install:
-    go install ./cmd/regit
+    go install -ldflags "-X main.version={{version}}" ./cmd/regit
 
 # Run regit against a repository (defaults to the current directory).
 # Usage: `just run` or `just run /path/to/repo`.
@@ -104,9 +106,29 @@ tidy:
 deps:
     go mod download
 
-# Full local CI pipeline. GitHub CI calls this exact recipe, so the two cannot
-# disagree. The coverage gate lives in `cover` (which reruns test-race).
+# GitHub CI calls this exact recipe, so the two cannot disagree; the coverage
+# gate lives in `cover` (which reruns test-race).
+# Full local CI pipeline: fmt-check + vet + build + race tests + coverage gate.
 ci: fmt-check vet build cover
+
+# Covers exit codes, preview vs --execute, undo, and --repo — the main/dispatch
+# wiring unit tests cannot reach.
+# Run the end-to-end tests against the built binary.
+e2e:
+    go test ./cmd/regit -run 'TestE2E' -count=1 -v
+
+# Usage: just fuzz  ·  just fuzz 2m
+# Run every fuzz target for the given time each (default a short burst).
+fuzz time="20s":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    go test ./internal/capability -fuzz='^FuzzRenderParseRoundTrip$' -fuzztime={{time}}
+    go test ./internal/gitio      -fuzz='^FuzzParseDiff$'            -fuzztime={{time}}
+    go test ./internal/gitio      -fuzz='^FuzzBuildMessage$'         -fuzztime={{time}}
+    go test ./internal/docs       -fuzz='^FuzzSpliceBlocks$'         -fuzztime={{time}}
+
+# Full pre-push battery: CI gates + end-to-end + docs drift + a fuzz burst.
+check: ci e2e docs-check (fuzz "10s")
 
 # Run the LLM-backed commit splitter against a commit (defaults to HEAD).
 # Usage: just split <commit-ish> -- --llm=ollama/qwen2.5-coder --dry-run
@@ -141,6 +163,56 @@ docs-sync:
 # Verify the generated doc blocks match the code (the drift test runs this same check).
 docs-check:
     go run ./cmd/docgen --check
+
+# --- Versioning & release ----------------------------------------------------
+
+# Validates X.Y.Z, requires a clean tree on main, runs the full CI gates,
+# creates the annotated tag, then PRINTS the publish commands — never pushes.
+# Tag release vX.Y.Z after the CI gates pass (usage: just release 1.2.3).
+release ver:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ver="{{ver}}"
+    if ! [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "release: version must be X.Y.Z (got '$ver')" >&2; exit 1
+    fi
+    if [ -n "$(git status --porcelain)" ]; then
+        echo "release: working tree is not clean" >&2; exit 1
+    fi
+    branch="$(git rev-parse --abbrev-ref HEAD)"
+    if [ "$branch" != "main" ]; then
+        echo "release: must be on main (on '$branch')" >&2; exit 1
+    fi
+    just ci
+    git tag -a "v$ver" -m "regit v$ver"
+    echo
+    echo "tagged v$ver — publish with:"
+    echo "  git push origin v$ver"
+    if git remote get-url origin 2>/dev/null | grep -q github.com && command -v gh >/dev/null; then
+        echo "  gh release create v$ver --generate-notes"
+    fi
+
+# Derives the next version from the latest vX.Y.Z tag and runs the same gated
+# release flow.
+# Bump the version by one semver level (usage: just bump patch|minor|major).
+bump level:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    level="{{level}}"
+    case "$level" in patch|minor|major) ;; *)
+        echo "bump: level must be patch, minor, or major (got '$level')" >&2; exit 1 ;;
+    esac
+    latest="$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || echo v0.0.0)"
+    ver="${latest#v}"
+    IFS=. read -r major minor patch <<<"$ver"
+    case "$level" in
+        major) major=$((major+1)); minor=0; patch=0 ;;
+        minor) minor=$((minor+1)); patch=0 ;;
+        patch) patch=$((patch+1)) ;;
+    esac
+    next="$major.$minor.$patch"
+    echo "bumping $latest -> v$next"
+    just release "$next"
 
 # Remove build and coverage artifacts.
 clean:
