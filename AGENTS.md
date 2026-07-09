@@ -248,6 +248,9 @@ just build                              # compile to dist/regit
 just test                               # go test ./...
 just test-race                          # tests with race detector + coverage
 just ci                                 # full local CI: fmt-check + vet + build + test-race
+just e2e                                # end-to-end tests against the built binary
+just fuzz [time]                        # run every fuzz target (default 20s each)
+just check                              # pre-push battery: ci + e2e + docs drift + fuzz burst
 just run                                # launch TUI on current repo
 just split HEAD -- --llm=ollama/qwen2.5-coder   # preview a split (dry-run is the default; add --execute to apply)
 just redate -- --start=2026-01-01 --end=2026-03-01   # preview an even date spread
