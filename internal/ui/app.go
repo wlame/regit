@@ -80,6 +80,12 @@ type strategyState struct {
 	form   paramsForm
 	quotas map[string]int
 	picked map[string]bool
+	// pickSeq/quotaSeq remember WHEN each day was picked/pinned (monotonic
+	// counter, not wall time): the per-segment capacity rule evicts the most
+	// RECENT choice, so recency must survive re-renders and re-staging.
+	pickSeq  map[string]int
+	quotaSeq map[string]int
+	nextSeq  int
 }
 
 // Model is the root Bubble Tea model.
@@ -331,9 +337,11 @@ func New(repo *gitio.Repo, mgr *safety.Manager, cfg config.Config, state model.R
 	m.strats = make([]strategyState, len(m.strategies))
 	for i, s := range m.strategies {
 		m.strats[i] = strategyState{
-			form:   newParamsForm(s, cfg, seed),
-			quotas: make(map[string]int),
-			picked: make(map[string]bool),
+			form:     newParamsForm(s, cfg, seed),
+			quotas:   make(map[string]int),
+			picked:   make(map[string]bool),
+			pickSeq:  make(map[string]int),
+			quotaSeq: make(map[string]int),
 		}
 	}
 
@@ -609,9 +617,11 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		// Rebuild every strategy slot: fresh forms (dates unset) and empty pins.
 		for i := range m.strats {
 			m.strats[i] = strategyState{
-				form:   newParamsForm(m.strategies[i], m.cfg, m.calCursor),
-				quotas: make(map[string]int),
-				picked: make(map[string]bool),
+				form:     newParamsForm(m.strategies[i], m.cfg, m.calCursor),
+				quotas:   make(map[string]int),
+				picked:   make(map[string]bool),
+				pickSeq:  make(map[string]int),
+				quotaSeq: make(map[string]int),
 			}
 		}
 		m.plan.Edits = make(map[string]model.Edit)
