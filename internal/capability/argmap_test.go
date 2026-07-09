@@ -13,7 +13,7 @@ func TestRedateArgMapRoundTrips(t *testing.T) {
 		End:    time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
 		Quotas: map[string]int{"2026-03-02": 2},
 	}
-	line := Render("redate", RedateArgMap("Manual Pin", "Working hours", p, true))
+	line := Render("redate", RedateArgMap("Manual Pin", "Working hours", p, true, ""))
 	parsed, err := Parse(mustLookup(t, "redate"), tokenize(line)[2:])
 	if err != nil {
 		t.Fatalf("re-parse %q: %v", line, err)
@@ -41,7 +41,7 @@ func TestRedateArgMap_everyTimeModelRoundTrips(t *testing.T) {
 	for _, tm := range strategy.TimeModels() {
 		name := tm.Name()
 		t.Run(name, func(t *testing.T) {
-			line := Render("redate", RedateArgMap("Even Spread", name, p, true))
+			line := Render("redate", RedateArgMap("Even Spread", name, p, true, ""))
 			parsed, err := Parse(mustLookup(t, "redate"), tokenize(line)[2:])
 			if err != nil {
 				t.Fatalf("time model %q rendered a line the CLI rejects: %v\n  %s", name, err, line)

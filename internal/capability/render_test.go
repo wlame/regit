@@ -123,7 +123,7 @@ func TestRenderWrapsLongInvocation(t *testing.T) {
 			"2026-01-01": 1, "2026-01-02": 2, "2026-01-03": 3,
 			"2026-01-04": 4, "2026-01-05": 5,
 		},
-	}, true)
+	}, true, "")
 	line := Render("redate", args)
 	if !strings.Contains(line, "\\\n") {
 		t.Fatalf("expected a wrapped continuation in:\n%s", line)

@@ -2842,6 +2842,13 @@ func TestStageActive_RespectsSetSelection(t *testing.T) {
 			t.Errorf("commit[%d] edited=%v want %v", i, edited, want)
 		}
 	}
+
+	// The footer's logged command must teach the exact non-interactive scope
+	// too — "whole active range" would be silently wrong once a selection is
+	// staged, so stageActive must render --commits= into m.redateCmd.
+	if !strings.Contains(m.redateCmd, "--commits=") {
+		t.Errorf("redateCmd should carry the selection scope, got %q", m.redateCmd)
+	}
 }
 
 // TestStageActive_NoSelectionStagesWholeActiveRange: with no explicit
@@ -3106,6 +3113,48 @@ func TestSelectionCommitSpec_rangeVsNonContiguous(t *testing.T) {
 	m2 := modelWithSet(commits, "b", "d")
 	if _, ok := m2.selectionCommitSpec(); ok {
 		t.Error("a non-contiguous selection must not be expressible as one range")
+	}
+}
+
+// TestRedateCommitSpec_allSelectionForms exercises every branch of
+// redateCommitSpec: a non-adjacent Set selection falls back to a comma-joined
+// short-hash list (root-first, since resolveTargetSet unions comma parts), a
+// contiguous non-root Range selection renders the A^..B form, and no explicit
+// selection renders empty (the flag's own "whole active range" default).
+func TestRedateCommitSpec_allSelectionForms(t *testing.T) {
+	commits := linearModelCommits(
+		"1111111111111111111111111111111111aaaa",
+		"2222222222222222222222222222222222bbbb",
+		"3333333333333333333333333333333333cccc",
+		"4444444444444444444444444444444444dddd",
+		"5555555555555555555555555555555555eeee",
+	)
+
+	// Non-adjacent Set: root-first storage indices 0 and 2, a gap at 1.
+	setModel := modelWithSet(commits, commits[0].Hash, commits[2].Hash)
+	wantSet := short(commits[0].Hash) + "," + short(commits[2].Hash)
+	if got := setModel.redateCommitSpec(); got != wantSet {
+		t.Errorf("non-adjacent Set spec = %q, want %q", got, wantSet)
+	}
+
+	// Contiguous non-root Range over storage indices 2,3 (display indices 1,2,
+	// since display is newest-first), confirmed through the real selection API
+	// (beginVisual/confirmVisual) the same way the list's visual mode does.
+	rangeModel := Model{plan: model.NewPlan(commits), sel: newSelection()}
+	rangeModel.listCursor = 1
+	rangeModel.sel.beginVisual(rangeModel.listCursor)
+	rangeModel.listCursor = 2
+	rangeModel.sel.confirmVisual(rangeModel.listCursor)
+	wantRange := short(commits[2].Hash) + "^.." + short(commits[3].Hash)
+	if got := rangeModel.redateCommitSpec(); got != wantRange {
+		t.Errorf("contiguous Range spec = %q, want %q", got, wantRange)
+	}
+
+	// No explicit selection: the workspace default is the whole active range,
+	// which is already the --commits flag's own default, so the spec is empty.
+	noSelModel := Model{plan: model.NewPlan(commits), sel: newSelection()}
+	if got := noSelModel.redateCommitSpec(); got != "" {
+		t.Errorf("no-selection spec = %q, want empty", got)
 	}
 }
 

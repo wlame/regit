@@ -88,6 +88,16 @@ author dates, never message edits) and the calendar previews the distribution **
 per-day numbers** instead of tiles. Calendar digits pin a quota only while Manual
 Pin is active; space picks a day only while Picked Days is active. `R` (reset)
 clears every strategy's fields and pins; `A` applies the staged distribution.
+Staging is selection-scoped: with an explicit Set/Range selection, `stageActive`
+redates only `affectedCommits()`, and every unselected commit becomes a fixed
+anchor bounding the segments those targets form; with no selection it stages the
+whole active range, matching a bare `redate --commits=`'s own default. The
+calendar highlights each segment's pickable day window (`segmentWindows`,
+`strategy.Windows`) and snaps the cursor onto an in-window day; digit/space picks
+and pins are capacity-limited per window, and overflowing one evicts that
+window's most-recently placed pick or pin (`pickWithEviction`/`pinWithEviction`)
+rather than refusing the new one. `redate --commits=A^..B` (or a comma-separated
+list) is the headless equivalent of making an explicit selection before staging.
 
 The commit backbone is the list — capped at 80 columns (layout.go `listCeilWidth`) —
 beside a detail panel that stretches to fill the rest of a wide terminal. The
@@ -116,8 +126,11 @@ band, built with vim visual mode `v`), Set (○/● gutter, Space toggles · `a`
 `n` clear), Active (whole non-frozen range, frozen cone dimmed), Global (list
 dimmed). The mode defaults from the workspace (Dates → Active, others → Single).
 Reword consumes a Set as multi-reword (walks the picker per selected commit);
-Squash consumes a Set/Range to define one or more chains to collapse;
-frozen commits are never selectable. Global awaits future consumers (Search).
+Squash consumes a Set/Range to define one or more chains to collapse; Dates
+consumes an explicit Set/Range as its redate target (unselected commits become
+anchors), else the whole Active range, with `redate --commits=` as the headless
+equivalent; frozen commits are never selectable. Global awaits future consumers
+(Search).
 
 Bulk actions (Drop bodies, Retitle) and the Restructure panel's affected-commit
 count operate on `affectedCommits()` — the explicit Set/Range selection when one

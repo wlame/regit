@@ -305,7 +305,27 @@ func (m *Model) stageActive() {
 	// switch, so the slot always holds exactly the current form's rendered
 	// command — the old single-slot self-deduplication that appending broke.
 	m.redateCmd = capability.Render("redate", capability.RedateArgMap(
-		a.form.strat.Name(), pickTimeModel(a.form).Name(), params, m.cfg.LinkDates))
+		a.form.strat.Name(), pickTimeModel(a.form).Name(), params, m.cfg.LinkDates,
+		m.redateCommitSpec()))
+}
+
+// redateCommitSpec renders the redate target selection for the logged
+// CLI-equivalent command: "" for the whole active range, a contiguous
+// A^..B range when expressible, otherwise a comma-joined short-hash list
+// (always expressible — resolveTargetSet unions comma parts).
+func (m Model) redateCommitSpec() string {
+	if !m.hasExplicitSelection() {
+		return ""
+	}
+	if spec, ok := m.selectionCommitSpec(); ok {
+		return spec
+	}
+	affected := m.affectedCommits()
+	parts := make([]string, len(affected))
+	for i, c := range affected {
+		parts[i] = short(c.Hash)
+	}
+	return strings.Join(parts, ",")
 }
 
 // hasExplicitSelection reports whether the user picked specific commits (Set or

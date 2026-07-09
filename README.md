@@ -156,14 +156,20 @@ regit redate --strategy=Even-Spread --time=Working-hours \
   --start=2026-01-01 --end=2026-03-01            # preview
 regit redate --strategy=Even-Spread --time=Working-hours \
   --start=2026-01-01 --end=2026-03-01 --execute  # apply
+regit redate --strategy=Compress --compress-day=2026-06-05 \
+  --commits=abc12345,def67890 --execute          # redate only the given commits
 
 regit --help                # the command list
 regit redate --help         # one command's flags
 regit --llm-help            # full agent-facing documentation
 ```
 
-In the TUI, press `L` to toggle the **command-log footer**, which shows the exact
-headless command for each action you apply (also written to
+`--commits` narrows a redate to an explicit target set (a range, a single ref, or
+a comma-separated list); every commit left out acts as a fixed anchor bounding the
+ones that move. In the TUI, selecting commits (Set or Range) before staging scopes
+Dates the same way. Press `L` to toggle the **command-log footer**, which shows
+the exact headless command for each action you apply — including the `--commits=`
+it would take to reproduce a scoped redate (also written to
 `.git/regit/command.log`).
 
 ## Strategies

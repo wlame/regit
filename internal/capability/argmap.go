@@ -11,12 +11,19 @@ import (
 
 // RedateArgMap projects a concrete strategy run (the values the TUI already
 // computed) into the flag map that Render turns into an exact `regit redate …
-// --execute` line. Only non-zero, non-default fields are emitted.
-func RedateArgMap(strat, tm string, p strategy.Params, linkDates bool) map[string]string {
+// --execute` line. Only non-zero, non-default fields are emitted. commits is
+// the rendered --commits target spec (see Model.redateCommitSpec): empty means
+// the whole active range, matching the flag's own default.
+func RedateArgMap(
+	strat, tm string, p strategy.Params, linkDates bool, commits string,
+) map[string]string {
 	m := map[string]string{
 		"strategy": canonName(strat),
 		"time":     canonName(tm),
 		"execute":  "true",
+	}
+	if commits != "" {
+		m["commits"] = commits
 	}
 	if !p.Start.IsZero() {
 		m["start"] = p.Start.Format("2006-01-02")
