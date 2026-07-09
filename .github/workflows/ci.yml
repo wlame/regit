@@ -31,3 +31,61 @@ jobs:
       # drift because they invoke the identical recipe.
       - name: CI (fmt, vet, build, test-race, coverage gate)
         run: just ci
+
+      - name: End-to-end (built binary)
+        run: just e2e
+
+  # regit shells out to git for everything, so the suite must hold on the
+  # platforms users actually run — not just one Linux/git combination.
+  os-matrix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    # Windows is a newly exercised platform: keep it visible but non-blocking
+    # until it has a green history, then drop this line.
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache: true
+
+      - name: Install just
+        uses: extractions/setup-just@v2
+
+      - name: Show git version
+        run: git --version
+
+      - name: Tests
+        run: just test
+
+  # Oldest-supported git: ubuntu 20.04 ships git 2.25, far behind the runners'
+  # bundled 2.4x — catches accidental use of newer git flags or output formats.
+  old-git:
+    runs-on: ubuntu-latest
+    container: ubuntu:20.04
+    steps:
+      - name: Install git and build tools
+        run: |
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git curl ca-certificates
+          git --version
+
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache: true
+
+      - name: Install just
+        uses: extractions/setup-just@v2
+
+      - name: Tests against old git
+        run: just test
