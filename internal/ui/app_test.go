@@ -1000,8 +1000,14 @@ func TestCalendarQuotas_applyImmediately(t *testing.T) {
 
 // Digits typed while staying on the same day build a two-digit quota
 // (2 → 24 → 45); moving the cursor starts a fresh entry.
+//
+// Uses a 60-commit fixture (not the default 3) so the single segment's pin
+// capacity (== its commit count, see pickcontroller.go) never clamps any of
+// the quotas this test asserts — the peak in-flight sum across both days
+// (45 on the first day + 7 on the second, before the first day is re-pinned
+// down to 3) reaches 52.
 func TestCalendarQuotas_twoDigitEntry(t *testing.T) {
-	m := newTestModel(t)
+	m := newTestModelN(t, 60)
 	// Select Manual Pin first: digits only gate to the active strategy.
 	m = selectStrategy(m, 1) // strategy pane, Manual Pin (index 1)
 	m = send(m, "tab")       // params pane -> list
@@ -1031,6 +1037,59 @@ func TestCalendarQuotas_twoDigitEntry(t *testing.T) {
 	m = send(m, "left", "3")
 	if got := m.activeStrat().quotas[day]; got != 3 {
 		t.Errorf("digit after returning should start fresh: want 3, got %d", got)
+	}
+}
+
+// TestCalendarQuotas_repinOnSharedBoundaryPreservesOtherDay is the production
+// (app.go) counterpart to pickcontroller_test.go's
+// TestPinWithEviction_RepinMustDeleteStaleEntryFirst: it drives the identical
+// shared-boundary shape — a 3-commit segment and a 24-commit segment meeting at
+// one calendar day — through real key presses on the calendar, to prove
+// moveCursor's digit handler performs the HARD CONTRACT's delete-before-repin
+// step. Without it, that same topology corrupts AttributePins' segment
+// resolution and wrongly evicts the unrelated day's pin outright (see the
+// sibling TestPinWithEviction_MissingDeleteCorruptsSharedBoundaryAttribution).
+func TestCalendarQuotas_repinOnSharedBoundaryPreservesOtherDay(t *testing.T) {
+	m := newTestModelN(t, 28) // all 28 commits share one author date
+	// Storage indices 0..2 (3 commits) and 4..27 (24 commits) are selected;
+	// index 3 is left OUT of the selection so it becomes the anchor splitting
+	// the run into two segments. The anchor's calendar day is then the shared
+	// boundary between both segments' windows (see strategy.SegmentTargets).
+	for _, i := range []int{0, 1, 2} {
+		m.sel.toggle(m.plan.Commits[i].Hash, false)
+	}
+	for i := 4; i < 28; i++ {
+		m.sel.toggle(m.plan.Commits[i].Hash, false)
+	}
+
+	m = selectStrategy(m, 1) // strategy pane, Manual Pin
+	m = send(m, "tab")       // params pane -> list
+	m = send(m, "tab")       // list -> calendar; cursor seeds on the shared day
+	sharedDay := m.calCursor.In(m.loc).Format(dateLayout)
+
+	m = send(m, "up") // one day earlier: inside the 3-commit segment only
+	otherDay := m.calCursor.In(m.loc).Format(dateLayout)
+	m = send(m, "2") // pin the other day to quota 2
+
+	m = send(m, "down") // back to the shared day
+	if got := m.calCursor.In(m.loc).Format(dateLayout); got != sharedDay {
+		t.Fatalf("setup: expected to return to the shared day %s, got %s", sharedDay, got)
+	}
+	m = send(m, "2") // first digit: quota 2 on the shared day
+	m = send(m, "4") // second digit: combine to 24 (a re-pin, not an add)
+
+	a := m.activeStrat()
+	if got := a.quotas[otherDay]; got != 2 {
+		t.Errorf("the independently pinned day must survive untouched: quotas=%v", a.quotas)
+	}
+	if got := a.quotas[sharedDay]; got != 24 {
+		t.Errorf("the shared day should end at the combined quota 24, got quotas=%v", a.quotas)
+	}
+	if len(a.quotaSeq) != 2 {
+		t.Errorf("exactly 2 pinned days should remain tracked, got quotaSeq=%v", a.quotaSeq)
+	}
+	if m.statusKind == statusWarn && strings.Contains(m.statusMsg, "Shrunk") {
+		t.Errorf("no pin should have been shrunk by the re-pin, got status %q", m.statusMsg)
 	}
 }
 
@@ -1072,6 +1131,38 @@ func TestPickedDays_spaceTogglesAndApplies(t *testing.T) {
 	}
 	if got := m.dayCounts()[day]; got != 6 {
 		t.Errorf("after unpicking, all 6 commits should return to %s, got %d", day, got)
+	}
+}
+
+// TestPickedDays_spaceToggleOff_clearsSeqEntry is a focused regression test for
+// the Space handler's "already picked" branch: toggling a picked day off must
+// clear BOTH a.picked and a.pickSeq. Leaving a stale pickSeq entry behind would
+// violate the HARD CONTRACT — a later pickWithEviction/pinWithEviction call
+// must never see a day that is already in *Seq, or the eviction replay
+// double-counts it (see pickcontroller_test.go's repin tests).
+func TestPickedDays_spaceToggleOff_clearsSeqEntry(t *testing.T) {
+	m := newTestModelN(t, 3)
+	m = selectStrategy(m, 2) // strategy pane, Picked Days
+	m = send(m, "tab")       // params pane -> list
+	m = send(m, "tab")       // list -> calendar
+	day := m.calCursor.In(m.loc).Format(dateLayout)
+
+	m = send(m, " ") // pick the cursor day
+	a := m.activeStrat()
+	if !a.picked[day] {
+		t.Fatal("setup: space should pick the cursor day")
+	}
+	if _, ok := a.pickSeq[day]; !ok {
+		t.Fatal("setup: picking should record a pickSeq entry")
+	}
+
+	m = send(m, " ") // toggle off
+	a = m.activeStrat()
+	if a.picked[day] {
+		t.Error("space again should unpick the day")
+	}
+	if _, ok := a.pickSeq[day]; ok {
+		t.Errorf("unpicking must also clear the pickSeq entry, got %v", a.pickSeq)
 	}
 }
 
@@ -1407,6 +1498,48 @@ func TestDetail_reloadResetsStatCaches(t *testing.T) {
 	}
 	if len(m.statInFlight) != 0 {
 		t.Errorf("reload should clear statInFlight, got %d entries", len(m.statInFlight))
+	}
+}
+
+// TestReload_clearsStrategyPinState: reload() runs after a real history
+// rewrite (apply/undo), where the plan's dates ARE the applied distribution —
+// the pre-apply pins were consumed by it. Leaving quotas/picked (and their
+// recency seq maps) populated would pollute the next pinOwnerFor /
+// AttributePins run against the rebuilt windows, so reload must reset every
+// strategy slot's pin state, exactly like the R global reset does.
+func TestReload_clearsStrategyPinState(t *testing.T) {
+	m := newTestModelN(t, 3)
+	// Populate Manual Pin state through the real key path (quota "3" on the
+	// cursor day fills quotas, quotaSeq, and advances nextSeq)…
+	m = selectStrategy(m, 1) // strategy pane, Manual Pin
+	m = send(m, "tab")       // params pane -> list
+	m = send(m, "tab")       // list -> calendar
+	m = send(m, "3")
+	a := m.activeStrat()
+	if len(a.quotas) == 0 || len(a.quotaSeq) == 0 || a.nextSeq == 0 {
+		t.Fatalf("setup: pinning should populate quotas/quotaSeq/nextSeq, got %v %v %d",
+			a.quotas, a.quotaSeq, a.nextSeq)
+	}
+	// …and seed picked-day state on another slot directly, so the assertion
+	// below covers all four maps across ALL strategy slots, not just the
+	// active one.
+	other := &m.strats[0]
+	other.picked["2026-06-05"] = true
+	other.pickSeq["2026-06-05"] = 1
+	other.nextSeq = 1
+
+	if err := m.reload(); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+
+	for i := range m.strats {
+		s := &m.strats[i]
+		if len(s.quotas) != 0 || len(s.picked) != 0 ||
+			len(s.pickSeq) != 0 || len(s.quotaSeq) != 0 || s.nextSeq != 0 {
+			t.Errorf("slot %d: reload must clear all pin state, got "+
+				"quotas=%v picked=%v pickSeq=%v quotaSeq=%v nextSeq=%d",
+				i, s.quotas, s.picked, s.pickSeq, s.quotaSeq, s.nextSeq)
+		}
 	}
 }
 
@@ -2618,6 +2751,55 @@ func TestStrategy_fillingDatesStagesLive(t *testing.T) {
 	}
 	if !m.plan.HasChanges() {
 		t.Error("a ready strategy should stage its distribution live")
+	}
+}
+
+// TestStageActive_RespectsSetSelection: with an explicit Set selection active,
+// staging must edit ONLY the selected commits — the whole-active-range default
+// must not leak through once the user has picked specific commits.
+func TestStageActive_RespectsSetSelection(t *testing.T) {
+	m := newTestModelN(t, 6)
+	// Select commits at storage indices 2 and 4 (Set mode).
+	m.sel.toggle(m.plan.Commits[4].Hash, false)
+	m.sel.toggle(m.plan.Commits[2].Hash, false)
+
+	// Fill Even Spread's date range through the real key path — the same one
+	// TestStrategy_fillingDatesStagesLive uses — since updateParamsPane already
+	// re-stages live on every keystroke; no separate stage call is needed.
+	m = send(m, "tab", "tab") // list -> calendar -> params (Even Spread, default)
+	m = send(m, "down")       // carousel -> Start date
+	m = typeDate(m, "2026-06-01")
+	m = send(m, "down") // Start date -> End date
+	m = typeDate(m, "2026-06-30")
+
+	for i, c := range m.plan.Commits {
+		e, ok := m.plan.EditFor(c.Hash)
+		edited := ok && e.NewAuthorDate != nil
+		want := i == 2 || i == 4
+		if edited != want {
+			t.Errorf("commit[%d] edited=%v want %v", i, edited, want)
+		}
+	}
+}
+
+// TestStageActive_NoSelectionStagesWholeActiveRange: with no explicit
+// selection (the workspace default), staging must cover every active commit.
+func TestStageActive_NoSelectionStagesWholeActiveRange(t *testing.T) {
+	m := newTestModelN(t, 4)
+	m = send(m, "tab", "tab")
+	m = send(m, "down")
+	m = typeDate(m, "2026-06-01")
+	m = send(m, "down")
+	m = typeDate(m, "2026-06-30")
+
+	staged := 0
+	for _, c := range m.plan.Active() {
+		if e, ok := m.plan.EditFor(c.Hash); ok && e.NewAuthorDate != nil {
+			staged++
+		}
+	}
+	if staged != len(m.plan.Active()) {
+		t.Errorf("staged %d of %d active commits", staged, len(m.plan.Active()))
 	}
 }
 

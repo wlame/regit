@@ -88,6 +88,17 @@ type strategyState struct {
 	nextSeq  int
 }
 
+// resetPins returns a strategy slot's calendar state to empty: no picked days,
+// no quotas, and a rewound recency counter. Shared by the R global reset and
+// reload() so the two field lists can never drift apart.
+func (s *strategyState) resetPins() {
+	s.quotas = make(map[string]int)
+	s.picked = make(map[string]bool)
+	s.pickSeq = make(map[string]int)
+	s.quotaSeq = make(map[string]int)
+	s.nextSeq = 0
+}
+
 // Model is the root Bubble Tea model.
 type Model struct {
 	repo  *gitio.Repo
@@ -263,6 +274,11 @@ func (m *Model) stageActive() {
 		m.unstageActive()
 		return
 	}
+	// Fill PinOwner before Apply runs: a pin/pick sitting on a boundary shared by
+	// two segments must be consumed by exactly one of them, and Apply itself has
+	// no notion of "which segment picked this day first" — that recency-ordered
+	// bookkeeping only exists in the strategyState maps below.
+	m.pinOwnerFor(a, &params)
 	// Clear any previously staged dates first: with selection-scoped staging
 	// the target set can shrink between calls, and a stale edit on a commit
 	// that just became an anchor would corrupt the anchor's effective date.
@@ -274,13 +290,62 @@ func (m *Model) stageActive() {
 		m.unstageActive()
 		return
 	}
-	_ = warnings // surfaced in the staging task
+	if !m.strategyStaged() && len(warnings) > 0 {
+		// Nothing landed anywhere: treat the first warning as the form error so
+		// the user sees WHY the calendar shows no preview.
+		a.form.errMsg = warnings[0]
+		m.unstageActive()
+		return
+	}
+	if len(warnings) > 0 {
+		m.setStatus(warnings[0], statusWarn)
+	}
 	a.form.errMsg = ""
 	// Overwrite, not append: stageActive fires on every keystroke/pin/carousel
 	// switch, so the slot always holds exactly the current form's rendered
 	// command — the old single-slot self-deduplication that appending broke.
 	m.redateCmd = capability.Render("redate", capability.RedateArgMap(
 		a.form.strat.Name(), pickTimeModel(a.form).Name(), params, m.cfg.LinkDates))
+}
+
+// hasExplicitSelection reports whether the user picked specific commits (Set or
+// Range) as opposed to the workspace-default whole-active-range selection. Used
+// wherever staging or a preview must describe its scope ("the selection" vs
+// "the editable range").
+func (m Model) hasExplicitSelection() bool {
+	return (m.sel.mode == SelSet && len(m.sel.set) > 0) || m.sel.mode == SelRange
+}
+
+// segmentWindows returns the current selection's day windows, one per segment,
+// derived the same way stageActive derives its targets (affectedCommits) so the
+// calendar's capacity rules and the engine's actual placement never disagree.
+func (m Model) segmentWindows() []strategy.Window {
+	now := time.Now()
+	segs := strategy.SegmentTargets(m.plan, m.affectedCommits(), now)
+	return strategy.Windows(segs, m.loc, now)
+}
+
+// pinOwnerFor computes which segment owns each picked/pinned day, replaying
+// them in recency order so the attribution matches what the pick controller
+// (pickWithEviction/pinWithEviction) enforced interactively. Only Picked Days
+// and Manual Pin place pins; every other strategy leaves params.PinOwner nil,
+// which Apply treats as "a shared day serves whichever segment contains it."
+func (m *Model) pinOwnerFor(a *strategyState, params *strategy.Params) {
+	wins := m.segmentWindows()
+	switch a.form.strat.Name() {
+	case "Picked Days":
+		unit := make(map[string]int, len(a.pickSeq))
+		for k := range a.pickSeq {
+			unit[k] = 1
+		}
+		params.PinOwner, _ = strategy.AttributePins(pickOrder(a.pickSeq), unit, wins, m.loc)
+	case "Manual Pin":
+		weights := make(map[string]int, len(a.quotaSeq))
+		for k := range a.quotaSeq {
+			weights[k] = a.quotas[k]
+		}
+		params.PinOwner, _ = strategy.AttributePins(pickOrder(a.quotaSeq), weights, wins, m.loc)
+	}
 }
 
 // strategyStaged reports whether a strategy has staged a date distribution — an
@@ -336,13 +401,8 @@ func New(repo *gitio.Repo, mgr *safety.Manager, cfg config.Config, state model.R
 	m.stratIdx = m.defaultStrategyIndex()
 	m.strats = make([]strategyState, len(m.strategies))
 	for i, s := range m.strategies {
-		m.strats[i] = strategyState{
-			form:     newParamsForm(s, cfg, seed),
-			quotas:   make(map[string]int),
-			picked:   make(map[string]bool),
-			pickSeq:  make(map[string]int),
-			quotaSeq: make(map[string]int),
-		}
+		m.strats[i] = strategyState{form: newParamsForm(s, cfg, seed)}
+		m.strats[i].resetPins()
 	}
 
 	if m.baseBranch != "" && m.plan.Base > 0 {
@@ -616,13 +676,8 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	case "R":
 		// Rebuild every strategy slot: fresh forms (dates unset) and empty pins.
 		for i := range m.strats {
-			m.strats[i] = strategyState{
-				form:     newParamsForm(m.strategies[i], m.cfg, m.calCursor),
-				quotas:   make(map[string]int),
-				picked:   make(map[string]bool),
-				pickSeq:  make(map[string]int),
-				quotaSeq: make(map[string]int),
-			}
+			m.strats[i].form = newParamsForm(m.strategies[i], m.cfg, m.calCursor)
+			m.strats[i].resetPins()
 		}
 		m.plan.Edits = make(map[string]model.Edit)
 		m.plan.Violations = nil
@@ -696,6 +751,7 @@ func (m Model) listSelectionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 			m.sel.beginVisual(m.listCursor)
 			m.setStatus("Visual range — move to extend, v/enter to fix, esc to cancel", statusNone)
 		}
+		m.onDatesSelectionChanged()
 		return m, nil, true
 	case " ":
 		if m.plan.IsFrozen(m.storageIndexAtCursor()) {
@@ -704,6 +760,7 @@ func (m Model) listSelectionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		}
 		m.sel.toggle(m.commitAtCursor().Hash, false)
 		m.setStatus(fmt.Sprintf("%d commit(s) selected", len(m.sel.set)), statusOK)
+		m.onDatesSelectionChanged()
 		return m, nil, true
 	case "s":
 		var hashes []string
@@ -712,15 +769,18 @@ func (m Model) listSelectionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		}
 		m.sel.selectAll(hashes)
 		m.setStatus(fmt.Sprintf("Selected all %d active commit(s)", len(hashes)), statusOK)
+		m.onDatesSelectionChanged()
 		return m, nil, true
 	case "n":
 		m.sel.clear()
 		m.setStatus("Selection cleared", statusOK)
+		m.onDatesSelectionChanged()
 		return m, nil, true
 	case "enter":
 		if m.sel.mode == SelRange && m.sel.visual {
 			m.sel.confirmVisual(m.listCursor)
 			m.setStatus("Range fixed", statusOK)
+			m.onDatesSelectionChanged()
 			return m, nil, true
 		}
 		return m, nil, false // not visual: fall through to open the editor
@@ -729,11 +789,34 @@ func (m Model) listSelectionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 			m.sel.reset()
 			m.applyDefaultSelectionMode()
 			m.setStatus("Selection reset", statusNone)
+			m.onDatesSelectionChanged()
 			return m, nil, true
 		}
 		return m, nil, false
 	}
 	return m, nil, false
+}
+
+// onDatesSelectionChanged re-syncs the active strategy's pins/picks and staged
+// distribution after the commit-list selection changes while the Dates
+// workspace is focused: a narrower or wider selection can shrink or grow each
+// segment's window, so picks/pins placed under the OLD selection may no longer
+// fit the new one. reattributePins MUST run before stageActive — it silently
+// evicts or clamps whatever no longer fits, so stageActive then stages exactly
+// what survived; the other order would briefly stage an edit built from a
+// pick/pin that reattributePins was about to drop. A no-op outside WSDates,
+// so it is safe to call unconditionally from every selection-mutating site.
+func (m *Model) onDatesSelectionChanged() {
+	if m.workspace != WSDates {
+		return
+	}
+	a := m.activeStrat()
+	dropped := reattributePins(a, m.segmentWindows(), m.loc)
+	if len(dropped) > 0 {
+		m.setStatus(fmt.Sprintf("Dropped %d pick(s)/pin(s) outside the new windows", len(dropped)),
+			statusWarn)
+	}
+	m.stageActive()
 }
 
 // openEditorAtCursor opens the per-commit editor on the selected commit,
@@ -863,10 +946,19 @@ func (m *Model) moveCursor(msg tea.KeyMsg) {
 		// Other strategies ignore space so the key can be used elsewhere later.
 		if m.activeStrat().form.strat.Name() == "Picked Days" {
 			key := m.calCursor.Format(dateLayout)
-			if m.activeStrat().picked[key] {
-				delete(m.activeStrat().picked, key)
+			a := m.activeStrat()
+			if a.picked[key] {
+				// Already picked: toggle off. pickSeq must be cleared too, or a
+				// later pick/eviction replay would still see this day and double-
+				// count its (now-gone) weight against the segment's capacity.
+				delete(a.picked, key)
+				delete(a.pickSeq, key)
+			} else if evicted, ok := pickWithEviction(a, key, m.segmentWindows(), m.loc); ok {
+				if len(evicted) > 0 {
+					m.setStatus(fmt.Sprintf("Unpicked %s — window full", evicted[0]), statusWarn)
+				}
 			} else {
-				m.activeStrat().picked[key] = true
+				m.setStatus("Day is outside every available window", statusWarn)
 			}
 			m.quotaTyping = false
 			m.stageActive()
@@ -878,15 +970,38 @@ func (m *Model) moveCursor(msg tea.KeyMsg) {
 			// do not accidentally overwrite another strategy's quota map.
 			if m.activeStrat().form.strat.Name() == "Manual Pin" {
 				key := m.calCursor.Format(dateLayout)
+				a := m.activeStrat()
 				// Consecutive digits on the same day build a two-digit quota:
-				// 2 → 24 → 45 (the last two digits typed win).
+				// 2 → 24 → 45 (the last two digits typed win). The combined
+				// value must be read from the OLD quota before that entry is
+				// cleared below, or the second digit would combine with zero.
 				if m.quotaTyping {
-					d = (m.activeStrat().quotas[key]%10)*10 + d
+					d = (a.quotas[key]%10)*10 + d
 				}
-				m.activeStrat().quotas[key] = d
+				if _, alreadyPinned := a.quotaSeq[key]; alreadyPinned {
+					// Re-pinning an already-pinned day REPLACES its weight, it
+					// never adds to it. pinWithEviction sums every entry in
+					// a.quotaSeq to check the segment's capacity, so leaving the
+					// stale entry in place here would double-count this day's
+					// old quota and could wrongly evict an unrelated day.
+					delete(a.quotas, key)
+					delete(a.quotaSeq, key)
+				}
+				if d == 0 {
+					m.quotaTyping = true
+					m.stageActive()
+					break // adapt to the switch structure: fall through to shared tail
+				}
+				if shrunk, clamped, ok := pinWithEviction(a, key, d, m.segmentWindows(), m.loc); ok {
+					if clamped != d {
+						m.setStatus(fmt.Sprintf("Quota clamped to %d — window capacity", clamped), statusWarn)
+					} else if len(shrunk) > 0 {
+						m.setStatus(fmt.Sprintf("Shrunk pin on %s — window full", shrunk[0]), statusWarn)
+					}
+				} else {
+					m.setStatus("Day is outside every available window", statusWarn)
+				}
 				m.quotaTyping = true
-				// Stage the Manual Pin strategy live so the commit list
-				// reflects the pin as soon as the digit is pressed.
 				m.stageActive()
 			}
 		}
@@ -1060,7 +1175,7 @@ func (m Model) affectedCommits() []model.Commit {
 // only a contiguous, non-root run of the selection is expressible as a range;
 // anything else (non-contiguous set, or a run touching the root) is not.
 func (m Model) selectionCommitSpec() (spec string, expressible bool) {
-	if !((m.sel.mode == SelSet && len(m.sel.set) > 0) || m.sel.mode == SelRange) {
+	if !m.hasExplicitSelection() {
 		return "", true // whole active range → empty --commits is valid
 	}
 	affected := m.affectedCommits() // root-first
@@ -1637,6 +1752,12 @@ func (m *Model) reload() error {
 	m.applyAutoBase()
 	m.sel.reset()
 	m.applyDefaultSelectionMode()
+	// After an apply/undo the plan's dates ARE the applied distribution: the
+	// pre-apply pins were consumed by it and must not leak into the next
+	// session's pinOwnerFor/AttributePins run against the rebuilt windows.
+	for i := range m.strats {
+		m.strats[i].resetPins()
+	}
 	return nil
 }
 

@@ -186,3 +186,82 @@ func TestReattributePins_DropsOutOfWindowAndOverflow(t *testing.T) {
 		t.Errorf("dropped = %v, want two days", dropped)
 	}
 }
+
+// TestPinWithEviction_RepinMustDeleteStaleEntryFirst is the regression test for
+// the HARD CONTRACT app.go's digit handler relies on: re-pinning a day already
+// present in quotaSeq (the two-digit build-up, e.g. "2" then "4" combining to
+// 24) must delete that day's OLD quotas/quotaSeq entry before calling
+// pinWithEviction again. Skipping the delete replays the day TWICE in
+// AttributePins' order slice (once from pickOrder(a.quotaSeq), once appended),
+// which corrupts segment attribution on a SHARED boundary day and can evict an
+// unrelated day's pin entirely — not a cosmetic difference.
+//
+// Fixture: win0 = Mar 1..3 size 3, win1 = Mar 3..6 size 24 (day 3 is the shared
+// boundary; day 2 belongs to win0 only). day 2 is pinned first (quota 2, wins
+// win0). day 3 is then pinned to 2 (wins win1, the only segment with room) and
+// finally re-pinned to 24 (still fits win1's capacity of 24).
+func TestPinWithEviction_RepinMustDeleteStaleEntryFirst(t *testing.T) {
+	wins := testWins(3, 24)
+
+	a := freshState()
+	if _, _, ok := pinWithEviction(a, d(2), 2, wins, time.UTC); !ok {
+		t.Fatal("setup: day 2 pin refused")
+	}
+	if _, _, ok := pinWithEviction(a, d(3), 2, wins, time.UTC); !ok {
+		t.Fatal("setup: day 3 first-digit pin refused")
+	}
+
+	// The digit handler's contract: delete the day's stale entry, computed
+	// from its OLD quota, before replaying it at the new combined value.
+	delete(a.quotas, d(3))
+	delete(a.quotaSeq, d(3))
+	shrunk, clamped, ok := pinWithEviction(a, d(3), 24, wins, time.UTC)
+
+	if !ok || clamped != 24 {
+		t.Fatalf("re-pin to 24 should land untouched in win1 (capacity 24): "+
+			"clamped=%d ok=%v", clamped, ok)
+	}
+	if len(shrunk) != 0 {
+		t.Errorf("re-pin must not shrink anything when the delete precedes it: shrunk=%v", shrunk)
+	}
+	if a.quotas[d(2)] != 2 {
+		t.Errorf("day 2's independent pin must survive untouched, got quotas=%v", a.quotas)
+	}
+	if a.quotas[d(3)] != 24 {
+		t.Errorf("day 3 should end at the combined quota 24, got quotas=%v", a.quotas)
+	}
+	if len(a.quotaSeq) != 2 {
+		t.Errorf("exactly 2 days should remain tracked, got quotaSeq=%v", a.quotaSeq)
+	}
+}
+
+// TestPinWithEviction_MissingDeleteCorruptsSharedBoundaryAttribution documents
+// (as a literal before/after comparison) WHY the delete-before-repin step in
+// the previous test is not optional: replaying day 3 twice — once via
+// pickOrder(a.quotaSeq) (the stale entry) and once via the explicit re-pin
+// append — pushes AttributePins' segment selection for day 3 into win0
+// (already near capacity) instead of win1, which then clamps day 3's quota
+// down to win0's tiny capacity AND evicts day 2's unrelated pin to make room.
+func TestPinWithEviction_MissingDeleteCorruptsSharedBoundaryAttribution(t *testing.T) {
+	wins := testWins(3, 24)
+
+	a := freshState()
+	pinWithEviction(a, d(2), 2, wins, time.UTC)
+	pinWithEviction(a, d(3), 2, wins, time.UTC)
+	// Re-pin WITHOUT deleting the stale day-3 entry first (the bug).
+	shrunk, clamped, ok := pinWithEviction(a, d(3), 24, wins, time.UTC)
+
+	if !ok {
+		t.Fatal("the corrupted attribution still resolves day 3 to some window")
+	}
+	if clamped != 3 {
+		t.Errorf("corrupted attribution should misroute day 3 into win0 (capacity 3) "+
+			"and clamp it there, got clamped=%d", clamped)
+	}
+	if len(shrunk) != 1 || shrunk[0] != d(2) {
+		t.Errorf("corrupted attribution should evict day 2 to make room, got shrunk=%v", shrunk)
+	}
+	if _, stillPinned := a.quotas[d(2)]; stillPinned {
+		t.Errorf("day 2's pin should have been wiped out by the corruption, got quotas=%v", a.quotas)
+	}
+}

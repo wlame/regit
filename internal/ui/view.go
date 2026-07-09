@@ -143,7 +143,7 @@ func (m Model) viewDropBodies() string {
 	var b strings.Builder
 	b.WriteString(m.st.modalTitle.Render("Drop commit bodies") + "\n\n")
 	scope := "the editable range"
-	if (m.sel.mode == SelSet && len(m.sel.set) > 0) || m.sel.mode == SelRange {
+	if m.hasExplicitSelection() {
 		scope = "the selection"
 	}
 	n := m.dropBodiesCount()
