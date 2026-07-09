@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -526,6 +527,67 @@ func TestCalendarArrows_followVisualAxes(t *testing.T) {
 			t.Errorf("%q should move %+d day(s): want %s, got %s",
 				tc.key, tc.days, want.Format("2006-01-02"), moved.calCursor.Format("2006-01-02"))
 		}
+	}
+}
+
+// TestCalendarSnap_SkipsUnavailableDays: with an explicit selection, the
+// calendar cursor may only rest on days inside the selection's segment
+// windows. Selecting just the newest commit produces a single segment whose
+// window floor sits on the day of the commit right below it (the new anchor);
+// every earlier day is outside the window. Moving the cursor further back
+// from the window's start must snap-search for an available day and, finding
+// none within range, leave the cursor exactly where it was — never before
+// the window start.
+func TestCalendarSnap_SkipsUnavailableDays(t *testing.T) {
+	m := newTestModelN(t, 6)
+	m.sel.toggle(m.plan.Commits[5].Hash, false)
+	m.focus = focusCalendar
+
+	wins := m.segmentWindows()
+	if len(wins) != 1 {
+		t.Fatalf("setup: expected exactly one segment window, got %d", len(wins))
+	}
+	windowStart := wins[0].StartDay
+	m.calCursor = windowStart
+
+	m = send(m, "up") // one day earlier: outside the window in every direction
+	if m.calCursor.Before(windowStart) {
+		t.Errorf("cursor escaped the window: got %v, want >= %v", m.calCursor, windowStart)
+	}
+}
+
+// TestCalendarSnap_NoSelectionBlocksFuture: with no explicit selection, every
+// day up to today is available but the future never is. Starting the cursor
+// on today and moving one day forward must snap-search for an available day
+// and, finding none (every future day is unavailable), leave the cursor
+// unchanged rather than advance into the future.
+func TestCalendarSnap_NoSelectionBlocksFuture(t *testing.T) {
+	m := newTestModelN(t, 3)
+	m.focus = focusCalendar
+	today := time.Now()
+	m.calCursor = today
+
+	m = send(m, "down") // one day later: tomorrow, always in the future
+	if m.calCursor.After(today) {
+		t.Errorf("cursor moved into the future: got %v, want <= %v", m.calCursor, today)
+	}
+}
+
+// TestCalendarSnap_TimeOfDayDoesNotBlockToday: availability is a calendar-day
+// question, not an instant one. calCursor carries a residual time-of-day from
+// commit timestamps, so an instant comparison (day.After(time.Now())) would
+// wrongly treat "today at a later hour than now" as future and strand the
+// cursor one day short of today until the wall clock caught up. Seeding the
+// cursor to yesterday at now+1h and pressing down must land on today's day.
+func TestCalendarSnap_TimeOfDayDoesNotBlockToday(t *testing.T) {
+	m := newTestModelN(t, 3)
+	m.focus = focusCalendar
+	m.calCursor = time.Now().Add(time.Hour).AddDate(0, 0, -1)
+	todayKey := time.Now().In(m.loc).Format(dateLayout)
+
+	m = send(m, "down")
+	if got := m.calCursor.In(m.loc).Format(dateLayout); got != todayKey {
+		t.Errorf("cursor should advance to today's calendar day: got %s, want %s", got, todayKey)
 	}
 }
 

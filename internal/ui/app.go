@@ -926,21 +926,18 @@ func (m *Model) moveCursor(msg tea.KeyMsg) {
 	}
 	// Calendar focus. The heatmap is GitHub-style: weekdays run top-to-bottom
 	// within a week column, weeks run left-to-right — so vertical arrows move
-	// by one day and horizontal arrows jump a whole week.
-	moved := false
+	// by one day and horizontal arrows jump a whole week. Movement snaps to
+	// the nearest available day in the direction of travel (see
+	// snapCalCursor) rather than landing on an unpickable one.
 	switch msg.String() {
 	case "up", "k":
-		m.calCursor = m.calCursor.AddDate(0, 0, -1)
-		moved = true
+		m.snapCalCursor(-1, 1)
 	case "down", "j":
-		m.calCursor = m.calCursor.AddDate(0, 0, 1)
-		moved = true
+		m.snapCalCursor(+1, 1)
 	case "left", "h":
-		m.calCursor = m.calCursor.AddDate(0, 0, -7)
-		moved = true
+		m.snapCalCursor(-1, 7)
 	case "right", "l":
-		m.calCursor = m.calCursor.AddDate(0, 0, 7)
-		moved = true
+		m.snapCalCursor(+1, 7)
 	case " ":
 		// Toggle a picked day — only when the Picked Days strategy is active.
 		// Other strategies ignore space so the key can be used elsewhere later.
@@ -1006,10 +1003,52 @@ func (m *Model) moveCursor(msg tea.KeyMsg) {
 			}
 		}
 	}
+	// snapCalCursor already updates calYear/quotaTyping/the list cursor for the
+	// arrow-key cases above; this unconditional re-set is a no-op for those and
+	// keeps the Space/digit cases' existing behavior (they never touch
+	// quotaTyping or the list cursor here — quotaTyping has its own handling
+	// above, and pin/pick actions intentionally leave the list cursor alone).
 	m.calYear = m.calCursor.Year()
-	if moved {
-		m.quotaTyping = false // a new day starts a new number
-		m.selectFirstCommitOfDay()
+}
+
+// calDayAvailable reports whether the cursor may rest on the given day:
+// inside a segment window when an explicit selection exists, otherwise any
+// day up to today (the future is never available).
+func (m Model) calDayAvailable(day time.Time) bool {
+	// Compare calendar days, not instants: calCursor carries a residual
+	// time-of-day from commit timestamps, so an instant comparison would treat
+	// "today at a later hour than now" as future and strand the cursor one day
+	// short of today. dateLayout keys sort lexicographically = chronologically.
+	if day.In(m.loc).Format(dateLayout) > time.Now().In(m.loc).Format(dateLayout) {
+		return false
+	}
+	if !m.hasExplicitSelection() {
+		return true
+	}
+	for _, w := range m.segmentWindows() {
+		if w.ContainsDay(day, m.loc) {
+			return true
+		}
+	}
+	return false
+}
+
+// snapCalCursor moves the calendar cursor `jump` days in `dir` and then, if
+// that day is unavailable, keeps stepping one day at a time in the same
+// direction until an available day is found (snap-to-available). If none
+// exists within two years the cursor stays put.
+func (m *Model) snapCalCursor(dir, jump int) {
+	cand := m.calCursor.AddDate(0, 0, dir*jump)
+	const maxSteps = 730 // two years: generous bound so the search always terminates
+	for i := 0; i < maxSteps; i++ {
+		if m.calDayAvailable(cand) {
+			m.calCursor = cand
+			m.calYear = m.calCursor.Year()
+			m.quotaTyping = false // a new day starts a new number
+			m.selectFirstCommitOfDay()
+			return
+		}
+		cand = cand.AddDate(0, 0, dir)
 	}
 }
 

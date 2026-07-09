@@ -59,12 +59,15 @@ func sundayOnOrBefore(t time.Time) time.Time {
 // renderCalendar draws the half-year heatmap around cursor, using counts and
 // quotas keyed by "2006-01-02". Picked days show their assigned commit count,
 // quota days show the pinned number — both instead of a heat glyph — and the
-// cursor day is highlighted.
+// cursor day is highlighted. avail flags days that fall inside the current
+// selection's segment windows, tinting them so the pickable range reads as a
+// contiguous band; a nil or empty avail draws no tint.
 //
 // When preview is true (a strategy has been staged), days with commits render
 // their count as a plain number instead of a heat tile, giving the user an
 // at-a-glance distribution view. When false, the standard tile heatmap is used.
-func renderCalendar(cursor time.Time, counts, quotas map[string]int, picked map[string]bool, loc *time.Location, st styles, preview bool) string {
+func renderCalendar(cursor time.Time, counts, quotas map[string]int, picked, avail map[string]bool,
+	loc *time.Location, st styles, preview bool) string {
 	rangeStart, rangeEnd, _ := halfRange(cursor.In(loc), loc)
 	start := sundayOnOrBefore(rangeStart)
 	cursorKey := cursor.In(loc).Format(dateLayout)
@@ -97,6 +100,13 @@ func renderCalendar(cursor time.Time, counts, quotas map[string]int, picked map[
 				}
 			} else if level > 0 {
 				cell = strings.Repeat(cellFilled, cellWidth)
+			}
+			if avail[key] {
+				// Availability is a background hint: keep the heat/preview
+				// glyph but tint the cell so the pickable windows read as
+				// contiguous bands. Quota/picked/cursor overrides below still
+				// take precedence.
+				style = st.available
 			}
 			if q, ok := quotas[key]; ok {
 				// An explicit quota pin overrides both preview numbers and heat

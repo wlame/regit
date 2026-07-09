@@ -3,8 +3,11 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/wlame/regit/internal/strategy"
 )
 
 // ws_dates.go is the Dates workspace: the contribution calendar over the
@@ -34,7 +37,26 @@ func (m Model) viewCalendarPane() string {
 	counts := m.dayCounts()
 	cursor := m.calCursor.In(m.loc)
 	a := m.activeStrat()
-	heat := renderCalendar(cursor, counts, a.quotas, a.picked, m.loc, m.st, m.strategyStaged())
+
+	// avail flags every day inside the current selection's segment windows, so
+	// the heatmap tints the pickable range. With no explicit selection the
+	// whole active range is available and no tint is drawn (avail stays nil).
+	var avail map[string]bool
+	var wins []strategy.Window
+	if m.hasExplicitSelection() {
+		wins = m.segmentWindows()
+		avail = map[string]bool{}
+		rs, re, _ := halfRange(cursor, m.loc)
+		for d := rs; !d.After(re); d = d.AddDate(0, 0, 1) {
+			for _, w := range wins {
+				if w.ContainsDay(d, m.loc) {
+					avail[d.Format(dateLayout)] = true
+					break
+				}
+			}
+		}
+	}
+	heat := renderCalendar(cursor, counts, a.quotas, a.picked, avail, m.loc, m.st, m.strategyStaged())
 	legend := renderLegend(m.st)
 
 	key := cursor.Format(dateLayout)
@@ -47,6 +69,21 @@ func (m Model) viewCalendarPane() string {
 	}
 	if a.picked[key] {
 		info += " · picked"
+	}
+	if segIdxs := strategy.SegmentsForDay(wins, cursor, m.loc); len(wins) > 0 && len(segIdxs) > 0 {
+		// The cursor day can belong to at most two adjacent segments (a shared
+		// boundary day); segIdxs[0] is the earlier one, matching how pins on a
+		// shared day are attributed (see strategy.AttributePins).
+		si := segIdxs[0]
+		picksInSeg := 0
+		for k := range a.picked {
+			d, err := time.ParseInLocation(dateLayout, k, m.loc)
+			if err == nil && wins[si].ContainsDay(d, m.loc) {
+				picksInSeg++
+			}
+		}
+		info += fmt.Sprintf(" · window %d/%d · %d commit(s) · %d picked",
+			si+1, len(wins), wins[si].Size, picksInSeg)
 	}
 
 	seq := m.st.statusOK.Render("✓ sequential")
