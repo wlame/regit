@@ -8,6 +8,13 @@ import (
 	"github.com/wlame/regit/internal/model"
 )
 
+// farFutureNow is a fixed clock for tests that migrated off the old
+// Apply(plan, s, tm, p, link) signature: it must sit after every test's date
+// range so the new today-ceiling in SegmentTargets never clamps a distribution
+// that these tests' original expectations assumed lands wherever the strategy
+// placed it.
+var farFutureNow = time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
+
 func TestWorkingHours_staysWithinWindow(t *testing.T) {
 	commits := makeCommits(20)
 	days := make([]time.Time, 20)
@@ -76,7 +83,7 @@ func TestApply_endToEndProducesValidLinkedEdits(t *testing.T) {
 	p := paramsRange("2026-03-01", "2026-03-31")
 	p.DayStartMin, p.DayEndMin = 9*60, 18*60
 
-	err := Apply(plan, EvenSpread{}, WorkingHoursModel{}, p, true)
+	_, err := Apply(plan, plan.Active(), EvenSpread{}, WorkingHoursModel{}, p, true, farFutureNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,9 +114,16 @@ func TestApply_respectsBaseBoundary(t *testing.T) {
 	plan := model.NewPlan(commits)
 	plan.SetBase(2) // freeze commits[0] and commits[1]
 
-	// Range deliberately starts three months BEFORE the frozen parent's date.
-	p := paramsRange("2026-03-01", "2026-03-31")
-	if err := Apply(plan, EvenSpread{}, UniformModel{}, p, true); err != nil {
+	// Range deliberately starts three months BEFORE the frozen parent's date,
+	// but must still extend past it: the segment engine's floor/ceil window
+	// (Task 1) intersects the requested range with the frozen parent's date
+	// rather than silently overriding it, so a range that never reaches the
+	// parent's date would correctly have no overlap at all. Ending well after
+	// parentDate keeps the test's "starts before, must still land after" intent
+	// meaningful under that intersection.
+	p := paramsRange("2026-03-01", "2026-12-31")
+	_, err := Apply(plan, plan.Active(), EvenSpread{}, UniformModel{}, p, true, farFutureNow)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -134,7 +148,8 @@ func TestApply_unlinkedLeavesCommitterDateAlone(t *testing.T) {
 	commits := makeCommits(2)
 	plan := model.NewPlan(commits)
 	p := paramsRange("2026-03-01", "2026-03-31")
-	if err := Apply(plan, EvenSpread{}, UniformModel{}, p, false); err != nil {
+	_, err := Apply(plan, plan.Active(), EvenSpread{}, UniformModel{}, p, false, farFutureNow)
+	if err != nil {
 		t.Fatal(err)
 	}
 	for _, e := range plan.Edits {
@@ -151,7 +166,8 @@ func TestApply_offsetShiftBypassesTimeModel(t *testing.T) {
 	plan := model.NewPlan(commits)
 	p := Params{Location: time.UTC, OffsetDays: 10}
 	// Pass a time model that would override times if it were (incorrectly) used.
-	if err := Apply(plan, OffsetShift{}, FixedModel{}, p, true); err != nil {
+	_, err := Apply(plan, plan.Active(), OffsetShift{}, FixedModel{}, p, true, farFutureNow)
+	if err != nil {
 		t.Fatal(err)
 	}
 	e := plan.Edits[commits[0].Hash]

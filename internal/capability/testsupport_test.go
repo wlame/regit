@@ -5,10 +5,18 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/wlame/regit/internal/gitio"
 	"github.com/wlame/regit/internal/gittest"
 )
+
+// farFutureNow is a fixed RunContext.Now for redate tests that run against a
+// hardcoded "2026-01-01".."2026-03-01"-shaped date range: the segment engine's
+// today-ceiling (strategy.SegmentTargets) clamps every window at Now, so a
+// clock fixed before the requested range leaves zero overlap and silently
+// stages nothing. Keep this after every such range.
+var farFutureNow = time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
 
 // newTestRepo builds a throwaway git repo with n commits (one file each) and
 // returns its path and an opened gitio.Repo. Tests may shell out to git directly

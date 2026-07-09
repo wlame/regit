@@ -54,8 +54,12 @@ func runRedate(ctx *RunContext, a ParsedArgs) error {
 	if a.Has("link-dates") {
 		linkDates = a.Bool("link-dates")
 	}
-	if err := strategy.Apply(plan, strat, tm, params, linkDates); err != nil {
+	warnings, err := strategy.Apply(plan, plan.Active(), strat, tm, params, linkDates, ctx.Now)
+	if err != nil {
 		return usageErr("%v", err)
+	}
+	for _, w := range warnings {
+		fmt.Fprintf(ctx.Stdout, "  ⚠ %s\n", w)
 	}
 
 	// Replay only remaps a rewritten commit's first parent (see

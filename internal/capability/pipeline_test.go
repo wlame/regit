@@ -320,6 +320,7 @@ func TestReportImpact_excludesMovingBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 	var buf bytes.Buffer
+	// reportImpact never reads ctx.Now, so the exact clock value is arbitrary here.
 	ctx := &RunContext{Repo: repo, Cfg: config.Default(), Stdout: &buf, Stderr: &buf, Now: time.Unix(1_700_000_000, 0)}
 	reportImpact(ctx, &buf, commits)
 	if buf.Len() != 0 {
@@ -353,7 +354,12 @@ func capRepoWithUpstream(t *testing.T) (*RunContext, *bytes.Buffer) {
 	run("push", "-q", "-u", "origin", "main")
 
 	var buf bytes.Buffer
-	ctx := &RunContext{Repo: repo, Cfg: config.Default(), Stdout: &buf, Stderr: &buf, Now: time.Unix(1_700_000_000, 0)}
+	// applyRedate's fixed range ends 2026-03-01; Now must sit after it so the
+	// segment engine's today-ceiling (Task 2) doesn't clamp the whole requested
+	// window out of the segment and leave nothing to apply.
+	ctx := &RunContext{
+		Repo: repo, Cfg: config.Default(), Stdout: &buf, Stderr: &buf, Now: farFutureNow,
+	}
 	return ctx, &buf
 }
 
@@ -365,7 +371,10 @@ func capRepoNoRemote(t *testing.T) (*RunContext, *bytes.Buffer) {
 	t.Helper()
 	_, repo := newTestRepo(t, 3)
 	var buf bytes.Buffer
-	ctx := &RunContext{Repo: repo, Cfg: config.Default(), Stdout: &buf, Stderr: &buf, Now: time.Unix(1_700_000_000, 0)}
+	// See capRepoWithUpstream: Now must sit after applyRedate's fixed range.
+	ctx := &RunContext{
+		Repo: repo, Cfg: config.Default(), Stdout: &buf, Stderr: &buf, Now: farFutureNow,
+	}
 	return ctx, &buf
 }
 

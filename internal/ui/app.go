@@ -257,11 +257,18 @@ func (m *Model) stageActive() {
 		m.unstageActive()
 		return
 	}
-	if err := strategy.Apply(m.plan, a.form.strat, pickTimeModel(a.form), params, m.cfg.LinkDates); err != nil {
+	// Clear any previously staged dates first: with selection-scoped staging
+	// the target set can shrink between calls, and a stale edit on a commit
+	// that just became an anchor would corrupt the anchor's effective date.
+	m.unstageActive()
+	warnings, err := strategy.Apply(m.plan, m.affectedCommits(), a.form.strat,
+		pickTimeModel(a.form), params, m.cfg.LinkDates, time.Now())
+	if err != nil {
 		a.form.errMsg = err.Error()
 		m.unstageActive()
 		return
 	}
+	_ = warnings // surfaced in the staging task
 	a.form.errMsg = ""
 	// Overwrite, not append: stageActive fires on every keystroke/pin/carousel
 	// switch, so the slot always holds exactly the current form's rendered

@@ -113,7 +113,10 @@ func TestRedateParams_invalidLunchClockErrors(t *testing.T) {
 func TestRedateExecuteEmitsVerificationLine(t *testing.T) {
 	_, repo := newTestRepo(t, 4)
 	var out bytes.Buffer
-	ctx := &RunContext{Repo: repo, Cfg: config.Default(), Stdout: &out, Stderr: &out, Now: time.Unix(1_700_000_000, 0)}
+	// Now must sit after the "--end=2026-03-01" below; see farFutureNow's doc.
+	ctx := &RunContext{
+		Repo: repo, Cfg: config.Default(), Stdout: &out, Stderr: &out, Now: farFutureNow,
+	}
 	a, err := Parse(mustLookup(t, "redate"), []string{
 		"--strategy=Even-Spread", "--time=Working-hours",
 		"--start=2026-01-01", "--end=2026-03-01", "--execute",
