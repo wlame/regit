@@ -95,3 +95,47 @@ func colorCodesOf(s string) string {
 	}
 	return b.String()
 }
+
+func TestHashStyleFor_tintsRowsSharingCursorAuthor(t *testing.T) {
+	orig := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	defer lipgloss.SetColorProfile(orig)
+
+	m := twoAuthorModel(t)
+	// Commits (root-first): [0]=alice, [1]=bob, [2]=alice. Newest (display 0) is [2] alice.
+	m.listCursor = 0 // cursor on newest = alice
+	alice := m.plan.Commits[2]
+	bob := m.plan.Commits[1]
+
+	aliceHash := m.hashStyleFor(alice).Render("cccc333")
+	bobHash := m.hashStyleFor(bob).Render("bbbb222")
+	defaultHash := m.st.hash.Render("x")
+
+	// Alice shares the cursor author → tinted (not the default hash color).
+	if colorCodesOf(aliceHash) == colorCodesOf(m.st.hash.Render("cccc333")) {
+		t.Error("a row sharing the cursor author should not use the default hash color")
+	}
+	// Bob does not share it → default hash color.
+	if colorCodesOf(bobHash) != colorCodesOf(defaultHash) {
+		t.Errorf("a non-matching row should keep the default hash color:\n b=%q def=%q",
+			bobHash, defaultHash)
+	}
+}
+
+func TestHashStyleFor_followsCursorMove(t *testing.T) {
+	orig := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	defer lipgloss.SetColorProfile(orig)
+
+	m := twoAuthorModel(t)
+	bob := m.plan.Commits[1]
+	// With the cursor on an alice commit, bob's hash is the default color.
+	m.listCursor = 0
+	before := colorCodesOf(m.hashStyleFor(bob).Render("h"))
+	// Move the cursor to bob's row (display index 1 = commit [1] = bob).
+	m.listCursor = 1
+	after := colorCodesOf(m.hashStyleFor(bob).Render("h"))
+	if before == after {
+		t.Error("moving the cursor onto bob should change bob's hash tint")
+	}
+}

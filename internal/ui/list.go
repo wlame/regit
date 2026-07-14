@@ -278,7 +278,7 @@ func (m Model) renderCommitRow(displayIdx, inner int, calKey string) string {
 		styledMarker = m.st.marker.Render(marker)
 	}
 	return fmt.Sprintf("%s%s %s %s%s",
-		styledPrefix, m.st.hash.Render(short(c.Hash)), styledMarker, m.styleAuthor(c, auth), subj)
+		styledPrefix, m.hashStyleFor(c).Render(short(c.Hash)), styledMarker, m.styleAuthor(c, auth), subj)
 }
 
 // renderSetRow renders a row in Set mode: a ○ (unselected) / ● (selected) gutter,
@@ -304,7 +304,9 @@ func (m Model) renderSetRow(c model.Commit, isCursor bool, marker, auth, subj st
 
 // renderRangeRow renders a row in Range visual mode: in-range rows carry a ┃ band
 // at the left edge (the cursor row colored); out-of-range rows dim.
-func (m Model) renderRangeRow(c model.Commit, displayIdx int, isCursor bool, marker, auth, subj string) string {
+func (m Model) renderRangeRow(
+	c model.Commit, displayIdx int, isCursor bool, marker, auth, subj string,
+) string {
 	if !m.sel.inRange(displayIdx, m.listCursor) {
 		return m.st.dim.Render(fmt.Sprintf("  %s %s %s%s", short(c.Hash), marker, auth, subj))
 	}

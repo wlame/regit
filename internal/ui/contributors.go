@@ -125,6 +125,18 @@ func (m Model) authorColorStyle(c model.Commit) lipgloss.Style {
 	return m.st.author
 }
 
+// hashStyleFor returns the style for a commit's short hash in the list: the
+// contributor's color when the commit shares the cursor commit's author (the
+// same-author highlight), otherwise the default hash style.
+func (m Model) hashStyleFor(c model.Commit) lipgloss.Style {
+	if len(m.plan.Commits) > 0 && contributorKey(c) == contributorKey(m.commitAtCursor()) {
+		if ct, ok := m.contributorFor(c); ok {
+			return lipgloss.NewStyle().Foreground(ct.Color)
+		}
+	}
+	return m.st.hash
+}
+
 // minAuthorsPaneHeight is the smallest row budget (including the pane border) at
 // which the AUTHORS panel is worth rendering: border(2) + one title/author row.
 // Below this the panel yields its rows to the workspace widget.
