@@ -120,3 +120,69 @@ func TestBuildContributors_colorFollowsRankNotInsertionOrder(t *testing.T) {
 		t.Errorf("rank 1 = %+v, want Low with palette[1]", list[1])
 	}
 }
+
+// mkContribs builds n synthetic contributors ranked by descending count, for
+// exercising visibleContributors without needing a full commit list.
+func mkContribs(n int) []contributor {
+	out := make([]contributor, n)
+	for i := range out {
+		out[i] = contributor{Key: string(rune('a' + i)), Label: string(rune('a' + i)), Count: n - i}
+	}
+	return out
+}
+
+func TestVisibleContributors_allFitNoHidden(t *testing.T) {
+	c := mkContribs(3)
+	vis, hidden := visibleContributors(c, 0, 5)
+	if len(vis) != 3 || hidden != 0 {
+		t.Fatalf("all should fit: vis=%d hidden=%d", len(vis), hidden)
+	}
+}
+
+func TestVisibleContributors_overflowKeepsLitVisible(t *testing.T) {
+	c := mkContribs(10)
+	// maxLines 4 → show 3 contributors + a "+N more" slot. Lit index 8 would be
+	// hidden, so it must be swapped into the last visible slot.
+	vis, hidden := visibleContributors(c, 8, 4)
+	if len(vis) != 3 {
+		t.Fatalf("want 3 visible, got %d", len(vis))
+	}
+	if hidden != 7 { // 10 total - 3 shown
+		t.Errorf("hidden = %d, want 7", hidden)
+	}
+	found := false
+	for _, v := range vis {
+		if v.Key == c[8].Key {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("the lit contributor must always be visible")
+	}
+}
+
+func TestVisibleContributors_overflowLitAlreadyVisible(t *testing.T) {
+	c := mkContribs(10)
+	vis, hidden := visibleContributors(c, 1, 4)
+	if len(vis) != 3 || hidden != 7 {
+		t.Fatalf("vis=%d hidden=%d, want 3/7", len(vis), hidden)
+	}
+	// Lit index 1 is within the first 3, so no swap; order preserved.
+	if vis[1].Key != c[1].Key {
+		t.Errorf("lit contributor already visible should keep its natural slot")
+	}
+}
+
+func TestVisibleContributors_maxLinesOneDoesNotPanic(t *testing.T) {
+	c := mkContribs(3)
+	// maxLines 1 reserves its single line for the "+N more" summary, so show=0.
+	// The lit contributor points at a would-be-hidden entry, which previously ran
+	// the swap into vis[-1] and panicked; it must now no-op cleanly.
+	vis, hidden := visibleContributors(c, len(c)-1, 1)
+	if len(vis) != 0 {
+		t.Fatalf("with maxLines=1 no contributor lines fit, got %d", len(vis))
+	}
+	if hidden != len(c) {
+		t.Errorf("hidden = %d, want %d (all contributors hidden)", hidden, len(c))
+	}
+}

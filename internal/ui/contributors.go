@@ -6,6 +6,7 @@
 package ui
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -122,4 +123,75 @@ func (m Model) authorColorStyle(c model.Commit) lipgloss.Style {
 		return lipgloss.NewStyle().Foreground(ct.Color)
 	}
 	return m.st.author
+}
+
+// minAuthorsPaneHeight is the smallest row budget (including the pane border) at
+// which the AUTHORS panel is worth rendering: border(2) + one title/author row.
+// Below this the panel yields its rows to the workspace widget.
+const minAuthorsPaneHeight = 3
+
+// visibleContributors picks which contributors the panel shows for a row budget
+// of maxLines author lines, always including the lit (cursor) contributor. When
+// everything fits it returns them all with hidden=0. When it overflows it returns
+// the first maxLines-1 (reserving the last line for a "+N more" summary) with
+// hidden = the count not shown; if the lit contributor would be hidden it is
+// swapped into the last returned slot so it is always on screen.
+func visibleContributors(contribs []contributor, litIdx, maxLines int) ([]contributor, int) {
+	if maxLines <= 0 {
+		return nil, len(contribs)
+	}
+	if len(contribs) <= maxLines {
+		return contribs, 0
+	}
+	show := maxLines - 1 // reserve one line for the "+N more" summary
+	vis := make([]contributor, show)
+	copy(vis, contribs[:show])
+	hidden := len(contribs) - show
+	// Guarantee the lit author is visible — but only when there is a slot to
+	// swap it into. With maxLines==1, show==0 leaves no contributor line at all
+	// (the single line is the "+N more" summary), so the swap must be skipped to
+	// avoid indexing vis[-1].
+	if show > 0 && litIdx >= show && litIdx < len(contribs) {
+		vis[show-1] = contribs[litIdx]
+	}
+	return vis, hidden
+}
+
+// viewAuthorsPane renders the AUTHORS panel for the given row budget (including
+// the pane border). Returns "" when the budget is too small or there are no
+// contributors. The cursor commit's author is highlighted (bold, ● glyph); every
+// other contributor gets a dim · glyph. Contributor labels use their assigned
+// color; counts are dimmed.
+func (m Model) viewAuthorsPane(budget int) string {
+	if budget < minAuthorsPaneHeight || len(m.contribs) == 0 {
+		return ""
+	}
+	maxLines := budget - 2 /* border */ - 1 /* title */
+	if maxLines < 1 {
+		return ""
+	}
+
+	litIdx := -1
+	if len(m.plan.Commits) > 0 {
+		if i, ok := m.contribIdx[contributorKey(m.commitAtCursor())]; ok {
+			litIdx = i
+		}
+	}
+	vis, hidden := visibleContributors(m.contribs, litIdx, maxLines)
+
+	lines := []string{m.st.modalTitle.Render("AUTHORS")}
+	for _, ct := range vis {
+		glyph := "·"
+		labelStyle := lipgloss.NewStyle().Foreground(ct.Color)
+		if litIdx >= 0 && ct.Key == m.contribs[litIdx].Key {
+			glyph = "●"
+			labelStyle = labelStyle.Bold(true)
+		}
+		lines = append(lines, fmt.Sprintf("%s %s %s",
+			glyph, labelStyle.Render(ct.Label), m.st.dim.Render(fmt.Sprintf("%d", ct.Count))))
+	}
+	if hidden > 0 {
+		lines = append(lines, m.st.dim.Render(fmt.Sprintf("… +%d more", hidden)))
+	}
+	return m.st.pane.Width(rightPaneWidth).Render(strings.Join(lines, "\n"))
 }

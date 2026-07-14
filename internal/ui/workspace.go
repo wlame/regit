@@ -1,6 +1,10 @@
 package ui
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 // workspace.go renders the fixed category tab bar and handles moving between
 // tabs. Both are driven by the workspaces table (feature.go), so the bar and the
@@ -52,19 +56,42 @@ func (m *Model) cycleWorkspace(delta int) {
 	m.applyDefaultSelectionMode()
 }
 
-// viewRightColumn renders zone 3 — the active workspace's widget. Dates shows the
-// calendar + strategy form; Restructure and Authorship show their shared feature
-// menu; the v1-stub tabs show a "coming soon" panel. The commit backbone (list +
-// detail) stays put across tabs; only this column swaps.
+// viewRightColumn renders zone 3 — the active workspace's widget with the AUTHORS
+// panel below it — and clamps the whole column to the terminal height. Dates
+// shows the calendar + strategy form; Restructure and Authorship show their
+// shared feature menu; the v1-stub tabs show a "coming soon" panel. The commit
+// backbone (list + detail) stays put across tabs; only this column swaps.
+//
+// The widget gets priority; the panel takes whatever rows remain (and is
+// omitted entirely when too few remain), so the panel never pushes the
+// workspace widget or the frame off-screen. The body budget is height-4 (title
+// + tabs + status + keybar).
 func (m Model) viewRightColumn() string {
+	var widget string
 	switch m.workspace {
 	case WSDates:
-		return m.viewDatesWorkspace()
+		widget = m.viewDatesWorkspace()
 	case WSRestructure, WSAuthorship:
-		return m.viewFeatureMenu()
+		widget = m.viewFeatureMenu()
 	default:
-		return m.viewStubWorkspace()
+		widget = m.viewStubWorkspace()
 	}
+	if m.height <= 0 {
+		return widget // no size yet (pre-first-WindowSizeMsg)
+	}
+
+	budget := m.height - 4
+	widgetH := lipgloss.Height(widget)
+	if widgetH >= budget {
+		// No room for the panel: clamp the widget alone, exactly as before.
+		return lipgloss.NewStyle().MaxHeight(max(8, budget)).Render(widget)
+	}
+	pane := m.viewAuthorsPane(budget - widgetH)
+	col := widget
+	if pane != "" {
+		col = lipgloss.JoinVertical(lipgloss.Left, widget, pane)
+	}
+	return lipgloss.NewStyle().MaxHeight(max(8, budget)).Render(col)
 }
 
 // viewStubWorkspace renders a disabled (not-yet-built) workspace: its name and a

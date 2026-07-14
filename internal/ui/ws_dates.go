@@ -16,17 +16,10 @@ import (
 // scheduling UX that predates the tab chassis.
 
 // viewDatesWorkspace renders zone 3 for the Dates tab: the calendar pane above
-// the strategy pane, height-clamped so the right column never drives the frame
-// past the terminal (bubbletea tail-clips oversized frames, hiding the title).
+// the strategy pane. Height clamping for the whole right column (this widget plus
+// the AUTHORS panel) is handled by viewRightColumn.
 func (m Model) viewDatesWorkspace() string {
-	right := lipgloss.JoinVertical(lipgloss.Left, m.viewCalendarPane(), m.viewStrategyPane())
-	// Clamp to avoid pushing the frame past the terminal height. The tab bar
-	// now sits between the title and the body, so the body budget is height-4
-	// (title + tabs + status + keybar).
-	if avail := m.height - 4; m.height > 0 && lipgloss.Height(right) > avail {
-		right = lipgloss.NewStyle().MaxHeight(max(8, avail)).Render(right)
-	}
-	return right
+	return lipgloss.JoinVertical(lipgloss.Left, m.viewCalendarPane(), m.viewStrategyPane())
 }
 
 // viewCalendarPane renders the half-year heatmap, legend, and selected-day
