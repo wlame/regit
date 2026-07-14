@@ -50,10 +50,17 @@ func CheckGuards(state model.RepoState, plan *model.Plan) Guard {
 		}
 	}
 	if !plan.IsValid() {
+		// Count Violations, not Shifted: IsValid gates on Violations being
+		// non-empty, but Shifted only lists commits the enforcement cascade
+		// would actually move (see Plan.Shifted's doc comment) — a violation
+		// with no target caught in its own blast radius (e.g. two anchors
+		// whose dates are out of order) leaves Shifted empty while Violations
+		// is not, which used to render as the nonsensical "plan has 0
+		// commit(s) conflicting".
 		return Guard{
 			Blocked: true,
 			BlockReason: fmt.Sprintf("plan has %d commit(s) conflicting with your edits; resolve them before applying",
-				len(plan.Shifted)),
+				len(plan.Violations)),
 		}
 	}
 	// plan.Active() is the TRUE rewrite set: the rewrite engine (Replay) re-emits

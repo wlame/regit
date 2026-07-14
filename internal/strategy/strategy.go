@@ -171,8 +171,15 @@ type TimeModel interface {
 //
 // Enforcement (EnforceSequential) runs per segment so the push-forward cascade
 // can never move an anchor; detection (FindViolations) runs over the entire
-// stitched chain so an infeasible squeeze between anchors blocks apply through
-// the ordinary violations channel.
+// stitched chain, but the result is then filtered down to violations that
+// touch at least one target commit (violationsTouchingTargets). An infeasible
+// squeeze always involves a target, so squeeze detection still blocks apply
+// through the ordinary violations channel; a pre-existing inversion purely
+// between anchors/frozen commits — history this redate never touches — no
+// longer does. Rebased or cherry-picked repos routinely carry such
+// inversions, and anchors are never edited (their dates are never wrong from
+// this redate's point of view), so policing them here would block every
+// apply with no in-command remedy.
 //
 // The returned warnings name segments left unchanged (no overlap with the
 // strategy's days, or a per-segment strategy error). A non-nil error means the
@@ -234,7 +241,7 @@ func Apply(plan *model.Plan, targets []model.Commit, s Strategy, tm TimeModel, p
 			full[i] = plan.EffectiveAuthorDate(c)
 		}
 	}
-	plan.Violations = FindViolations(plan.Commits, full)
+	plan.Violations = violationsTouchingTargets(FindViolations(plan.Commits, full), assigned)
 	plan.Shifted = nil
 	for _, h := range ShiftedByEnforcement(plan.Commits, full) {
 		if _, isTarget := assigned[h]; isTarget { // anchors can never actually shift
@@ -253,6 +260,25 @@ func Apply(plan *model.Plan, targets []model.Commit, s Strategy, tm TimeModel, p
 		plan.SetEdit(hash, e)
 	}
 	return warnings, nil
+}
+
+// violationsTouchingTargets filters a full-chain violation list down to the
+// ones that involve at least one target commit (child or parent hash present
+// in assigned). A squeeze between targets and their bounding anchors always
+// has a target on one side of the pair, so it always survives the filter; a
+// violation purely between two anchors/frozen commits — dates this redate
+// never proposed and will never write — is dropped instead of blocking apply.
+func violationsTouchingTargets(violations []model.SequenceViolation,
+	assigned map[string]time.Time) []model.SequenceViolation {
+	var out []model.SequenceViolation
+	for _, v := range violations {
+		_, childIsTarget := assigned[v.ChildHash]
+		_, parentIsTarget := assigned[v.ParentHash]
+		if childIsTarget || parentIsTarget {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // intersectParams narrows p's day inputs to the segment's window. ok=false

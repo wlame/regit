@@ -36,6 +36,29 @@ func TestCheckGuards_sequenceViolationBlocks(t *testing.T) {
 	}
 }
 
+// TestCheckGuards_blockMessageCountsViolationsNotShifted proves the block
+// message reports len(plan.Violations), not len(plan.Shifted): a violation
+// purely between two commits neither of which the enforcement cascade would
+// move (e.g. two anchors whose dates are already out of order) leaves
+// Shifted empty while Violations is not. Before the fix this rendered the
+// nonsensical "plan has 0 commit(s) conflicting" even though the plan was
+// genuinely blocked.
+func TestCheckGuards_blockMessageCountsViolationsNotShifted(t *testing.T) {
+	p := planWithEdit(false)
+	p.Violations = []model.SequenceViolation{{ChildHash: "x", ParentHash: "y"}}
+	p.Shifted = nil // deliberately empty, unlike the violation count
+	g := CheckGuards(model.RepoState{}, p)
+	if !g.Blocked {
+		t.Fatal("a plan with violations should block regardless of Shifted")
+	}
+	if !strings.Contains(g.BlockReason, "1 commit(s)") {
+		t.Errorf("BlockReason should count the 1 violation, got %q", g.BlockReason)
+	}
+	if strings.Contains(g.BlockReason, "0 commit(s)") {
+		t.Errorf("BlockReason must not report 0 when a violation exists, got %q", g.BlockReason)
+	}
+}
+
 func TestCheckGuards_pushedNeedsConfirmation(t *testing.T) {
 	g := CheckGuards(model.RepoState{Branch: "main"}, planWithEdit(true))
 	if g.Blocked {

@@ -1605,6 +1605,83 @@ func TestReload_clearsStrategyPinState(t *testing.T) {
 	}
 }
 
+// TestCycleStrategy_reattributesStalePinsOnReturn is the regression test for
+// Finding 3: picks placed on a strategy slot under a WIDE selection must be
+// re-checked against the current windows when the carousel returns to that
+// slot, even though the selection narrowed while a DIFFERENT strategy was
+// active (so onDatesSelectionChanged never touched Picked Days' pins at the
+// time). Sequence: pick 3 days under the default whole-range selection ->
+// carousel away -> narrow the selection to one commit -> carousel back to
+// Picked Days. Before the fix, all 3 stale picks (two now outside the
+// narrowed window) would stage verbatim and land in the logged --pick= line.
+func TestCycleStrategy_reattributesStalePinsOnReturn(t *testing.T) {
+	m := newTestModelN(t, 3)
+	loc := m.loc
+	// Give the 3 commits distinct dates (root-first) so narrowing to the
+	// middle commit produces a non-degenerate [floor, ceil] window instead of
+	// a single instant: c0=Jun1, c1=Jun3, c2=Jun5.
+	base := time.Date(2026, 6, 1, 12, 0, 0, 0, loc)
+	for i := range m.plan.Commits {
+		m.plan.Commits[i].OrigAuthorDate = base.AddDate(0, 0, i*2)
+	}
+
+	m = selectStrategy(m, 2) // registry offset 2 from Even Spread -> Picked Days
+
+	// Wide selection (default SelActive: all 3 commits, one segment,
+	// capacity 3): pick three days that all fit without eviction.
+	// survivorDay sits inside every window the narrowed selection will ever
+	// produce ([Jun1, Jun5]); the other two only fit the WIDE window.
+	const survivorDay = "2026-06-03"
+	const staleDay1 = "2026-05-20"
+	const staleDay2 = "2026-05-25"
+	a := m.activeStrat()
+	wideWins := m.segmentWindows()
+	for _, day := range []string{staleDay1, staleDay2, survivorDay} {
+		if _, ok := pickWithEviction(a, day, wideWins, loc); !ok {
+			t.Fatalf("setup: pick %s should fit the wide window", day)
+		}
+	}
+	if len(a.picked) != 3 {
+		t.Fatalf("setup: want 3 picks staged, got %v", a.picked)
+	}
+
+	// Carousel away from Picked Days WITHOUT narrowing the selection yet —
+	// the reviewer's sequence: pick under a wide selection, then switch
+	// strategies, leaving Picked Days' pins un-reattributed at their old slot.
+	m.cycleStrategy(1) // -> Rate Fill; not ready, stages nothing
+	if m.activeStrat().form.strat.Name() == "Picked Days" {
+		t.Fatal("setup: carousel must have moved off Picked Days")
+	}
+
+	// Narrow the selection to the middle commit (c1 = Jun 3). This re-attributes
+	// the CURRENTLY active strategy's pins (Rate Fill has none); Picked Days'
+	// stale picks are untouched by this call — that is the bug under test.
+	m.sel.toggle(m.plan.Commits[1].Hash, false)
+	m.onDatesSelectionChanged()
+
+	// Carousel back to Picked Days: before the fix, its 3 stale picks (two now
+	// outside the narrowed [Jun1, Jun5] window) would stage verbatim.
+	m.cycleStrategy(-1)
+	if got := m.activeStrat().form.strat.Name(); got != "Picked Days" {
+		t.Fatalf("setup: carousel should have returned to Picked Days, got %s", got)
+	}
+
+	pd := m.activeStrat()
+	if len(pd.picked) != 1 || !pd.picked[survivorDay] {
+		t.Errorf("stale out-of-window picks must be dropped on carousel return, got picked=%v",
+			pd.picked)
+	}
+	if len(pd.pickSeq) != 1 {
+		t.Errorf("pickSeq must be pruned alongside picked, got %v", pd.pickSeq)
+	}
+	if !strings.Contains(m.redateCmd, "--pick="+survivorDay) {
+		t.Errorf("staged redateCmd should pick only the in-window day, got %q", m.redateCmd)
+	}
+	if strings.Contains(m.redateCmd, staleDay1) || strings.Contains(m.redateCmd, staleDay2) {
+		t.Errorf("staged redateCmd must not reference dropped out-of-window picks, got %q", m.redateCmd)
+	}
+}
+
 // TestDetail_refetchesAfterApply verifies that the success path of commitPending
 // schedules a fresh detail-stat fetch after reload() wipes the stat caches.
 // Without the fix the apply path returns nil, leaving the panel stuck at

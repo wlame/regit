@@ -821,12 +821,25 @@ func (m Model) listSelectionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 // distribution after the commit-list selection changes while the Dates
 // workspace is focused: a narrower or wider selection can shrink or grow each
 // segment's window, so picks/pins placed under the OLD selection may no longer
-// fit the new one. reattributePins MUST run before stageActive — it silently
-// evicts or clamps whatever no longer fits, so stageActive then stages exactly
-// what survived; the other order would briefly stage an edit built from a
-// pick/pin that reattributePins was about to drop. A no-op outside WSDates,
-// so it is safe to call unconditionally from every selection-mutating site.
+// fit the new one. reattributeActivePins MUST run before stageActive — it
+// silently evicts or clamps whatever no longer fits, so stageActive then
+// stages exactly what survived; the other order would briefly stage an edit
+// built from a pick/pin that reattribution was about to drop. A no-op outside
+// WSDates, so it is safe to call unconditionally from every selection-mutating
+// site.
 func (m *Model) onDatesSelectionChanged() {
+	m.reattributeActivePins()
+	m.stageActive()
+}
+
+// reattributeActivePins re-syncs the ACTIVE strategy slot's pins/picks
+// against the current segment windows, dropping or clamping whatever no
+// longer fits and surfacing a status warning when it does. A no-op outside
+// WSDates. Shared by onDatesSelectionChanged (selection changed under the
+// active strategy) and cycleStrategy (the carousel just made a DIFFERENT
+// strategy slot active, one whose pins may have gone stale under a selection
+// change that happened while it was not active — see cycleStrategy's comment).
+func (m *Model) reattributeActivePins() {
 	if m.workspace != WSDates {
 		return
 	}
@@ -836,7 +849,6 @@ func (m *Model) onDatesSelectionChanged() {
 		m.setStatus(fmt.Sprintf("Dropped %d pick(s)/pin(s) outside the new windows", len(dropped)),
 			statusWarn)
 	}
-	m.stageActive()
 }
 
 // openEditorAtCursor opens the per-commit editor on the selected commit,
@@ -1414,10 +1426,20 @@ func (m *Model) selectFirstCommitOfDay() {
 // the now-active strategy overwrites the staged author dates with its distribution,
 // or clears them if it is not ready — so the plan only ever holds the active
 // strategy's dates.
+//
+// Each strategy slot keeps its own pins/picks (m.strats[i]), and
+// onDatesSelectionChanged only re-attributes the slot that is active AT THE
+// TIME the selection changes. So a slot the carousel is NOT sitting on when
+// the selection narrows keeps pins sized for the old, wider windows — landing
+// back on it here must re-attribute before staging, or a pick/pin outside the
+// narrowed window would be staged verbatim (and logged in the footer's
+// CLI-equivalent line) even though it can never actually apply. This mirrors
+// onDatesSelectionChanged's own ordering: reattribute, THEN stage.
 func (m *Model) cycleStrategy(delta int) {
 	n := len(m.strategies)
 	m.stratIdx = (m.stratIdx + delta + n) % n
 	m.activeStrat().form.focusIdx = 0
+	m.reattributeActivePins()
 	m.stageActive()
 }
 

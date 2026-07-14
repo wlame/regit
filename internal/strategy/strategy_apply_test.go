@@ -94,6 +94,51 @@ func TestApply_InfeasibleSqueezeReportsViolations(t *testing.T) {
 	}
 }
 
+// TestApply_PreExistingAnchorInversionDoesNotBlockApply is the regression test
+// for the Finding-1 fix: a non-monotonic run of ANCHOR dates (history this
+// redate never touches) must not surface in plan.Violations, or every apply
+// touching a rebased/cherry-picked repo would hard-block with no remedy.
+//
+// Layout (7 commits, root-first, dates all well before segNow so no ceiling
+// gets today-clamped): c1,c2,c3 are anchors, with c3 (storage index 2) dated
+// BEFORE c1 (storage index 0) — a rebase-shaped inversion entirely among
+// anchors, surfacing as a raw FindViolations pair on the adjacent (c2, c3)
+// step. c4 is the lone target, boxed between anchor c3 (floor) and anchor c5
+// (ceil) with a clean, feasible window; c6,c7 are trailing anchors.
+func TestApply_PreExistingAnchorInversionDoesNotBlockApply(t *testing.T) {
+	loc := time.UTC
+	day := func(d int) time.Time { return time.Date(2026, 3, d, 12, 0, 0, 0, loc) }
+	commits := []model.Commit{
+		{Hash: "c1", OrigAuthorDate: day(10)},
+		{Hash: "c2", OrigAuthorDate: day(15)},
+		{Hash: "c3", OrigAuthorDate: day(2)}, // BEFORE c1: anchor/anchor inversion
+		{Hash: "c4", OrigAuthorDate: day(12)},
+		{Hash: "c5", OrigAuthorDate: day(18)},
+		{Hash: "c6", OrigAuthorDate: day(19)},
+		{Hash: "c7", OrigAuthorDate: day(20)},
+	}
+	p := model.NewPlan(commits)
+	targets := pick(p, 3) // c4 only; c3 (floor, Mar2) .. c5 (ceil, Mar18) is clean
+	prm := applyParams()
+	prm.CompressDay = day(10) // safely inside (c3, c5)
+	if _, err := Apply(p, targets, Compress{}, WorkingHoursModel{}, prm, true, segNow); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Violations) != 0 {
+		t.Errorf("pre-existing anchor/anchor inversion must not block apply, got violations: %+v",
+			p.Violations)
+	}
+	if _, ok := p.EditFor("c4"); !ok {
+		t.Error("the target with a clean window must still be staged")
+	}
+	// Anchors are never edited, inversion or not.
+	for _, h := range []string{"c1", "c2", "c3", "c5", "c6", "c7"} {
+		if _, ok := p.EditFor(h); ok {
+			t.Errorf("anchor %s must not be edited", h)
+		}
+	}
+}
+
 func TestApply_FutureEndClampedToToday(t *testing.T) {
 	p := segPlan(3, 0)
 	prm := applyParams()
