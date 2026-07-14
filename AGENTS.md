@@ -25,7 +25,7 @@ also a flat verb, all projected from one capability registry (see "The
 capability registry" below). The verbs, in registry order:
 
 <!-- regit:begin verbs-overview -->
-`split` · `reword` · `squash` · `redate` · `retitle` · `reauthor` · `drop-bodies` · `undo`
+`split` · `reword` · `squash` · `redate` · `retitle` · `reauthor` · `drop-bodies` · `purge` · `undo`
 <!-- regit:end verbs-overview -->
 
 ## Core domain types (`internal/model`)
@@ -231,7 +231,7 @@ error); the `--llm-help` environment section is likewise projected from
 **The verbs** (each a `Command` row with a `Run` in `run_<verb>.go`):
 
 <!-- regit:begin verbs-detail -->
-`split` · `reword` · `squash` · `redate` · `retitle` · `reauthor` · `drop-bodies` · `undo`
+`split` · `reword` · `squash` · `redate` · `retitle` · `reauthor` · `drop-bodies` · `purge` · `undo`
 <!-- regit:end verbs-detail -->
 
 Every mutating verb except
@@ -574,5 +574,5 @@ AGENTS.md               This file
 ```
 
 <!-- regit:begin runfiles-map -->
-`run_*.go` files: `run_split.go` · `run_reword.go` · `run_squash.go` · `run_redate.go` · `run_retitle.go` · `run_reauthor.go` · `run_dropbodies.go` · `run_undo.go`
+`run_*.go` files: `run_split.go` · `run_reword.go` · `run_squash.go` · `run_redate.go` · `run_retitle.go` · `run_reauthor.go` · `run_dropbodies.go` · `run_purge.go` · `run_undo.go`
 <!-- regit:end runfiles-map -->

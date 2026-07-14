@@ -148,6 +148,7 @@ rewrite already-pushed commits. `undo` is exempt and restores immediately.
 | `regit retitle --match=…` | Rewrite commit subjects with a regex across a range. |
 | `regit reauthor` | Rewrite the author (and by default committer) identity of commits. |
 | `regit drop-bodies` | Strip the body of each commit in a range, keeping titles. |
+| `regit purge` | Remove files or directories from branch history as if never added. |
 | `regit undo` | Restore the branch to the most recent regit backup ref. |
 <!-- regit:end commands -->
 

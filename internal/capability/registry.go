@@ -249,6 +249,38 @@ var registry = []Command{
 		ExitCodes:   map[int]string{0: "ok / dry-run", 1: "usage error", 2: "guard blocked", 3: "apply error"},
 	},
 	{
+		Name:      "purge",
+		Summary:   "Remove files or directories from branch history as if never added.",
+		Mutating:  true,
+		Workspace: WSRestructure,
+		Selection: SelGlobal,
+		Run:       runPurge,
+		Positional: &PositionalSpec{
+			Name: "path", Help: "repo-relative file or directory to purge (repeatable)",
+			Variadic: true,
+		},
+		Params: []Param{
+			{Name: "search", Type: ParamString, Help: "read-only: list history paths matching the query, then exit"},
+			{Name: "repo", Type: ParamString, Default: ".", Help: "path to the git repository"},
+			{Name: "execute", Type: ParamBool, Default: "false", Help: "apply (default: dry-run preview)"},
+			{Name: "force", Type: ParamBool, Default: "false", Help: "allow rewriting already-pushed commits"},
+			{Name: "sign", Type: ParamBool, Default: "false", Help: "re-sign rewritten commits with your configured signing key"},
+		},
+		Examples: []Example{
+			{Cmd: "regit purge --search=secret", Why: "find candidate paths in history before purging"},
+			{Cmd: "regit purge config/secrets.env", Why: "preview removing one file from all history"},
+			{Cmd: "regit purge build/ old.log --execute", Why: "remove a directory and a file everywhere, applied"},
+			{Cmd: "regit purge '*.log'", Why: "WRONG: globs are rejected; pass exact paths from --search", Bad: true},
+		},
+		Limitations: []string{
+			"Blocks if a merge commit sits in the rewritten range.",
+			"Exact repo-relative paths only (no globs); renamed ancestors are separate paths — use --search to find them.",
+			"Branch-scoped: other branches, tags, reflog, and regit's own backup refs still reference the old objects until pruned (`git gc`). For whole-repo, all-refs scrubbing use `git filter-repo` — regit purge is the branch-scoped, preview-first, undoable member of the filter-repo/filter-branch family.",
+			"The working tree is never touched: a purged path still on disk becomes untracked.",
+		},
+		ExitCodes: map[int]string{0: "ok / dry-run", 1: "usage error", 2: "guard blocked", 3: "apply error"},
+	},
+	{
 		Name:      "undo",
 		Summary:   "Restore the branch to the most recent regit backup ref.",
 		Mutating:  true,

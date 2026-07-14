@@ -154,6 +154,12 @@ func ReauthorArgMap(name, email string, committer bool, commits string) map[stri
 	return m
 }
 
+// PurgeArgMap builds the flag map for a `regit purge <paths> --execute` line.
+// Paths render as positionals, matching the registry's variadic positional slot.
+func PurgeArgMap(paths []string) map[string]string {
+	return map[string]string{"_positional": strings.Join(paths, " "), "execute": "true"}
+}
+
 // keyValsToString serialises a map[date]count as "DAY=N,DAY=N" in stable
 // (sorted) order, matching the --pin flag's wire format.
 func keyValsToString(kv map[string]int) string {
