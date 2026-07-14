@@ -24,14 +24,21 @@ const detailDateLayout = "2006-01-02 15:04 -0700"
 // final clampLines guarantees the height invariant even for a very long body.
 //
 // It is pure (no git, no Model) so it unit-tests without a terminal. width is the
-// inner text width; statErr (when non-empty) shows as a non-fatal note.
-func renderDetail(c model.Commit, st gitio.Stat, haveStat bool, statErr string, plan *model.Plan, loc *time.Location, width, maxHeight int, sty styles) string {
+// inner text width; statErr (when non-empty) shows as a non-fatal note. authorStyle
+// colors the author name on the head line — the caller resolves it (typically via
+// Model.authorColorStyle) since this function has no Model to look it up itself.
+func renderDetail(
+	c model.Commit, st gitio.Stat, haveStat bool, statErr string, plan *model.Plan, loc *time.Location,
+	width, maxHeight int, sty styles, authorStyle lipgloss.Style,
+) string {
 	// Header block: identity, dates, diffstat (always shown).
 	var head []string
 	head = appendLines(head, sty.modalTitle.Render("DETAIL "+short(c.Hash)))
 	head = appendLines(head, sty.dim.Render(c.Hash))
 	head = appendLines(head, "")
-	head = appendLines(head, fmt.Sprintf("%s %s", termsafe.Line(c.AuthorName), sty.dim.Render("<"+termsafe.Line(c.AuthorEmail)+">")))
+	head = appendLines(head, fmt.Sprintf("%s %s",
+		authorStyle.Render(termsafe.Line(c.AuthorName)),
+		sty.dim.Render("<"+termsafe.Line(c.AuthorEmail)+">")))
 	if c.CommitterName != c.AuthorName || c.CommitterEmail != c.AuthorEmail {
 		head = appendLines(head, sty.dim.Render(fmt.Sprintf("committer %s <%s>", termsafe.Line(c.CommitterName), termsafe.Line(c.CommitterEmail))))
 	}

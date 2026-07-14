@@ -201,13 +201,14 @@ func (m Model) authorCell(c model.Commit) (text string, width int) {
 	return name + " ", authorColWidth + 1
 }
 
-// styleAuthor applies the author color to a non-empty author cell, returning an
-// empty string untouched so a hidden column never emits stray escape codes.
-func (m Model) styleAuthor(text string) string {
+// styleAuthor colors a non-empty author cell with its contributor's color,
+// returning an empty string untouched so a hidden column never emits stray
+// escape codes.
+func (m Model) styleAuthor(c model.Commit, text string) string {
 	if text == "" {
 		return ""
 	}
-	return m.st.author.Render(text)
+	return m.authorColorStyle(c).Render(text)
 }
 
 // renderCommitRow renders a single commit line. The leading two-column gutter
@@ -276,7 +277,8 @@ func (m Model) renderCommitRow(displayIdx, inner int, calKey string) string {
 	if marker != " " {
 		styledMarker = m.st.marker.Render(marker)
 	}
-	return fmt.Sprintf("%s%s %s %s%s", styledPrefix, m.st.hash.Render(short(c.Hash)), styledMarker, m.styleAuthor(auth), subj)
+	return fmt.Sprintf("%s%s %s %s%s",
+		styledPrefix, m.st.hash.Render(short(c.Hash)), styledMarker, m.styleAuthor(c, auth), subj)
 }
 
 // renderSetRow renders a row in Set mode: a ○ (unselected) / ● (selected) gutter,
@@ -295,7 +297,9 @@ func (m Model) renderSetRow(c model.Commit, isCursor bool, marker, auth, subj st
 	if marker != " " {
 		styledMarker = m.st.marker.Render(marker)
 	}
-	return fmt.Sprintf("%s %s %s %s%s", circleStyle.Render(circle), m.st.hash.Render(short(c.Hash)), styledMarker, m.styleAuthor(auth), subj)
+	return fmt.Sprintf("%s %s %s %s%s",
+		circleStyle.Render(circle), m.st.hash.Render(short(c.Hash)), styledMarker,
+		m.styleAuthor(c, auth), subj)
 }
 
 // renderRangeRow renders a row in Range visual mode: in-range rows carry a ┃ band
@@ -312,5 +316,6 @@ func (m Model) renderRangeRow(c model.Commit, displayIdx int, isCursor bool, mar
 	if marker != " " {
 		styledMarker = m.st.marker.Render(marker)
 	}
-	return fmt.Sprintf("%s %s %s %s%s", bar, m.st.hash.Render(short(c.Hash)), styledMarker, m.styleAuthor(auth), subj)
+	return fmt.Sprintf("%s %s %s %s%s",
+		bar, m.st.hash.Render(short(c.Hash)), styledMarker, m.styleAuthor(c, auth), subj)
 }

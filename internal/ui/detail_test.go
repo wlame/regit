@@ -38,7 +38,7 @@ func TestRenderDetail_stripsTerminalEscapesFromRepoContent(t *testing.T) {
 	plan := model.NewPlan([]model.Commit{c})
 	st := gitio.Stat{Files: []gitio.FileStat{{Status: "M", Path: "a\x1b]0;x\x07b.go", Add: 1, Del: 0}}}
 
-	out := renderDetail(c, st, true, "", plan, time.UTC, 60, 40, newStyles())
+	out := renderDetail(c, st, true, "", plan, time.UTC, 60, 40, newStyles(), newStyles().author)
 
 	if strings.Contains(out, "\x1b]") {
 		t.Errorf("detail leaked an OSC escape sequence from repo content:\n%q", out)
@@ -68,7 +68,7 @@ func TestRenderDetail_showsStatAndMessage(t *testing.T) {
 		Additions: 42,
 		Deletions: 12,
 	}
-	out := renderDetail(c, st, true, "", plan, time.UTC, 40, 40, newStyles())
+	out := renderDetail(c, st, true, "", plan, time.UTC, 40, 40, newStyles(), newStyles().author)
 
 	for _, want := range []string{
 		"a1b2c3d", "wlame", "v@gmail.com",
@@ -86,12 +86,14 @@ func TestRenderDetail_loadingAndError(t *testing.T) {
 	c := detailCommit()
 	plan := model.NewPlan([]model.Commit{c})
 
-	loading := renderDetail(c, gitio.Stat{}, false, "", plan, time.UTC, 40, 40, newStyles())
+	loading := renderDetail(c, gitio.Stat{}, false, "", plan, time.UTC, 40, 40,
+		newStyles(), newStyles().author)
 	if !strings.Contains(loading, "loading") {
 		t.Errorf("missing stat should show a loading hint, got:\n%s", loading)
 	}
 
-	failed := renderDetail(c, gitio.Stat{}, false, "boom", plan, time.UTC, 40, 40, newStyles())
+	failed := renderDetail(c, gitio.Stat{}, false, "boom", plan, time.UTC, 40, 40,
+		newStyles(), newStyles().author)
 	if !strings.Contains(failed, "unavailable") {
 		t.Errorf("stat error should show an unavailable note, got:\n%s", failed)
 	}
@@ -113,7 +115,8 @@ func TestRenderDetail_showsEditedDateArrow(t *testing.T) {
 	newDate := time.Date(2026, 5, 20, 9, 30, 0, 0, time.UTC)
 	plan.SetEdit(c.Hash, model.Edit{NewAuthorDate: &newDate})
 
-	out := renderDetail(c, gitio.Stat{}, false, "", plan, time.UTC, 40, 40, newStyles())
+	out := renderDetail(c, gitio.Stat{}, false, "", plan, time.UTC, 40, 40,
+		newStyles(), newStyles().author)
 
 	if !strings.Contains(out, "→") {
 		t.Errorf("edited date should render a → arrow line, got:\n%s", out)
@@ -132,7 +135,8 @@ func TestRenderDetail_showsCommitterWhenDifferent(t *testing.T) {
 	c.CommitterEmail = "rebot@ci.example"
 	plan := model.NewPlan([]model.Commit{c})
 
-	out := renderDetail(c, gitio.Stat{}, false, "", plan, time.UTC, 40, 40, newStyles())
+	out := renderDetail(c, gitio.Stat{}, false, "", plan, time.UTC, 40, 40,
+		newStyles(), newStyles().author)
 
 	for _, want := range []string{"committer", "rebot", "rebot@ci.example"} {
 		if !strings.Contains(out, want) {
@@ -165,7 +169,7 @@ func TestRenderDetail_boundsFileListAndKeepsMessage(t *testing.T) {
 	}
 	st := gitio.Stat{Files: files, Additions: 40, Deletions: 40}
 	const maxH = 14
-	out := renderDetail(c, st, true, "", plan, time.UTC, 40, maxH, newStyles())
+	out := renderDetail(c, st, true, "", plan, time.UTC, 40, maxH, newStyles(), newStyles().author)
 
 	if got := strings.Count(out, "\n") + 1; got > maxH {
 		t.Fatalf("detail rendered %d lines, exceeds maxHeight %d:\n%s", got, maxH, out)

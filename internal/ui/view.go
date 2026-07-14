@@ -86,7 +86,8 @@ func (m Model) viewDetailPane(width int) string {
 	}
 	c := m.commitAtCursor()
 	stat, have := m.statCache[c.Hash]
-	body := renderDetail(c, stat, have, m.statErr[c.Hash], m.plan, m.loc, width-2, m.listHeight(), m.st)
+	body := renderDetail(c, stat, have, m.statErr[c.Hash], m.plan, m.loc, width-2,
+		m.listHeight(), m.st, m.authorColorStyle(c))
 	return m.st.pane.Width(width).Height(m.listHeight() + 1).Render(body)
 }
 

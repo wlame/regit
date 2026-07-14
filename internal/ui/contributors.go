@@ -113,3 +113,13 @@ func (m Model) contributorFor(c model.Commit) (contributor, bool) {
 	}
 	return contributor{}, false
 }
+
+// authorColorStyle returns the foreground style for a commit's author — the
+// contributor's assigned color, or the default author style when the author is
+// not in the index.
+func (m Model) authorColorStyle(c model.Commit) lipgloss.Style {
+	if ct, ok := m.contributorFor(c); ok {
+		return lipgloss.NewStyle().Foreground(ct.Color)
+	}
+	return m.st.author
+}
