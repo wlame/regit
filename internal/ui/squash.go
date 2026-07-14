@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -144,6 +146,10 @@ const squashDateLayout = "2006-01-02 15:04"
 // wizard renders as one stacked column instead of two side-by-side panes.
 const squashNarrowWidth = 72
 
+// squashBodyMaxLines caps how many rows the (possibly multi-line) body editor
+// occupies in the RESULT pane; longer bodies scroll inside the textarea.
+const squashBodyMaxLines = 3
+
 // squashState holds the live wizard state: one tab per chain, the focused field,
 // the inspect cursor, and which chains are still awaiting an LLM summary.
 type squashState struct {
@@ -155,6 +161,80 @@ type squashState struct {
 	edited     map[string]bool // chain last-hash -> user typed the title/body; a late summary must not clobber it
 	dateBuf    []string        // editable date text per chain (indexed by tab); parsed on stage
 	errMsg     string          // last stage failure (bad date, invalid plan), rendered inline
+	// Field editors for the ACTIVE tab. chains/dateBuf stay the source of truth:
+	// loadActiveEditors refreshes the editors from them (entry, tab switch, an
+	// LLM summary landing on the open tab) and editField writes each keystroke
+	// back. The body is a textarea because commit bodies can span lines.
+	titleInput  textinput.Model
+	bodyInput   textarea.Model
+	authorInput textinput.Model
+	dateInput   textinput.Model
+}
+
+// newSquashInput builds one single-line wizard field. The width is set at render
+// time, when the RESULT pane's width is known.
+func newSquashInput() textinput.Model {
+	ti := textinput.New()
+	ti.Prompt = ""
+	return ti
+}
+
+// newSquashState builds the wizard state for the given chains: per-tab date
+// buffers plus the field editors, loaded from the first chain with the title
+// field focused.
+func newSquashState(chains []model.SquashChain) squashState {
+	st := squashState{chains: chains, loading: map[string]bool{}}
+	st.dateBuf = make([]string, len(chains))
+	for i := range chains {
+		st.dateBuf[i] = chains[i].AuthorDate.Format(squashDateLayout)
+	}
+	st.titleInput = newSquashInput()
+	st.authorInput = newSquashInput()
+	st.dateInput = newSquashInput()
+	ta := textarea.New()
+	ta.Prompt = ""
+	ta.ShowLineNumbers = false
+	ta.CharLimit = 0 // commit bodies may exceed the textarea's small default cap
+	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
+	st.bodyInput = ta
+	return st.loadActiveEditors()
+}
+
+// loadActiveEditors refreshes the field editors from the active chain and date
+// buffer, then focuses the editor for the current field. SetValue leaves each
+// cursor at the end of the loaded text.
+func (s squashState) loadActiveEditors() squashState {
+	if len(s.chains) == 0 {
+		return s
+	}
+	ch := s.active()
+	s.titleInput.SetValue(ch.Subject)
+	s.bodyInput.SetValue(ch.Body)
+	s.authorInput.SetValue(ch.AuthorName)
+	if s.tab < len(s.dateBuf) {
+		s.dateInput.SetValue(s.dateBuf[s.tab])
+	}
+	return s.focusField()
+}
+
+// focusField gives keyboard focus to exactly the editor matching s.field (a
+// blurred editor ignores keys and hides its cursor).
+func (s squashState) focusField() squashState {
+	s.titleInput.Blur()
+	s.bodyInput.Blur()
+	s.authorInput.Blur()
+	s.dateInput.Blur()
+	switch s.field {
+	case fldTitle:
+		s.titleInput.Focus()
+	case fldBody:
+		s.bodyInput.Focus()
+	case fldAuthor:
+		s.authorInput.Focus()
+	case fldDate:
+		s.dateInput.Focus()
+	}
+	return s
 }
 
 // markEdited records that the user manually edited the given chain's message, so a
@@ -169,19 +249,19 @@ func (s *squashState) markEdited(chainKey string) {
 // active returns the chain for the current tab.
 func (s squashState) active() model.SquashChain { return s.chains[s.tab] }
 
-// switchTab moves the tab by delta, wrapping, and resets per-tab cursors.
-// ← switches to the previous chain tab; → switches to the next.
+// switchTab moves the tab by delta, wrapping, resets per-tab cursors, and
+// reloads the field editors from the newly active chain.
 func (s squashState) switchTab(delta int) squashState {
 	n := len(s.chains)
 	if n == 0 {
 		return s
 	}
 	// The double-modulo keeps the result in [0, n) even for negative deltas, so
-	// ← from tab 0 wraps to the last tab.
+	// shift+← from tab 0 wraps to the last tab.
 	s.tab = ((s.tab+delta)%n + n) % n
 	s.field = fldTitle
 	s.listCursor = 0
-	return s
+	return s.loadActiveEditors()
 }
 
 // applySummary fills the chain identified by its last-hash with an LLM proposal
@@ -198,6 +278,11 @@ func (s squashState) applySummary(chainKey string, p squash.Proposal) squashStat
 		if s.chains[i].Last().Hash == chainKey {
 			s.chains[i].Subject = p.Subject
 			s.chains[i].Body = p.Body
+			if i == s.tab {
+				// The summary landed on the open tab: mirror it into the editors.
+				s.titleInput.SetValue(p.Subject)
+				s.bodyInput.SetValue(p.Body)
+			}
 		}
 	}
 	delete(s.loading, chainKey)
@@ -299,11 +384,12 @@ func squashDetailLine(st squashState) string {
 		insp.OrigAuthorDate.Format(squashDateLayout))
 }
 
-// squashFooter is the always-visible key hint. The ←→ chain token only appears
-// when there is more than one chain to switch between.
+// squashFooter is the always-visible key hint. The ⇧←→ chain token only appears
+// when there is more than one chain to switch between (plain ←/→ move the text
+// cursor in the focused field).
 func squashFooter(multiChain bool) string {
 	if multiChain {
-		return "↑↓ commit · ←→ chain · tab field · type edit · enter apply · esc"
+		return "↑↓ commit · ⇧←→ chain · tab field · type edit · enter apply · esc"
 	}
 	return "↑↓ commit · tab field · type edit · enter apply · esc"
 }
@@ -333,23 +419,42 @@ func squashCommitLines(st squashState, width, visible int, s styles) []string {
 	return lines
 }
 
-// squashResultLines returns the RESULT editor rows for the active chain, each with
-// a focus bar on the active field and truncated to width.
+// squashResultLines returns the RESULT editor rows for the active chain: each
+// field editor framed by a label column and a focus bar. The focused editor
+// renders its own cursor; the body block may span several rows. Editor widths
+// are set here (on value copies) because the pane width is only known at render
+// time.
 func squashResultLines(st squashState, width int) []string {
 	ch := st.active()
-	dateStr := ch.AuthorDate.Format(squashDateLayout)
-	if st.tab < len(st.dateBuf) {
-		dateStr = st.dateBuf[st.tab]
+	inW := max(1, width-9)
+	label := func(name string, f squashField) string {
+		return fmt.Sprintf("%-7s%s", name, focusMark(st.field, f))
 	}
-	field := func(label string, f squashField, val string) string {
-		return fmt.Sprintf("%-7s%s%s", label, focusMark(st.field, f), truncate(val, max(1, width-9)))
-	}
-	return []string{
-		field("Title", fldTitle, ch.Subject),
-		field("Message", fldBody, strings.ReplaceAll(ch.Body, "\n", " ")),
-		field("Author", fldAuthor, fmt.Sprintf("%s <%s>", ch.AuthorName, ch.AuthorEmail)),
-		field("Date", fldDate, dateStr),
-	}
+
+	title := st.titleInput
+	title.Width = inW
+
+	body := st.bodyInput
+	body.SetWidth(inW)
+	bodyLines := strings.Count(body.Value(), "\n") + 1
+	body.SetHeight(min(bodyLines, squashBodyMaxLines))
+
+	// The email is not editable here, so it renders as a plain suffix after the
+	// name editor, which shrinks to leave it room.
+	emailSuffix := truncate(fmt.Sprintf(" <%s>", ch.AuthorEmail), inW/2)
+	author := st.authorInput
+	author.Width = max(1, inW-lipgloss.Width(emailSuffix))
+
+	date := st.dateInput
+	date.Width = inW
+
+	lines := []string{label("Title", fldTitle) + title.View()}
+	bodyBlock := lipgloss.JoinHorizontal(lipgloss.Top, label("Message", fldBody), body.View())
+	lines = append(lines, strings.Split(bodyBlock, "\n")...)
+	return append(lines,
+		label("Author", fldAuthor)+author.View()+emailSuffix,
+		label("Date", fldDate)+date.View(),
+	)
 }
 
 // squashResultHeader is the RESULT pane title, with a summarizing note while the
@@ -422,11 +527,7 @@ func (m Model) beginSquash() (tea.Model, tea.Cmd, bool) {
 	for i := range chains {
 		chains[i] = model.ClampChainDate(m.plan.Commits, model.DefaultSquashConfig(chains[i]))
 	}
-	st := squashState{chains: chains, tab: 0, field: fldTitle, loading: map[string]bool{}}
-	st.dateBuf = make([]string, len(chains))
-	for i := range chains {
-		st.dateBuf[i] = chains[i].AuthorDate.Format(squashDateLayout)
-	}
+	st := newSquashState(chains)
 
 	// Fire async summaries only if an LLM is configured. buildSquashEngine returns
 	// (nil, nil) for the no-LLM path, so the defaults above are the final values.
@@ -447,11 +548,12 @@ func (m Model) beginSquash() (tea.Model, tea.Cmd, bool) {
 }
 
 // updateSquash handles keys while the wizard is open: ↑/↓ move the commit cursor,
-// ←/→ switch chains, tab cycles the RESULT fields, enter applies, esc cancels, and
-// any other single rune (or backspace) edits the focused RESULT field. The commit
-// list is always navigable — there is no separate "list field" to focus — so the
-// arrow keys are used for movement, and letter keys — including A — are literal
-// text input (P0: typing "Add tests" must not stage the wizard).
+// shift+←/→ switch chains, tab/shift+tab cycle the RESULT fields, enter applies,
+// esc cancels. Every other key — including ←/→, home/end, backspace, and pasted
+// text — goes to the focused field editor, which owns editing. The commit list is
+// always navigable (there is no separate "list field" to focus), and letter keys
+// — including A — are literal text input (P0: typing "Add tests" must not stage
+// the wizard).
 func (m Model) updateSquash(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	st := m.squashSt
 	switch msg.String() {
@@ -459,10 +561,10 @@ func (m Model) updateSquash(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeMain
 		m.setStatus("Squash cancelled", statusWarn)
 		return m, nil
-	case "left":
+	case "shift+left":
 		m.squashSt = st.switchTab(-1)
 		return m, nil
-	case "right":
+	case "shift+right":
 		m.squashSt = st.switchTab(1)
 		return m, nil
 	case "up":
@@ -479,51 +581,55 @@ func (m Model) updateSquash(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "tab":
 		st.field = (st.field + 1) % squashFieldCount
-		m.squashSt = st
+		m.squashSt = st.focusField()
+		return m, nil
+	case "shift+tab":
+		st.field = (st.field + squashFieldCount - 1) % squashFieldCount
+		m.squashSt = st.focusField()
 		return m, nil
 	case "enter":
 		return m.stageSquash()
-	case "backspace":
-		m.squashSt = editActiveField(st, "", true)
-		return m, nil
-	default:
-		// Single typed rune edits the focused RESULT field; rune-safe so a
-		// multibyte character (accented name, CJK) is not dropped. Special keys
-		// (Type != KeyRunes) fall through and are ignored.
-		if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
-			m.squashSt = editActiveField(st, msg.String(), false)
-		}
-		return m, nil
 	}
+	var cmd tea.Cmd
+	m.squashSt, cmd = st.editField(msg)
+	return m, cmd
 }
 
-// editActiveField appends a rune (or deletes one with del=true) to the focused
-// text field. The Date field edits the per-tab date buffer; the other text fields
-// edit the chain in place.
-func editActiveField(st squashState, s string, del bool) squashState {
-	st.errMsg = "" // any edit invalidates the previous stage error
-	ch := &st.chains[st.tab]
-	apply := func(cur string) string {
-		if del {
-			return trimLastRune(cur) // rune-safe: never split a multibyte character
-		}
-		return cur + s
+// editField routes msg to the focused field editor and writes the result back
+// into the active chain (or date buffer). Title/body edits mark the chain as
+// user-edited only when the text actually changed, so cursor movement alone
+// cannot block a late LLM summary from filling the fields.
+func (st squashState) editField(msg tea.KeyMsg) (squashState, tea.Cmd) {
+	if len(st.chains) == 0 {
+		return st, nil
 	}
+	st = st.focusField() // tolerate a directly assigned field (blurred editors drop keys)
+	st.errMsg = ""       // any edit invalidates the previous stage error
+	ch := &st.chains[st.tab]
+	var cmd tea.Cmd
 	switch st.field {
 	case fldTitle:
-		ch.Subject = apply(ch.Subject)
-		st.markEdited(ch.Last().Hash)
+		st.titleInput, cmd = st.titleInput.Update(msg)
+		if v := st.titleInput.Value(); v != ch.Subject {
+			ch.Subject = v
+			st.markEdited(ch.Last().Hash)
+		}
 	case fldBody:
-		ch.Body = apply(ch.Body)
-		st.markEdited(ch.Last().Hash)
+		st.bodyInput, cmd = st.bodyInput.Update(msg)
+		if v := st.bodyInput.Value(); v != ch.Body {
+			ch.Body = v
+			st.markEdited(ch.Last().Hash)
+		}
 	case fldAuthor:
-		ch.AuthorName = apply(ch.AuthorName)
+		st.authorInput, cmd = st.authorInput.Update(msg)
+		ch.AuthorName = st.authorInput.Value()
 	case fldDate:
+		st.dateInput, cmd = st.dateInput.Update(msg)
 		if st.tab < len(st.dateBuf) {
-			st.dateBuf[st.tab] = apply(st.dateBuf[st.tab])
+			st.dateBuf[st.tab] = st.dateInput.Value()
 		}
 	}
-	return st
+	return st, cmd
 }
 
 // stageSquash validates the plan and hands it to the apply pipeline (preview →
@@ -550,11 +656,12 @@ func (m Model) stageSquash() (tea.Model, tea.Cmd) {
 	spec := chainsToSpec(plan.Chains)
 	change := squashChange{commits: m.plan.Commits, plan: plan, cmd: capability.Render("squash", capability.SquashArgMap(spec))}
 	// Run the pre-flight guard before opening the pipeline: a hard block (dirty
-	// tree, merge) reports its reason and never enters the overlay; a pushed-history
-	// change records NeedsConfirmation so updatePipeline runs the typed-confirm step.
+	// tree, merge) reports its reason inline (the status bar is hidden under this
+	// modal) and never enters the overlay; a pushed-history change records
+	// NeedsConfirmation so updatePipeline runs the typed-confirm step.
 	guard := change.guard(m.state)
 	if guard.Blocked {
-		m.setStatus(guard.BlockReason, statusErr)
+		m.squashSt.errMsg = guard.BlockReason
 		return m, nil
 	}
 	m.pending = change

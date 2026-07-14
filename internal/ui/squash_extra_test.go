@@ -258,25 +258,32 @@ func TestUpdateSquash_downAtBottomNoop(t *testing.T) {
 	}
 }
 
-// TestUpdateSquash_arrowSwitchesTabs verifies that ← and → cycle through
-// chain tabs when more than one chain is selected.
-func TestUpdateSquash_arrowSwitchesTabs(t *testing.T) {
+// TestUpdateSquash_shiftArrowSwitchesTabs verifies that shift+← and shift+→
+// cycle through chain tabs when more than one chain is selected, while plain
+// ←/→ stay with the focused text field (cursor movement, not tab switching).
+func TestUpdateSquash_shiftArrowSwitchesTabs(t *testing.T) {
 	commits := linearModelCommits("a", "b", "c", "d", "e")
 	m := squashModelReady(commits, "a", "b", "d", "e") // two chains: {a,b} and {d,e}
 	if len(m.squashSt.chains) != 2 {
 		t.Fatalf("expected 2 chains, got %d", len(m.squashSt.chains))
 	}
 
-	out, _ := m.updateSquash(key("right"))
+	out, _ := m.updateSquash(key("shift+right"))
 	mm := out.(Model)
 	if mm.squashSt.tab != 1 {
-		t.Errorf("tab = %d after right, want 1", mm.squashSt.tab)
+		t.Errorf("tab = %d after shift+right, want 1", mm.squashSt.tab)
+	}
+
+	out, _ = mm.updateSquash(key("shift+left"))
+	mm = out.(Model)
+	if mm.squashSt.tab != 0 {
+		t.Errorf("tab = %d after shift+left, want 0", mm.squashSt.tab)
 	}
 
 	out, _ = mm.updateSquash(key("left"))
 	mm = out.(Model)
 	if mm.squashSt.tab != 0 {
-		t.Errorf("tab = %d after left, want 0", mm.squashSt.tab)
+		t.Errorf("plain left must not switch tabs, got tab %d", mm.squashSt.tab)
 	}
 }
 
@@ -395,39 +402,33 @@ func TestViewSquash_rendersNonEmpty(t *testing.T) {
 	}
 }
 
-// TestEditActiveField_bodyAndAuthorFields verifies that fldBody and fldAuthor
-// accept typed characters and backspace, covering the two switch branches
-// that title-only tests leave uncovered.
-func TestEditActiveField_bodyAndAuthorFields(t *testing.T) {
+// TestEditField_bodyAndAuthorFields verifies that fldBody and fldAuthor accept
+// typed characters and backspace, covering the two switch branches that
+// title-only tests leave uncovered.
+func TestEditField_bodyAndAuthorFields(t *testing.T) {
 	commits := linearModelCommits("a", "b")
 	chains, _ := model.DetectChains(commits, map[string]bool{"a": true, "b": true})
 	chains[0] = model.DefaultSquashConfig(chains[0])
 	chains[0].Body = "existing body"
 	chains[0].AuthorName = "Ann"
-	dateStr := chains[0].AuthorDate.Format(squashDateLayout)
-	st := squashState{
-		chains:  chains,
-		tab:     0,
-		field:   fldBody,
-		loading: map[string]bool{},
-		dateBuf: []string{dateStr},
-	}
+	st := newSquashState(chains)
+	st.field = fldBody
 
-	st2 := editActiveField(st, "!", false)
+	st2, _ := st.editField(key("!"))
 	if st2.chains[0].Body != "existing body!" {
 		t.Errorf("fldBody append: body = %q, want %q", st2.chains[0].Body, "existing body!")
 	}
-	st3 := editActiveField(st2, "", true)
+	st3, _ := st2.editField(key("backspace"))
 	if st3.chains[0].Body != "existing body" {
 		t.Errorf("fldBody backspace: body = %q, want %q", st3.chains[0].Body, "existing body")
 	}
 
 	st.field = fldAuthor
-	st4 := editActiveField(st, "X", false)
+	st4, _ := st.editField(key("X"))
 	if st4.chains[0].AuthorName != "AnnX" {
 		t.Errorf("fldAuthor append: AuthorName = %q, want %q", st4.chains[0].AuthorName, "AnnX")
 	}
-	st5 := editActiveField(st4, "", true)
+	st5, _ := st4.editField(key("backspace"))
 	if st5.chains[0].AuthorName != "Ann" {
 		t.Errorf("fldAuthor backspace: AuthorName = %q, want %q", st5.chains[0].AuthorName, "Ann")
 	}
@@ -567,14 +568,76 @@ func TestStageSquash_pushedHistorySetsConfirmGuard(t *testing.T) {
 	}
 }
 
-// TestEditActiveField_backspaceRuneSafe: backspace must delete a whole rune, not
-// a single byte, so multibyte field content is not corrupted (M1).
-func TestEditActiveField_backspaceRuneSafe(t *testing.T) {
+// TestUpdateSquash_cursorMovementInsertsMidTitle: plain ←/→ move the text cursor
+// and typing inserts at the cursor, not at the end (regression: the old
+// hand-rolled buffer could only append, and ← switched chain tabs).
+func TestUpdateSquash_cursorMovementInsertsMidTitle(t *testing.T) {
+	m := squashModelReady(linearModelCommits("a", "b", "c"), "a", "b")
+	m.squashSt.chains[m.squashSt.tab].Subject = "bc"
+	m.squashSt.titleInput.SetValue("bc") // cursor sits after "bc"
+	for _, k := range []string{"left", "left", "a"} {
+		out, _ := m.updateSquash(key(k))
+		m = out.(Model)
+	}
+	if got := m.squashSt.chains[m.squashSt.tab].Subject; got != "abc" {
+		t.Errorf("insert at cursor = %q, want abc", got)
+	}
+}
+
+// TestUpdateSquash_pasteMultiRuneInput: a paste arrives as one KeyRunes message
+// carrying the whole string; it must be inserted, not dropped (regression: the
+// old handler ignored len(Runes) > 1).
+func TestUpdateSquash_pasteMultiRuneInput(t *testing.T) {
+	m := squashModelReady(linearModelCommits("a", "b", "c"), "a", "b")
+	m.squashSt.chains[m.squashSt.tab].Subject = ""
+	m.squashSt.titleInput.SetValue("")
+	out, _ := m.updateSquash(key("Fix all the things"))
+	m = out.(Model)
+	if got := m.squashSt.chains[m.squashSt.tab].Subject; got != "Fix all the things" {
+		t.Errorf("pasted subject = %q, want %q", got, "Fix all the things")
+	}
+}
+
+// TestRenderSquashWizard_multilineBodyRendersRows: a multi-line body renders its
+// lines instead of being flattened to one row (the old render collapsed \n).
+func TestRenderSquashWizard_multilineBodyRendersRows(t *testing.T) {
 	commits := linearModelCommits("a", "b")
 	chains, _ := model.DetectChains(commits, map[string]bool{"a": true, "b": true})
-	st := squashState{chains: chains, tab: 0, field: fldTitle, loading: map[string]bool{}}
-	st.chains[0].Subject = "café"
-	st2 := editActiveField(st, "", true)
+	chains[0] = model.DefaultSquashConfig(chains[0])
+	chains[0].Body = "first body line\nsecond body line"
+	st := newSquashState(chains)
+	out := renderSquashWizard(st, 100, 24, newStyles())
+	for _, want := range []string{"first body line", "second body line"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("wizard should render body line %q:\n%s", want, out)
+		}
+	}
+}
+
+// TestStageSquash_dirtyTreeShowsInlineError: a guard block (dirty tree) must
+// surface on the wizard's inline errMsg — the status bar is hidden under the
+// modal — and stay out of the pipeline.
+func TestStageSquash_dirtyTreeShowsInlineError(t *testing.T) {
+	m := squashModelReady(linearModelCommits("a", "b", "c"), "a", "b")
+	m.state.IsDirty = true
+	out, _ := m.stageSquash()
+	mm := out.(Model)
+	if mm.mode == modePipeline {
+		t.Error("a dirty tree must block the squash, not enter the pipeline")
+	}
+	if mm.squashSt.errMsg == "" {
+		t.Error("a blocked stage must set the wizard's inline errMsg")
+	}
+}
+
+// TestEditField_backspaceRuneSafe: backspace must delete a whole rune, not a
+// single byte, so multibyte field content is not corrupted (M1).
+func TestEditField_backspaceRuneSafe(t *testing.T) {
+	commits := linearModelCommits("a", "b")
+	chains, _ := model.DetectChains(commits, map[string]bool{"a": true, "b": true})
+	chains[0].Subject = "café"
+	st := newSquashState(chains)
+	st2, _ := st.editField(key("backspace"))
 	if st2.chains[0].Subject != "caf" {
 		t.Errorf("rune-safe backspace should yield %q, got %q", "caf", st2.chains[0].Subject)
 	}

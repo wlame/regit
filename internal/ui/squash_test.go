@@ -65,7 +65,7 @@ func wizardState() squashState {
 	chains, _ := model.DetectChains(commits, map[string]bool{"aaaa": true, "bbbb": true, "cccc": true})
 	chains[0] = model.DefaultSquashConfig(chains[0])
 	chains[0].Subject = "Combined subject"
-	return squashState{chains: chains, tab: 0, field: fldTitle, loading: map[string]bool{}}
+	return newSquashState(chains)
 }
 
 func TestRenderSquashWizard_newestFirstAndShowsResult(t *testing.T) {
@@ -116,7 +116,7 @@ func TestRenderSquashWizard_chainIndicatorOnlyWhenMultiple(t *testing.T) {
 	// Use 5 commits so "a","b" and "d","e" each form a 2-member chain with gap at "c".
 	commits := linearModelCommits("a", "b", "c", "d", "e")
 	chains, _ := model.DetectChains(commits, map[string]bool{"a": true, "b": true, "d": true, "e": true})
-	multi := squashState{chains: chains, tab: 0, field: fldTitle, loading: map[string]bool{}}
+	multi := newSquashState(chains)
 	if !strings.Contains(renderSquashWizard(multi, 100, 24, newStyles()), "chain ‹") {
 		t.Error("multi-chain wizard should show a chain indicator")
 	}
@@ -141,7 +141,7 @@ func TestRenderSquashWizard_narrowFallbackDoesNotWrap(t *testing.T) {
 func TestRenderSquashWizard_narrowChromeDoesNotWrap(t *testing.T) {
 	commits := linearModelCommits("a", "b", "c", "d", "e")
 	chains, _ := model.DetectChains(commits, map[string]bool{"a": true, "b": true, "d": true, "e": true})
-	st := squashState{chains: chains, tab: 0, field: fldTitle, loading: map[string]bool{}}
+	st := newSquashState(chains)
 	// A narrow terminal: every rendered line (incl. header/detail/footer) must fit
 	// the usable budget so the modal never hard-wraps.
 	out := renderSquashWizard(st, 50, 24, newStyles())
@@ -153,7 +153,7 @@ func TestRenderSquashWizard_narrowChromeDoesNotWrap(t *testing.T) {
 func TestSquashState_switchTabClampsAndCycles(t *testing.T) {
 	commits := linearModelCommits("a", "b", "c", "d", "e")
 	chains, _ := model.DetectChains(commits, map[string]bool{"a": true, "b": true, "d": true, "e": true})
-	st := squashState{chains: chains, loading: map[string]bool{}}
+	st := newSquashState(chains)
 	st = st.switchTab(1)
 	if st.tab != 1 {
 		t.Errorf("tab = %d, want 1", st.tab)
@@ -166,30 +166,30 @@ func TestSquashState_switchTabClampsAndCycles(t *testing.T) {
 
 func TestSummarizeResult_appliesUnlessEdited(t *testing.T) {
 	st := wizardState()
-	key := st.chains[0].Last().Hash
-	st.loading[key] = true
-	st = st.applySummary(key, squash.Proposal{Subject: "LLM subject", Body: "LLM body"})
+	chainKey := st.chains[0].Last().Hash
+	st.loading[chainKey] = true
+	st = st.applySummary(chainKey, squash.Proposal{Subject: "LLM subject", Body: "LLM body"})
 	if st.chains[0].Subject != "LLM subject" || st.chains[0].Body != "LLM body" {
 		t.Errorf("summary should fill the chain, got %q/%q", st.chains[0].Subject, st.chains[0].Body)
 	}
-	if st.loading[key] {
+	if st.loading[chainKey] {
 		t.Error("loading flag should clear once the summary lands")
 	}
 
 	// Now the "unless edited" half: a user who typed their own title/body must keep
 	// it — a late summary must not clobber the manual edit.
 	st2 := wizardState()
-	key2 := st2.chains[0].Last().Hash
-	st2.loading[key2] = true
+	chainKey2 := st2.chains[0].Last().Hash
+	st2.loading[chainKey2] = true
 	st2.field = fldTitle
-	st2 = editActiveField(st2, "M", false) // user types into the title
-	st2 = editActiveField(st2, "y", false)
+	st2, _ = st2.editField(key("M")) // user types into the title
+	st2, _ = st2.editField(key("y"))
 	typed := st2.chains[0].Subject
-	st2 = st2.applySummary(key2, squash.Proposal{Subject: "LLM subject", Body: "LLM body"})
+	st2 = st2.applySummary(chainKey2, squash.Proposal{Subject: "LLM subject", Body: "LLM body"})
 	if st2.chains[0].Subject != typed {
 		t.Errorf("summary clobbered the user's typed title: got %q, want %q", st2.chains[0].Subject, typed)
 	}
-	if st2.loading[key2] {
+	if st2.loading[chainKey2] {
 		t.Error("loading flag should still clear even when the summary is skipped")
 	}
 }
@@ -198,11 +198,12 @@ func TestSquashState_editDateField(t *testing.T) {
 	st := wizardState()
 	st.dateBuf = []string{"2026-03-09 09:02"}
 	st.field = fldDate
-	st = editActiveField(st, "5", false)
+	st = st.loadActiveEditors() // pick up the replaced date buffer
+	st, _ = st.editField(key("5"))
 	if st.dateBuf[0] != "2026-03-09 09:025" {
 		t.Fatalf("append failed: %q", st.dateBuf[0])
 	}
-	st = editActiveField(st, "", true)
+	st, _ = st.editField(key("backspace"))
 	if st.dateBuf[0] != "2026-03-09 09:02" {
 		t.Errorf("backspace failed: %q", st.dateBuf[0])
 	}
@@ -232,6 +233,7 @@ func TestUpdateSquash_typingCapitalA_editsFieldNotApply(t *testing.T) {
 	}
 	m = updated.(Model)
 	m.squashSt.chains[m.squashSt.tab].Subject = "" // clear to observe typed text
+	m.squashSt.titleInput.SetValue("")
 	m.squashSt.field = fldTitle
 
 	out, _ := m.updateSquash(key("A"))

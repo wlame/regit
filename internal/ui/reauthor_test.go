@@ -80,8 +80,8 @@ func TestBeginReauthor_prefillsFromOldestTarget(t *testing.T) {
 	if m.mode != modeReauthor {
 		t.Fatalf("mode = %v, want modeReauthor", m.mode)
 	}
-	if m.reauthorSt.nameBuf != "oldest" || m.reauthorSt.emailBuf != "oldest@x" {
-		t.Errorf("prefill = %q/%q, want oldest/oldest@x", m.reauthorSt.nameBuf, m.reauthorSt.emailBuf)
+	if m.reauthorSt.name() != "oldest" || m.reauthorSt.email() != "oldest@x" {
+		t.Errorf("prefill = %q/%q, want oldest/oldest@x", m.reauthorSt.name(), m.reauthorSt.email())
 	}
 	if !m.reauthorSt.committerToo {
 		t.Error("committer checkbox should default to checked")
@@ -93,12 +93,11 @@ func TestUpdateReauthor_editsFieldsAndTogglesCommitter(t *testing.T) {
 	m := modelWithSet(commits, "b")
 	updated, _, _ := m.beginReauthor()
 	m = updated.(Model)
-	m.reauthorSt.nameBuf = "" // clear prefill to type fresh
-	m.reauthorSt.field = fldRName
+	m.reauthorSt.nameInput.SetValue("") // clear prefill to type fresh
 
 	m = sendReauthor(m, "x", "y")
-	if m.reauthorSt.nameBuf != "xy" {
-		t.Errorf("name buffer = %q, want xy", m.reauthorSt.nameBuf)
+	if m.reauthorSt.name() != "xy" {
+		t.Errorf("name buffer = %q, want xy", m.reauthorSt.name())
 	}
 	// Tab to committer field, space toggles it off.
 	m = sendReauthor(m, "tab", "tab") // name -> email -> committer
@@ -112,8 +111,7 @@ func TestUpdateReauthor_editsFieldsAndTogglesCommitter(t *testing.T) {
 }
 
 func TestRenderReauthorWizard_showsFieldsAndCheckbox(t *testing.T) {
-	st := reauthorState{nameBuf: "wlame", emailBuf: "v@x", committerToo: true, field: fldRName,
-		targets: reauthorCommits("a")}
+	st := newReauthorState("wlame", "v@x", reauthorCommits("a"))
 	out := renderReauthorWizard(st, newStyles())
 	for _, want := range []string{"CHANGE AUTHOR", "wlame", "v@x", "committer"} {
 		if !strings.Contains(out, want) {
@@ -127,7 +125,8 @@ func TestStageReauthor_entersPipelineWithChange(t *testing.T) {
 	m := modelWithSet(commits, "b")
 	updated, _, _ := m.beginReauthor()
 	m = updated.(Model)
-	m.reauthorSt.nameBuf, m.reauthorSt.emailBuf = "wlame", "new@x"
+	m.reauthorSt.nameInput.SetValue("wlame")
+	m.reauthorSt.emailInput.SetValue("new@x")
 	out, _ := m.stageReauthor()
 	m = out.(Model)
 	if m.mode != modePipeline {
@@ -147,11 +146,57 @@ func TestUpdateReauthor_keepsMultibyteRunes(t *testing.T) {
 	m := modelWithSet(commits, "b")
 	updated, _, _ := m.beginReauthor()
 	m = updated.(Model)
-	m.reauthorSt.nameBuf = ""
-	m.reauthorSt.field = fldRName
+	m.reauthorSt.nameInput.SetValue("")
 	m = sendReauthor(m, "é", "ü")
-	if m.reauthorSt.nameBuf != "éü" {
-		t.Errorf("multibyte runes should be retained, got %q", m.reauthorSt.nameBuf)
+	if m.reauthorSt.name() != "éü" {
+		t.Errorf("multibyte runes should be retained, got %q", m.reauthorSt.name())
+	}
+}
+
+// TestUpdateReauthor_cursorMovementInsertsMidText: arrow keys move the cursor and
+// typing inserts at the cursor, not at the end (regression: the old hand-rolled
+// buffer could only append).
+func TestUpdateReauthor_cursorMovementInsertsMidText(t *testing.T) {
+	m := modelWithSet(reauthorCommits("a", "b"), "b")
+	updated, _, _ := m.beginReauthor()
+	m = updated.(Model)
+	m.reauthorSt.nameInput.SetValue("bc") // cursor sits after "bc"
+	m = sendReauthor(m, "left", "left", "a")
+	if m.reauthorSt.name() != "abc" {
+		t.Errorf("insert at cursor = %q, want abc", m.reauthorSt.name())
+	}
+}
+
+// TestUpdateReauthor_pasteMultiRuneInput: a paste arrives as one KeyRunes message
+// carrying the whole string; it must be inserted, not dropped (regression: the
+// old handler ignored len(Runes) > 1).
+func TestUpdateReauthor_pasteMultiRuneInput(t *testing.T) {
+	m := modelWithSet(reauthorCommits("a", "b"), "b")
+	updated, _, _ := m.beginReauthor()
+	m = updated.(Model)
+	m.reauthorSt.nameInput.SetValue("")
+	m = sendReauthor(m, "Alice Smith")
+	if m.reauthorSt.name() != "Alice Smith" {
+		t.Errorf("pasted value = %q, want %q", m.reauthorSt.name(), "Alice Smith")
+	}
+}
+
+// TestUpdateReauthor_cycleKeepsFocusOnActiveInput: tab moves focus between the
+// inputs; typing after a cycle lands in the newly focused field only.
+func TestUpdateReauthor_cycleKeepsFocusOnActiveInput(t *testing.T) {
+	m := modelWithSet(reauthorCommits("a", "b"), "b")
+	updated, _, _ := m.beginReauthor()
+	m = updated.(Model)
+	m.reauthorSt.nameInput.SetValue("")
+	m.reauthorSt.emailInput.SetValue("")
+	m = sendReauthor(m, "tab", "e") // name -> email, type there
+	if m.reauthorSt.email() != "e" || m.reauthorSt.name() != "" {
+		t.Errorf("after tab, typing must hit email only; name=%q email=%q",
+			m.reauthorSt.name(), m.reauthorSt.email())
+	}
+	m = sendReauthor(m, "up", "n") // email -> name (cycle back), type there
+	if m.reauthorSt.name() != "n" {
+		t.Errorf("after cycling back, typing must hit name; name=%q", m.reauthorSt.name())
 	}
 }
 
@@ -221,12 +266,56 @@ func TestStageReauthor_dirtyTreeBlocksPipeline(t *testing.T) {
 	m := modelWithSet(reauthorCommits("a", "b"), "b")
 	updated, _, _ := m.beginReauthor()
 	m = updated.(Model)
-	m.reauthorSt.nameBuf, m.reauthorSt.emailBuf = "wlame", "new@x"
+	m.reauthorSt.nameInput.SetValue("wlame")
+	m.reauthorSt.emailInput.SetValue("new@x")
 	m.state.IsDirty = true
 	out, _ := m.stageReauthor()
 	mm := out.(Model)
 	if mm.mode == modePipeline {
 		t.Error("a dirty tree must block reauthor, not enter the pipeline")
+	}
+	if mm.reauthorSt.errMsg == "" {
+		t.Error("a blocked stage must set the wizard's inline errMsg (the status bar is hidden under the modal)")
+	}
+}
+
+// TestStageReauthor_noopIdentityShowsInlineError: applying without changing the
+// prefilled identity stays in the wizard WITH a visible inline explanation.
+func TestStageReauthor_noopIdentityShowsInlineError(t *testing.T) {
+	m := modelWithSet(reauthorCommits("a", "b"), "b")
+	updated, _, _ := m.beginReauthor()
+	m = updated.(Model) // prefill matches the target's identity → no-op apply
+	out, _ := m.stageReauthor()
+	mm := out.(Model)
+	if mm.mode != modeReauthor {
+		t.Fatalf("a no-op apply should stay in the wizard, got mode %v", mm.mode)
+	}
+	if mm.reauthorSt.errMsg == "" {
+		t.Error("a no-op apply must set the wizard's inline errMsg")
+	}
+	rendered := renderReauthorWizard(mm.reauthorSt, newStyles())
+	if !strings.Contains(rendered, mm.reauthorSt.errMsg) {
+		t.Errorf("the wizard should render its errMsg inline:\n%s", rendered)
+	}
+}
+
+// TestStageReauthor_emptyIdentityShowsInlineError: clearing both fields and
+// applying keeps the wizard open with an inline explanation, and typing again
+// clears the error.
+func TestStageReauthor_emptyIdentityShowsInlineError(t *testing.T) {
+	m := modelWithSet(reauthorCommits("a", "b"), "b")
+	updated, _, _ := m.beginReauthor()
+	m = updated.(Model)
+	m.reauthorSt.nameInput.SetValue("")
+	m.reauthorSt.emailInput.SetValue("")
+	out, _ := m.stageReauthor()
+	m = out.(Model)
+	if m.reauthorSt.errMsg == "" {
+		t.Fatal("an empty identity must set the wizard's inline errMsg")
+	}
+	m = sendReauthor(m, "x")
+	if m.reauthorSt.errMsg != "" {
+		t.Error("typing should clear the previous stage error")
 	}
 }
 
@@ -238,7 +327,8 @@ func TestStageReauthor_pushedHistorySetsConfirmGuard(t *testing.T) {
 	m := modelWithSet(commits, "b")
 	updated, _, _ := m.beginReauthor()
 	m = updated.(Model)
-	m.reauthorSt.nameBuf, m.reauthorSt.emailBuf = "wlame", "new@x"
+	m.reauthorSt.nameInput.SetValue("wlame")
+	m.reauthorSt.emailInput.SetValue("new@x")
 	out, _ := m.stageReauthor()
 	mm := out.(Model)
 	if mm.mode != modePipeline {
@@ -255,8 +345,7 @@ func TestUpdateReauthor_typingCapitalA_isText(t *testing.T) {
 	m := modelWithSet(reauthorCommits("a", "b"), "b")
 	updated, _, _ := m.beginReauthor()
 	m = updated.(Model)
-	m.reauthorSt.nameBuf = ""
-	m.reauthorSt.field = fldRName
+	m.reauthorSt.nameInput.SetValue("")
 	m = sendReauthor(m, "A", "l", "i", "c", "e")
 	if m.mode != modeMain && m.mode != modeReauthor {
 		t.Fatalf("typing must not leave the wizard; mode %v", m.mode)
@@ -264,8 +353,8 @@ func TestUpdateReauthor_typingCapitalA_isText(t *testing.T) {
 	if m.mode != modeReauthor {
 		t.Fatalf("typing 'A' staged the wizard (mode %v)", m.mode)
 	}
-	if m.reauthorSt.nameBuf != "Alice" {
-		t.Errorf("nameBuf = %q, want Alice", m.reauthorSt.nameBuf)
+	if m.reauthorSt.name() != "Alice" {
+		t.Errorf("name buffer = %q, want Alice", m.reauthorSt.name())
 	}
 }
 
@@ -275,8 +364,8 @@ func TestUpdateReauthor_enterStages_andAOnCheckboxStages(t *testing.T) {
 	m := modelWithSet(reauthorCommits("a", "b"), "b")
 	updated, _, _ := m.beginReauthor()
 	m = updated.(Model)
-	m.reauthorSt.nameBuf, m.reauthorSt.emailBuf = "wlame", "new@x"
-	m.reauthorSt.field = fldRName
+	m.reauthorSt.nameInput.SetValue("wlame")
+	m.reauthorSt.emailInput.SetValue("new@x")
 	m = sendReauthor(m, "enter")
 	if m.mode != modePipeline {
 		t.Fatalf("enter should stage from a text field, got mode %v", m.mode)
@@ -286,7 +375,8 @@ func TestUpdateReauthor_enterStages_andAOnCheckboxStages(t *testing.T) {
 	m2 := modelWithSet(reauthorCommits("a", "b"), "b")
 	updated2, _, _ := m2.beginReauthor()
 	m2 = updated2.(Model)
-	m2.reauthorSt.nameBuf, m2.reauthorSt.emailBuf = "wlame", "new@x"
+	m2.reauthorSt.nameInput.SetValue("wlame")
+	m2.reauthorSt.emailInput.SetValue("new@x")
 	m2.reauthorSt.field = fldRCommitter
 	m2 = sendReauthor(m2, "A")
 	if m2.mode != modePipeline {
@@ -297,7 +387,7 @@ func TestUpdateReauthor_enterStages_andAOnCheckboxStages(t *testing.T) {
 // TestRenderReauthorWizard_footerMatchesFocus: the footer advertises [A]pply
 // only where A actually applies.
 func TestRenderReauthorWizard_footerMatchesFocus(t *testing.T) {
-	st := reauthorState{field: fldRName, targets: reauthorCommits("a")}
+	st := newReauthorState("", "", reauthorCommits("a"))
 	if out := renderReauthorWizard(st, newStyles()); strings.Contains(out, "[A]pply") {
 		t.Errorf("text-field footer must not advertise [A]pply:\n%s", out)
 	}

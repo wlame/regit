@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/wlame/regit/internal/capability"
@@ -113,14 +114,60 @@ const (
 // reauthorFieldCount bounds the tab cycle.
 const reauthorFieldCount = 3
 
-// reauthorState holds the live wizard state: the edited name/email buffers, the
+// reauthorState holds the live wizard state: the name/email text inputs, the
 // committer checkbox, the focused field, and the captured target commits.
 type reauthorState struct {
-	nameBuf      string
-	emailBuf     string
+	nameInput    textinput.Model
+	emailInput   textinput.Model
 	committerToo bool
 	field        reauthorField
 	targets      []model.Commit // root-first; targets[0] is the oldest
+	errMsg       string         // last stage failure, rendered inline in the modal
+}
+
+// name and email expose the current buffer contents (unfocused inputs included).
+func (st reauthorState) name() string  { return st.nameInput.Value() }
+func (st reauthorState) email() string { return st.emailInput.Value() }
+
+// newReauthorInput builds one wizard text field, following the retitle modal's
+// textinput conventions (no prompt, fixed width). SetValue leaves the cursor at
+// the end of the prefilled text.
+func newReauthorInput(value string) textinput.Model {
+	ti := textinput.New()
+	ti.Prompt = ""
+	ti.CharLimit = 80
+	ti.Width = 42
+	ti.SetValue(value)
+	return ti
+}
+
+// newReauthorState builds the wizard state with a prefilled identity, the
+// committer checkbox on, and focus on the name field.
+func newReauthorState(name, email string, targets []model.Commit) reauthorState {
+	st := reauthorState{
+		nameInput:    newReauthorInput(name),
+		emailInput:   newReauthorInput(email),
+		committerToo: true,
+		field:        fldRName,
+		targets:      targets,
+	}
+	st.nameInput.Focus()
+	return st
+}
+
+// cycleField moves focus by delta, keeping exactly the focused text input active
+// (a blurred textinput ignores keys, so focus must track the field).
+func (st reauthorState) cycleField(delta int) reauthorState {
+	st.nameInput.Blur()
+	st.emailInput.Blur()
+	st.field = reauthorField((int(st.field) + delta + reauthorFieldCount) % reauthorFieldCount)
+	switch st.field {
+	case fldRName:
+		st.nameInput.Focus()
+	case fldREmail:
+		st.emailInput.Focus()
+	}
+	return st
 }
 
 // reauthorTargetCommits returns the commits the wizard will act on: the Set/Range
@@ -151,21 +198,16 @@ func (m Model) beginReauthor() (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 	oldest := targets[0]
-	m.reauthorSt = reauthorState{
-		nameBuf:      oldest.AuthorName,
-		emailBuf:     oldest.AuthorEmail,
-		committerToo: true,
-		field:        fldRName,
-		targets:      targets,
-	}
+	m.reauthorSt = newReauthorState(oldest.AuthorName, oldest.AuthorEmail, targets)
 	m.mode = modeReauthor
 	return m, nil, true
 }
 
-// updateReauthor handles keys while the wizard is open: tab cycles fields, runes
-// edit the focused text buffer, space toggles the committer checkbox (only on its
-// field), enter stages the change from any field, A stages only from the
-// committer checkbox, esc cancels.
+// updateReauthor handles keys while the wizard is open: tab/shift+tab cycle
+// fields, enter stages the change from any field, esc cancels. On the committer
+// checkbox, space toggles and A stages; every other key on a text field goes to
+// the focused textinput, which owns editing (cursor movement, insertion at the
+// cursor, backspace, and paste).
 func (m Model) updateReauthor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	st := m.reauthorSt
 	switch msg.String() {
@@ -173,76 +215,51 @@ func (m Model) updateReauthor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeMain
 		m.setStatus("Change author cancelled", statusWarn)
 		return m, nil
-	case "tab":
-		st.field = (st.field + 1) % reauthorFieldCount
-		m.reauthorSt = st
+	case "tab", "down":
+		m.reauthorSt = st.cycleField(1)
+		return m, nil
+	case "shift+tab", "up":
+		m.reauthorSt = st.cycleField(-1)
 		return m, nil
 	case "enter":
 		return m.stageReauthor()
-	case "A":
-		// A is the apply key ONLY on the non-text checkbox field; in the name
+	}
+	if st.field == fldRCommitter {
+		// A is the apply key ONLY on this non-text checkbox field; in the name
 		// and email fields it is a literal letter (P0: typing "Alice" must not
-		// apply the wizard).
-		if st.field == fldRCommitter {
+		// apply the wizard) and is handled by the textinput below.
+		switch msg.String() {
+		case "A":
 			return m.stageReauthor()
-		}
-		m.reauthorSt = appendToField(st, "A")
-		return m, nil
-	case "backspace":
-		switch st.field {
-		case fldRName:
-			st.nameBuf = trimLastRune(st.nameBuf)
-		case fldREmail:
-			st.emailBuf = trimLastRune(st.emailBuf)
-		}
-		m.reauthorSt = st
-		return m, nil
-	case " ":
-		if st.field == fldRCommitter {
+		case " ":
 			st.committerToo = !st.committerToo
+			st.errMsg = ""
 			m.reauthorSt = st
-			return m, nil
-		}
-		// space in a text field is a literal space
-		st = appendToField(st, " ")
-		m.reauthorSt = st
-		return m, nil
-	default:
-		if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
-			m.reauthorSt = appendToField(st, msg.String())
 		}
 		return m, nil
 	}
-}
-
-// appendToField appends s to the focused text buffer (no-op on the checkbox).
-func appendToField(st reauthorState, s string) reauthorState {
+	st.errMsg = "" // any edit invalidates the previous stage error
+	var cmd tea.Cmd
 	switch st.field {
 	case fldRName:
-		st.nameBuf += s
+		st.nameInput, cmd = st.nameInput.Update(msg)
 	case fldREmail:
-		st.emailBuf += s
+		st.emailInput, cmd = st.emailInput.Update(msg)
 	}
-	return st
-}
-
-// trimLastRune removes the last rune of s (safe on empty / multibyte input).
-func trimLastRune(s string) string {
-	r := []rune(s)
-	if len(r) == 0 {
-		return s
-	}
-	return string(r[:len(r)-1])
+	m.reauthorSt = st
+	return m, cmd
 }
 
 // stageReauthor validates input, builds a reauthorChange, and enters the pipeline
 // (preview → confirm → apply), reusing the same overlay squash uses.
 func (m Model) stageReauthor() (tea.Model, tea.Cmd) {
 	st := m.reauthorSt
-	name := strings.TrimSpace(st.nameBuf)
-	email := strings.TrimSpace(st.emailBuf)
+	name := strings.TrimSpace(st.name())
+	email := strings.TrimSpace(st.email())
+	// Stage failures surface on errMsg, rendered inside the wizard — a status-bar
+	// message would be invisible under this modal.
 	if name == "" && email == "" {
-		m.setStatus("Enter a name or email to apply", statusErr)
+		m.reauthorSt.errMsg = "Enter a name or email to apply"
 		return m, nil
 	}
 	targets := map[string]bool{}
@@ -251,7 +268,7 @@ func (m Model) stageReauthor() (tea.Model, tea.Cmd) {
 	}
 	change := newReauthorChange(m.plan.Commits, targets, name, email, st.committerToo)
 	if len(change.targets) == 0 {
-		m.setStatus("No commits would change (identity already matches)", statusWarn)
+		m.reauthorSt.errMsg = "No commits would change (identity already matches)"
 		return m, nil
 	}
 
@@ -260,7 +277,7 @@ func (m Model) stageReauthor() (tea.Model, tea.Cmd) {
 	// history records NeedsConfirmation so updatePipeline runs the typed-confirm step.
 	guard := change.guard(m.state)
 	if guard.Blocked {
-		m.setStatus(guard.BlockReason, statusErr)
+		m.reauthorSt.errMsg = guard.BlockReason
 		return m, nil
 	}
 
@@ -279,17 +296,23 @@ func (m Model) stageReauthor() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// renderReauthorWizard renders the modal body (pure, testable).
+// renderReauthorWizard renders the modal body (pure, testable). The focused
+// textinput draws its own cursor; focusBar marks the active row.
 func renderReauthorWizard(st reauthorState, s styles) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "CHANGE AUTHOR · %d commit(s)\n\n", len(st.targets))
-	fmt.Fprintf(&b, "Name      %s%s\n", focusBar(st.field, fldRName), st.nameBuf)
-	fmt.Fprintf(&b, "Email     %s%s\n", focusBar(st.field, fldREmail), st.emailBuf)
+	b.WriteString(s.modalTitle.Render(fmt.Sprintf("CHANGE AUTHOR · %d commit(s)", len(st.targets))) + "\n\n")
+	fmt.Fprintf(&b, "%s Name    %s\n", focusBar(st.field, fldRName), st.nameInput.View())
+	fmt.Fprintf(&b, "%s Email   %s\n", focusBar(st.field, fldREmail), st.emailInput.View())
 	check := "[ ]"
 	if st.committerToo {
 		check = "[x]"
 	}
-	fmt.Fprintf(&b, "%s%s also update committer\n", focusBar(st.field, fldRCommitter), check)
+	fmt.Fprintf(&b, "%s %s also update committer\n", focusBar(st.field, fldRCommitter), check)
+	if st.errMsg != "" {
+		// Surface a stage failure inline, right above the footer, instead of a
+		// status-bar line hidden under this modal.
+		b.WriteString("\n" + s.statusErr.Render("⚠ "+st.errMsg))
+	}
 	// The footer is context-sensitive: A only applies from the checkbox field,
 	// so [A]pply is advertised only there (P0 — elsewhere A is literal text).
 	hint := "[tab] field · [enter] apply · [esc] cancel"
