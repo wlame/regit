@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -118,6 +119,50 @@ func TestBuildContributors_colorFollowsRankNotInsertionOrder(t *testing.T) {
 	}
 	if list[1].Label != "Low" || list[1].Color != contributorPalette[1] {
 		t.Errorf("rank 1 = %+v, want Low with palette[1]", list[1])
+	}
+}
+
+func TestContributorPalette_avoidsReservedAndHashHues(t *testing.T) {
+	// The palette must stay clear of the hues the styles already use as UI signals
+	// so a colored username can never be mistaken for one. In particular the hash
+	// hue 178 (and its ±1 neighbours) must be avoided: a rank-N contributor whose
+	// same-author hash tint sat on 178 would be indistinguishable from the default
+	// hash color. This pins that property so a future palette edit can't regress it.
+	const hashHue = 178
+	reserved := []int{213, 214, 84, 178, 63, 231, 240, 244, 250, 203, 60, 22, 114, 109}
+
+	codes := make([]int, len(contributorPalette))
+	for i, c := range contributorPalette {
+		n, err := strconv.Atoi(string(c))
+		if err != nil {
+			t.Fatalf("palette[%d] = %q is not a numeric 256-color code: %v", i, string(c), err)
+		}
+		codes[i] = n
+	}
+
+	// No palette entry may sit within ±1 of any reserved hue (adjacency matters:
+	// neighbouring 256-color codes are visually near-identical).
+	for i, code := range codes {
+		for _, r := range reserved {
+			if code >= r-1 && code <= r+1 {
+				t.Errorf("palette[%d] = %d is within ±1 of reserved hue %d", i, code, r)
+			}
+		}
+	}
+	// Belt-and-suspenders: the review finding was specifically about the hash hue.
+	for i, code := range codes {
+		if code >= hashHue-1 && code <= hashHue+1 {
+			t.Errorf("palette[%d] = %d is adjacent to the hash hue %d", i, code, hashHue)
+		}
+	}
+
+	// Every palette entry must be mutually distinct.
+	seen := make(map[int]int, len(codes))
+	for i, code := range codes {
+		if j, dup := seen[code]; dup {
+			t.Errorf("palette[%d] and palette[%d] share color %d", j, i, code)
+		}
+		seen[code] = i
 	}
 }
 

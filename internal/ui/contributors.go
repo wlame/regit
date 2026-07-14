@@ -39,7 +39,7 @@ var contributorPalette = []lipgloss.Color{
 	lipgloss.Color("141"), // violet
 	lipgloss.Color("43"),  // teal
 	lipgloss.Color("168"), // rose
-	lipgloss.Color("179"), // gold
+	lipgloss.Color("221"), // light gold
 	lipgloss.Color("111"), // cornflower
 	lipgloss.Color("149"), // spring green
 	lipgloss.Color("173"), // salmon
