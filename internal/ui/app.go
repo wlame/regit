@@ -111,6 +111,12 @@ type Model struct {
 	// the frozen cone (auto-detected on load; "" means no automatic freeze). The
 	// title bar shows it and the picker can change it.
 	baseBranch string
+	// contribs is the ranked, color-assigned set of distinct authors in the
+	// current history; contribIdx maps a contributorKey to its index in contribs.
+	// Both are rebuilt by rebuildContributors on load/reload and read by the
+	// colored-username render sites and the AUTHORS panel.
+	contribs   []contributor
+	contribIdx map[string]int
 
 	// workspace is the active category tab; wsMenuCursor is the cursor within a
 	// menu workspace (Restructure). The tab bar and zone-3 widget are derived
@@ -408,6 +414,7 @@ func New(repo *gitio.Repo, mgr *safety.Manager, cfg config.Config, state model.R
 	// Auto-detect the base branch and freeze the shared-history cone, then start
 	// the cursor on the newest editable commit and seed the calendar there.
 	m.applyAutoBase()
+	m.rebuildContributors()
 	m.sel = newSelection()
 	m.applyDefaultSelectionMode()
 	m.listCursor = m.firstEditableDisplayIndex()
@@ -1839,6 +1846,7 @@ func (m *Model) reload() error {
 	for i := range m.strats {
 		m.strats[i].resetPins()
 	}
+	m.rebuildContributors()
 	return nil
 }
 
