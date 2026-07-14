@@ -3,6 +3,7 @@ package gitio
 import (
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -14,7 +15,7 @@ type PathIndex struct {
 	AddedIn     map[string]string // path -> hash of the commit that first added it
 	renamedTo   map[string]string // old path -> new path (R edges, newest wins)
 	renamedFrom map[string]string // new path -> old path
-	Dirs        []string          // sorted ancestor directories of all added paths
+	Dirs        []string          // sorted ancestor directories of all added paths and rename destinations
 }
 
 // ScanHistoryPaths walks the current branch once and indexes added paths and
@@ -49,13 +50,13 @@ func ParsePathScan(out string) *PathIndex {
 		fields := strings.Split(line, "\t")
 		switch {
 		case len(fields) == 2 && fields[0] == "A":
-			p := fields[1]
+			p := unquoteGitPath(fields[1])
 			if _, seen := idx.AddedIn[p]; !seen {
 				idx.AddedIn[p] = hash
 			}
 			addAncestorDirs(dirs, p)
 		case len(fields) == 3 && strings.HasPrefix(fields[0], "R"):
-			old, neu := fields[1], fields[2]
+			old, neu := unquoteGitPath(fields[1]), unquoteGitPath(fields[2])
 			idx.renamedTo[old] = neu
 			idx.renamedFrom[neu] = old
 			addAncestorDirs(dirs, neu)
@@ -75,23 +76,53 @@ func addAncestorDirs(dirs map[string]bool, p string) {
 	}
 }
 
+// unquoteGitPath reverses git's C-style quoting of a --name-status path
+// field. With the (default) core.quotePath=true, git wraps any path
+// containing non-ASCII bytes, tabs, or other special characters in double
+// quotes and escapes the special bytes C-style (\t, \n, \\, \", and \ooo
+// octal for everything else) — which happen to be valid Go string-literal
+// escapes, so strconv.Unquote decodes them directly. Fields that were never
+// quoted are returned unchanged; a field that merely starts with a quote but
+// fails to parse is also returned unchanged rather than dropped.
+func unquoteGitPath(field string) string {
+	if len(field) < 2 || field[0] != '"' {
+		return field
+	}
+	unquoted, err := strconv.Unquote(field)
+	if err != nil {
+		return field
+	}
+	return unquoted
+}
+
 // RenameChain returns p plus every transitive rename ancestor and descendant,
 // oldest name first. A path with no rename edges returns just itself.
+//
+// History can contain rename cycles (R x->y followed later by R y->x, e.g.
+// after a revert), which would make renamedFrom/renamedTo loop forever
+// without a guard. Both walks below track visited paths and stop extending
+// the chain the moment a path would repeat, so the result is always finite
+// and deterministic even though "oldest" is not a well-defined concept once
+// a cycle is involved.
 func (idx *PathIndex) RenameChain(p string) []string {
 	oldest := p
+	seenBackward := map[string]bool{p: true}
 	for {
 		prev, ok := idx.renamedFrom[oldest]
-		if !ok {
+		if !ok || seenBackward[prev] {
 			break
 		}
+		seenBackward[prev] = true
 		oldest = prev
 	}
 	chain := []string{oldest}
+	seenForward := map[string]bool{oldest: true}
 	for cur := oldest; ; {
 		next, ok := idx.renamedTo[cur]
-		if !ok {
+		if !ok || seenForward[next] {
 			break
 		}
+		seenForward[next] = true
 		chain = append(chain, next)
 		cur = next
 	}
