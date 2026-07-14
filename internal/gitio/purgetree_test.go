@@ -1,46 +1,26 @@
 package gitio
 
 import (
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/wlame/regit/internal/gittest"
 )
 
 // purgeTestRepo builds a repo with a known layout in one commit:
 //
 //	keep.txt, junk.log, dir/a.txt, dir/sub/b.txt
+//
+// Built from the package's shared fixture helpers (gitT in diff_test.go,
+// mustWriteFile in purge_test.go) instead of a private exec closure.
 func purgeTestRepo(t *testing.T) (*Repo, string) {
 	t.Helper()
 	dir := t.TempDir()
-	git := func(args ...string) {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		cmd.Env = gittest.Env(dir)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
-		}
-	}
-	write := func(name, content string) {
-		t.Helper()
-		path := filepath.Join(dir, name)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	git("init", "-b", "main")
-	write("keep.txt", "keep")
-	write("junk.log", "junk")
-	write("dir/a.txt", "a")
-	write("dir/sub/b.txt", "b")
-	git("add", ".")
-	git("commit", "-m", "seed")
+	gitT(t, dir, "init", "-b", "main")
+	mustWriteFile(t, dir, "keep.txt", "keep")
+	mustWriteFile(t, dir, "junk.log", "junk")
+	mustWriteFile(t, dir, "dir/a.txt", "a")
+	mustWriteFile(t, dir, "dir/sub/b.txt", "b")
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "seed")
 	r, err := Open(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -116,6 +96,21 @@ func TestRemovePathsFromTree_everythingYieldsEmptyTree(t *testing.T) {
 	}
 	if newTree != emptyTreeHash {
 		t.Errorf("all-paths removal = %s, want the empty tree %s", newTree, emptyTreeHash)
+	}
+}
+
+// TestRemovePathsFromTree_noPathsIsNoop asserts the guard added per Task 3's
+// review: a bare `git rm` with no pathspec hard-fails, so an empty paths slice
+// must short-circuit and return the input tree unchanged rather than reach git.
+func TestRemovePathsFromTree_noPathsIsNoop(t *testing.T) {
+	r, _ := purgeTestRepo(t)
+	orig := headTree(t, r)
+	newTree, err := r.RemovePathsFromTree(orig, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newTree != orig {
+		t.Errorf("RemovePathsFromTree with no paths = %s, want unchanged %s", newTree, orig)
 	}
 }
 
