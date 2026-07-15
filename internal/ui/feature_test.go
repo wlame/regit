@@ -37,7 +37,7 @@ func TestWorkspaces_v1EnablementMatrix(t *testing.T) {
 
 func TestFeaturesFor_restructureMenu(t *testing.T) {
 	got := featuresFor(WSRestructure)
-	want := []string{"Split commit", "Reword message", "Squash commits", "Retitle (regex)", "Drop bodies"}
+	want := []string{"Split commit", "Reword message", "Squash commits", "Retitle (regex)", "Drop bodies", "Purge from history"}
 	if len(got) != len(want) {
 		t.Fatalf("Restructure should host %d features, got %d", len(want), len(got))
 	}
@@ -135,11 +135,12 @@ func TestMenuWorkspaceCommandsHaveBindings(t *testing.T) {
 // each Restructure action runs with, so a registry change is caught here too.
 func TestFeaturesFor_restructureSelectionsMatchRegistry(t *testing.T) {
 	want := map[string]SelectionMode{
-		"Split commit":    SelSingle,
-		"Reword message":  SelSingle,
-		"Squash commits":  SelSet,
-		"Retitle (regex)": SelActive,
-		"Drop bodies":     SelActive,
+		"Split commit":       SelSingle,
+		"Reword message":     SelSingle,
+		"Squash commits":     SelSet,
+		"Retitle (regex)":    SelActive,
+		"Drop bodies":        SelActive,
+		"Purge from history": SelGlobal,
 	}
 	for _, f := range featuresFor(WSRestructure) {
 		if want[f.Name] != f.Selection {

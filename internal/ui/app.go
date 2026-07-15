@@ -44,6 +44,7 @@ const (
 	modeSquash   // the tabbed squash wizard (one tab per chain)
 	modeReauthor // the change-author wizard (single modal)
 	modeSplitGen // an async split Propose call is in flight (spinner overlay)
+	modePurge    // the purge finder wizard (async history scan + multi-select)
 )
 
 type focusArea int
@@ -177,6 +178,7 @@ type Model struct {
 	rewordSt   rewordState
 	squashSt   squashState
 	reauthorSt reauthorState
+	purgeSt    purgeState
 
 	// spinner is the single shared throbber rendered by every async-generating
 	// overlay (split proposal, reword variants, squash summaries) so there is one
@@ -551,6 +553,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case purgeScanMsg:
+		m.purgeSt.scanning = false
+		if msg.err != nil {
+			m.purgeSt.scanErr = msg.err.Error()
+		} else {
+			m.purgeSt.index = msg.index
+			m.purgeSt = m.purgeSt.refreshMatches()
+		}
+		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -584,6 +595,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateSquash(msg)
 	case modeReauthor:
 		return m.updateReauthor(msg)
+	case modePurge:
+		return m.updatePurge(msg)
 	case modeSplitGen:
 		// The only action while a split is generating is to abandon it; a late
 		// splitResultMsg for this generation is then dropped by the mode+seq guard
@@ -2201,6 +2214,8 @@ func (m Model) View() string {
 		overlay = m.viewSquash()
 	case modeReauthor:
 		overlay = m.viewReauthor()
+	case modePurge:
+		overlay = m.viewPurge()
 	case modeSplitGen:
 		overlay = m.st.modal.Render(m.spinner.View() + " proposing a split for " + short(m.splitGenHash) + "…\n\nesc cancel")
 	case modeDetail:

@@ -101,6 +101,10 @@ var featureBindings = map[string]featureBinding{
 		model, cmd, _ := m.beginReauthor()
 		return model, cmd
 	}},
+	"purge": {Title: "Purge from history", Run: func(m Model) (tea.Model, tea.Cmd) {
+		model, cmd, _ := m.beginPurge()
+		return model, cmd
+	}},
 }
 
 // Feature is one menu row: a named action inside a workspace. Name and Run come
