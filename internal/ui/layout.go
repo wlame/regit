@@ -45,6 +45,14 @@ const (
 	inputChrome   = 17
 	inputMaxWidth = 75
 	inputMinWidth = 50
+
+	// detailOverlayMargin/Floor/Ceil bound the on-demand ('.') detail overlay:
+	// wide enough to read a body, capped so lines stay scannable on huge
+	// terminals. The margin keeps the centered overlay visually distinct from
+	// the full-screen view behind it.
+	detailOverlayMargin = 12
+	detailOverlayFloor  = 40
+	detailOverlayCeil   = 100
 )
 
 // layoutDims is the computed column/row budget for the main screen, derived
@@ -54,13 +62,14 @@ const (
 // breakpoints) and not yet wired — height still flows through the listHeight()
 // method, width through rightPaneWidth const.
 type layoutDims struct {
-	contentWidth int  // terminal width, capped at maxContentWidth (reserved for future work; not yet wired)
-	listWidth    int  // commit-list pane width (border excluded)
-	detailWidth  int  // commit-detail pane width (0 when the detail column is hidden)
-	rightWidth   int  // right column (calendar/strategy) width — currently fixed (reserved for future work; not yet wired)
-	showRight    bool // whether the fixed right column fits; false → list-only layout on narrow terminals
-	bodyHeight   int  // rows available to the list/right body (reserved for future work; not yet wired)
-	inputWidth   int  // single-line text-input width for the editor and every modal field
+	contentWidth       int  // terminal width, capped at maxContentWidth (reserved for future work; not yet wired)
+	listWidth          int  // commit-list pane width (border excluded)
+	detailWidth        int  // commit-detail pane width (0 when the detail column is hidden)
+	rightWidth         int  // right column (calendar/strategy) width — currently fixed (reserved for future work; not yet wired)
+	showRight          bool // whether the fixed right column fits; false → list-only layout on narrow terminals
+	bodyHeight         int  // rows available to the list/right body (reserved for future work; not yet wired)
+	inputWidth         int  // single-line text-input width for the editor and every modal field
+	detailOverlayWidth int  // width of the on-demand commit-detail overlay ('.')
 }
 
 // computeLayout turns a terminal size into the region budget for the main
@@ -132,17 +141,26 @@ func computeLayout(termW, termH int) layoutDims {
 		inputW = inputMinWidth
 	}
 
+	detailOverlayW := usable - detailOverlayMargin
+	if detailOverlayW > detailOverlayCeil {
+		detailOverlayW = detailOverlayCeil
+	}
+	if detailOverlayW < detailOverlayFloor {
+		detailOverlayW = detailOverlayFloor
+	}
+
 	rightW := rightPaneWidth
 	if !showRight {
 		rightW = 0
 	}
 	return layoutDims{
-		contentWidth: usable,
-		listWidth:    listW,
-		detailWidth:  detailW,
-		rightWidth:   rightW,
-		showRight:    showRight,
-		bodyHeight:   bodyH,
-		inputWidth:   inputW,
+		contentWidth:       usable,
+		listWidth:          listW,
+		detailWidth:        detailW,
+		rightWidth:         rightW,
+		showRight:          showRight,
+		bodyHeight:         bodyH,
+		inputWidth:         inputW,
+		detailOverlayWidth: detailOverlayW,
 	}
 }

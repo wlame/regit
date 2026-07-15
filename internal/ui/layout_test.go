@@ -108,3 +108,24 @@ func TestComputeLayoutInputWidthClamp(t *testing.T) {
 		})
 	}
 }
+
+// TestComputeLayoutDetailOverlayWidth: the '.' detail overlay tracks the
+// terminal instead of the old hardcoded 50 columns.
+func TestComputeLayoutDetailOverlayWidth(t *testing.T) {
+	cases := []struct {
+		name  string
+		termW int
+		want  int
+	}{
+		{"narrow floor", 45, 40},   // 45-12=33 → floor 40
+		{"mid tracks", 80, 68},     // 80-12=68
+		{"wide ceiling", 200, 100}, // clamped to 100
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := computeLayout(tc.termW, 40).detailOverlayWidth; got != tc.want {
+				t.Fatalf("detailOverlayWidth(%d) = %d, want %d", tc.termW, got, tc.want)
+			}
+		})
+	}
+}

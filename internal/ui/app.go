@@ -2231,7 +2231,8 @@ func (m Model) View() string {
 	case modeDetail:
 		c := m.commitAtCursor()
 		stat, have := m.statCache[c.Hash]
-		overlay = m.st.modal.Render(renderDetail(c, stat, have, m.statErr[c.Hash], m.plan, m.loc, 50,
+		overlay = m.st.modal.Render(renderDetail(c, stat, have, m.statErr[c.Hash], m.plan, m.loc,
+			computeLayout(m.width, m.height).detailOverlayWidth,
 			max(8, m.height-6), m.st, m.authorColorStyle(c)))
 	case modePicker:
 		overlay = viewPicker(m.picker, "enter switch · tab set base · ↑/↓ move · esc cancel", m.st)
