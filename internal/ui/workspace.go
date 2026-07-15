@@ -38,7 +38,12 @@ func (m *Model) prevWorkspace() { m.cycleWorkspace(-1) }
 
 // cycleWorkspace shifts the active tab by delta (wrapping) and resets focus to
 // the commit list and the menu cursor to the top, so the user never lands in a
-// zone the new workspace does not render.
+// zone the new workspace does not render. An EXPLICIT selection (a non-empty
+// Set or a Range) is deliberately preserved across the switch — the selection
+// is the subject of the user's next action and navigation must never drop it;
+// only with no explicit selection does the workspace's default mode apply.
+// onDatesSelectionChanged is a no-op outside Dates and, when landing ON Dates
+// with a selection, re-attributes pins and re-stages against the new windows.
 func (m *Model) cycleWorkspace(delta int) {
 	n := len(workspaces)
 	idx := 0
@@ -52,8 +57,11 @@ func (m *Model) cycleWorkspace(delta int) {
 	m.workspace = workspaces[idx].ID
 	m.focus = focusList
 	m.wsMenuCursor = 0
-	m.sel.reset()
-	m.applyDefaultSelectionMode()
+	if !m.hasExplicitSelection() {
+		m.sel.reset()
+		m.applyDefaultSelectionMode()
+	}
+	m.onDatesSelectionChanged()
 }
 
 // viewRightColumn renders zone 3 — the active workspace's widget with the AUTHORS
