@@ -68,6 +68,50 @@ func purgeFixtureFiles() []map[string]string {
 	}
 }
 
+// newPurgeRepoWithPush is newPurgeRepo plus a bare origin: the first
+// pushedCount commits are pushed to it in a single push, leaving the rest
+// local-only. Modeled on run_squash_test.go's squashTestRepoWithPush, adapted
+// to newPurgeRepo's per-commit file-map fixture shape.
+func newPurgeRepoWithPush(t *testing.T, commitFiles []map[string]string, pushedCount int) *gitio.Repo {
+	t.Helper()
+	dir := t.TempDir()
+	origin := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = gittest.Env(dir)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if out, err := exec.Command("git", "init", "-q", "--bare", origin).CombinedOutput(); err != nil {
+		t.Fatalf("init bare: %v\n%s", err, out)
+	}
+	run("init", "-q", "-b", "main")
+	run("remote", "add", "origin", origin)
+	for i, files := range commitFiles {
+		for name, content := range files {
+			full := filepath.Join(dir, name)
+			if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		run("add", ".")
+		run("commit", "-q", "-m", "commit "+strconv.Itoa(i))
+		if i+1 == pushedCount {
+			run("push", "-q", "-u", "origin", "main")
+		}
+	}
+	repo, err := gitio.Open(dir)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	return repo
+}
+
 func newPurgeCtx(out *bytes.Buffer, repo *gitio.Repo) *RunContext {
 	return &RunContext{Repo: repo, Cfg: config.Default(), Stdout: out, Stderr: out, Now: time.Unix(1000, 0)}
 }
@@ -155,6 +199,77 @@ func TestRunPurge_executeRemovesPath(t *testing.T) {
 	}
 	if !strings.Contains(s, "git gc") {
 		t.Errorf("expected the gc hint line:\n%s", s)
+	}
+}
+
+// TestRunPurge_pushedAffectedCommitRequiresForce: when the purge's rewritten
+// suffix (commits[firstAffected:]) includes a commit that is already pushed,
+// --execute must be guard-blocked (exit code 2) without --force — the same
+// contract run_split.go and run_squash.go already enforce for their own
+// rewrite ranges. Before this fix runPurge skipped the pushed pre-check
+// entirely and fell through to safety.ApplyPurge's own internal guard, whose
+// plain error maps to exit 3 instead of the documented exit 2.
+func TestRunPurge_pushedAffectedCommitRequiresForce(t *testing.T) {
+	// commit 0 adds keep.txt, commit 1 adds junk.log alone (the first commit
+	// purging "junk.log" affects) — push after both, so the rewritten suffix
+	// starts at an already-pushed commit.
+	repo := newPurgeRepoWithPush(t, purgeFixtureFiles(), 2)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !commits[1].IsPushed {
+		t.Fatal("setup: commit 1 (adds junk.log) should be pushed")
+	}
+
+	var out bytes.Buffer
+	ctx := newPurgeCtx(&out, repo)
+	before, _ := repo.ReadState()
+
+	a, err := Parse(mustLookup(t, "purge"), []string{"junk.log", "--execute"})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	err = runPurge(ctx, a)
+	if got := ExitCode(err); got != 2 {
+		t.Fatalf("pushed-affected purge without --force exit = %d, want 2 (err=%v)", got, err)
+	}
+	after, _ := repo.ReadState()
+	if before.HeadHash != after.HeadHash {
+		t.Error("guard-blocked purge must not move HEAD")
+	}
+}
+
+// TestRunPurge_pushedAffectedCommitWithForceSucceeds is the companion to
+// TestRunPurge_pushedAffectedCommitRequiresForce: the identical pushed-history
+// setup, but with --force, must go through and actually drop junk.log.
+func TestRunPurge_pushedAffectedCommitWithForceSucceeds(t *testing.T) {
+	repo := newPurgeRepoWithPush(t, purgeFixtureFiles(), 2)
+	var out bytes.Buffer
+	ctx := newPurgeCtx(&out, repo)
+
+	a, err := Parse(mustLookup(t, "purge"), []string{"junk.log", "--execute", "--force"})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if err := runPurge(ctx, a); err != nil {
+		t.Fatalf("forced purge of pushed history should succeed: %v", err)
+	}
+
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range commits {
+		files, err := repo.CommitTouchedFiles(c.Hash)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range files {
+			if f == "junk.log" {
+				t.Errorf("junk.log should still be purged from commit %s after --force", Short(c.Hash))
+			}
+		}
 	}
 }
 

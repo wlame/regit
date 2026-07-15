@@ -136,6 +136,24 @@ func runPurge(ctx *RunContext, a ParsedArgs) error {
 	if state.IsDirty {
 		return guardErr("working tree has uncommitted changes; commit or stash them first")
 	}
+	// commits[firstAffected:] is the same rewritten suffix BuildPurgePreview
+	// used to compute Reparented: gitio.ApplyPurge rewrites every commit's
+	// tree from the first affected commit onward (trees are full snapshots),
+	// so an already-pushed commit anywhere in that suffix — even one whose own
+	// changes were never under the purge paths — needs --force before its
+	// hash is rewritten out from under a remote. Mirrors run_split.go and
+	// run_squash.go, which scope model.AnyPushed to their own rewrite ranges
+	// rather than to whether the branch has any upstream at all.
+	firstAffected := -1
+	for i, c := range commits {
+		if affected[c.Hash] {
+			firstAffected = i
+			break
+		}
+	}
+	if firstAffected >= 0 && model.AnyPushed(commits[firstAffected:]) && !a.Bool("force") {
+		return guardErr("some commits are already pushed — re-run with --force to rewrite them")
+	}
 	sm, err := signMode(ctx, a)
 	if err != nil {
 		return err
