@@ -23,6 +23,15 @@ type purgeChange struct {
 	pv       capability.PurgePreview
 	commits  []model.Commit
 	cmd      string
+	// base is the corrected rewrite boundary — gitio.PurgeBase's result,
+	// computed once at stage time (see stagePurge) — into commits, the SAME
+	// value gitio.ApplyPurge and safety.Manager.ApplyPurge independently
+	// recompute for the actual apply. guard() uses this stored value instead
+	// of re-deriving a naive (uncorrected) boundary of its own, so the
+	// wizard's pre-stage guard and the real apply can never disagree about
+	// where the rewritten suffix starts (see gitio.PurgeBase's doc comment
+	// for why the naive boundary alone is not safe to trust).
+	base int
 }
 
 func (c purgeChange) commandLines() []string {
@@ -37,19 +46,18 @@ func (c purgeChange) title() string {
 }
 
 // guard mirrors safety.Manager.ApplyPurge's checks so the pipeline can block
-// or ask for typed confirmation BEFORE applying.
+// or ask for typed confirmation BEFORE applying. It uses c.base — the
+// gitio.PurgeBase-corrected boundary stagePurge already computed — rather
+// than re-deriving a naive firstAffected of its own: a naive boundary can
+// miss a merge commit that git's own pathspec-limited rev-list simplified
+// out of the affected set while the merge's tree still carries the purge
+// path forward (see gitio.PurgeBase's doc comment), which would let this
+// pre-stage guard wave a purge through that the real apply must block.
 func (c purgeChange) guard(state model.RepoState) safety.Guard {
-	firstAffected := -1
-	for i, cm := range c.commits {
-		if c.affected[cm.Hash] {
-			firstAffected = i
-			break
-		}
-	}
-	if firstAffected < 0 {
+	if c.base < 0 {
 		return safety.Guard{Blocked: true, BlockReason: "no commits touch the selected paths"}
 	}
-	suffix := c.commits[firstAffected:]
+	suffix := c.commits[c.base:]
 	for _, cm := range suffix {
 		if cm.IsMerge {
 			return safety.Guard{Blocked: true, BlockReason: "cannot purge across a merge commit"}
@@ -59,7 +67,7 @@ func (c purgeChange) guard(state model.RepoState) safety.Guard {
 		return safety.Guard{Blocked: true,
 			BlockReason: "working tree has uncommitted changes; commit or stash them first"}
 	}
-	if len(c.pv.Dropped) >= len(suffix) && firstAffected == 0 {
+	if len(c.pv.Dropped) >= len(suffix) && c.base == 0 {
 		return safety.Guard{Blocked: true, BlockReason: "purge would remove every commit on the branch"}
 	}
 	if model.AnyPushed(suffix) {
@@ -261,7 +269,16 @@ func (m Model) stagePurge() (tea.Model, tea.Cmd) {
 		m.purgeSt.errMsg = "build preview: " + err.Error()
 		return m, nil
 	}
-	change := purgeChange{spec: spec, affected: affected, pv: pv, commits: m.plan.Commits,
+	// base is the SAME corrected rewrite boundary gitio.ApplyPurge and
+	// safety.Manager.ApplyPurge independently recompute at apply time (see
+	// gitio.PurgeBase's doc comment); computing and storing it here lets
+	// purgeChange.guard use it instead of a naive boundary of its own.
+	base, err := m.repo.PurgeBase(m.plan.Commits, spec.Paths, affected)
+	if err != nil {
+		m.purgeSt.errMsg = "compute purge base: " + err.Error()
+		return m, nil
+	}
+	change := purgeChange{spec: spec, affected: affected, pv: pv, commits: m.plan.Commits, base: base,
 		cmd: capability.Render("purge", capability.PurgeArgMap(paths))}
 	guard := change.guard(m.state)
 	if guard.Blocked {

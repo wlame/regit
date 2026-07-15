@@ -223,10 +223,34 @@ func TestPurgeChange_previewSanitizesCommitSubject(t *testing.T) {
 
 func TestPurgeChange_guardBlocksDirtyTree(t *testing.T) {
 	commits := []model.Commit{{Hash: "a"}, {Hash: "b"}}
-	pc := purgeChange{commits: commits, affected: map[string]bool{"b": true}, pv: capability.PurgePreview{}}
+	// base mirrors what gitio.PurgeBase would compute for this fixture (no
+	// merge involved, so the naive and corrected boundaries coincide): "b" is
+	// the first (and only) affected commit, at index 1.
+	pc := purgeChange{commits: commits, affected: map[string]bool{"b": true}, pv: capability.PurgePreview{}, base: 1}
 	g := pc.guard(model.RepoState{IsDirty: true})
 	if !g.Blocked {
 		t.Error("a dirty tree should block the purge guard")
+	}
+}
+
+// TestPurgeChange_guardBlocksMergeAtStoredBase is the regression test for the
+// wizard's pre-stage guard now trusting stagePurge's stored, corrected base
+// instead of recomputing a naive one: base here points directly at a merge
+// commit, mirroring what gitio.PurgeBase computes when a merge-in-prefix
+// history pulls a merge into the rewritten suffix (see the gitio/safety/
+// capability regression tests for the real-repo fixture this mirrors — a
+// side branch adds a path, merges in untouched further, and git's own
+// pathspec-limited rev-list simplifies the merge itself out of the naive
+// affected set even though its tree still carries the path).
+func TestPurgeChange_guardBlocksMergeAtStoredBase(t *testing.T) {
+	commits := []model.Commit{{Hash: "a"}, {Hash: "merge", IsMerge: true}, {Hash: "c"}}
+	pc := purgeChange{commits: commits, affected: map[string]bool{"c": true}, pv: capability.PurgePreview{}, base: 1}
+	g := pc.guard(model.RepoState{})
+	if !g.Blocked {
+		t.Error("a purge whose stored base includes a merge commit should block")
+	}
+	if !strings.Contains(g.BlockReason, "merge") {
+		t.Errorf("block reason should mention merge, got: %q", g.BlockReason)
 	}
 }
 
