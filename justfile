@@ -75,15 +75,16 @@ cover: test-race
 cover-html: test-race
     go tool cover -html={{coverage_file}}
 
-# Format all Go sources in place.
+# Format all tracked Go sources in place (gitignored trees, e.g. agent
+# worktrees under .claude/, are deliberately excluded).
 fmt:
-    gofmt -w .
+    git ls-files '*.go' | xargs gofmt -w
 
-# Fail if any Go source is not gofmt-formatted (used by CI).
+# Fail if any tracked Go source is not gofmt-formatted (used by CI).
 fmt-check:
     #!/usr/bin/env bash
     set -euo pipefail
-    unformatted="$(gofmt -l .)"
+    unformatted="$(git ls-files '*.go' | xargs gofmt -l)"
     if [ -n "$unformatted" ]; then
         echo "These files are not gofmt-formatted:"
         echo "$unformatted"
