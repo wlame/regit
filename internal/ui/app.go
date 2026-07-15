@@ -765,7 +765,7 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 			m.setStatus("List branches: "+err.Error(), statusErr)
 			return m, nil, true
 		}
-		m.picker = newPicker("Branches", branches)
+		m.picker = newPicker("Branches", branches, computeLayout(m.width, m.height).inputWidth)
 		m.mode = modePicker
 		return m, nil, true
 	case ">", "]":
@@ -896,9 +896,9 @@ func (m Model) openEditorAtCursor() (tea.Model, tea.Cmd) {
 
 // editorFieldWidth sizes the editor's title/body fields. The math lives in
 // computeLayout (layout.go) so every region shares one source of truth; the
-// field stays within a readable [editorMinWidth, editorMaxWidth] band.
+// field stays within a readable [inputMinWidth, inputMaxWidth] band.
 func (m Model) editorFieldWidth() int {
-	return computeLayout(m.width, m.height).editorWidth
+	return computeLayout(m.width, m.height).inputWidth
 }
 
 // listNavKey handles fast list-navigation keys when the commit list is focused.

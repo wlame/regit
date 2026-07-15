@@ -111,7 +111,7 @@ func TestUpdateReauthor_editsFieldsAndTogglesCommitter(t *testing.T) {
 }
 
 func TestRenderReauthorWizard_showsFieldsAndCheckbox(t *testing.T) {
-	st := newReauthorState("wlame", "v@x", reauthorCommits("a"))
+	st := newReauthorState("wlame", "v@x", reauthorCommits("a"), 64)
 	out := renderReauthorWizard(st, newStyles())
 	for _, want := range []string{"CHANGE AUTHOR", "wlame", "v@x", "committer"} {
 		if !strings.Contains(out, want) {
@@ -387,12 +387,19 @@ func TestUpdateReauthor_enterStages_andAOnCheckboxStages(t *testing.T) {
 // TestRenderReauthorWizard_footerMatchesFocus: the footer advertises [A]pply
 // only where A actually applies.
 func TestRenderReauthorWizard_footerMatchesFocus(t *testing.T) {
-	st := newReauthorState("", "", reauthorCommits("a"))
+	st := newReauthorState("", "", reauthorCommits("a"), 64)
 	if out := renderReauthorWizard(st, newStyles()); strings.Contains(out, "[A]pply") {
 		t.Errorf("text-field footer must not advertise [A]pply:\n%s", out)
 	}
 	st.field = fldRCommitter
 	if out := renderReauthorWizard(st, newStyles()); !strings.Contains(out, "[A]pply") {
 		t.Errorf("checkbox footer should advertise [A]pply:\n%s", out)
+	}
+}
+
+func TestNewReauthorStateUsesGivenInputWidth(t *testing.T) {
+	s := newReauthorState("wlame", "vvlame@gmail.com", nil, 64)
+	if s.nameInput.Width != 64 || s.emailInput.Width != 64 {
+		t.Fatalf("input widths = %d/%d, want 64", s.nameInput.Width, s.emailInput.Width)
 	}
 }

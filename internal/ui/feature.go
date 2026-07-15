@@ -89,7 +89,7 @@ var featureBindings = map[string]featureBinding{
 		return model, cmd
 	}},
 	"retitle": {Title: "Retitle (regex)", Run: func(m Model) (tea.Model, tea.Cmd) {
-		m.retitle = newRetitleState()
+		m.retitle = newRetitleState(computeLayout(m.width, m.height).inputWidth)
 		m.mode = modeRetitle
 		return m, nil
 	}},

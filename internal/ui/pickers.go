@@ -24,12 +24,12 @@ type pickerState struct {
 }
 
 // newPicker builds a picker over items with a focused, empty filter.
-func newPicker(title string, items []string) pickerState {
+func newPicker(title string, items []string, filterW int) pickerState {
 	ti := textinput.New()
 	ti.Prompt = "/ "
 	ti.Placeholder = "filter…"
 	ti.CharLimit = 64
-	ti.Width = 30
+	ti.Width = filterW
 	ti.Focus()
 	return pickerState{title: title, items: items, filter: ti}
 }

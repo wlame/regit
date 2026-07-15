@@ -26,17 +26,17 @@ type retitleState struct {
 
 const retitleFieldCount = 4
 
-func newRetitleState() retitleState {
+func newRetitleState(inputW int) retitleState {
 	pattern := textinput.New()
 	pattern.Prompt = ""
 	pattern.CharLimit = 80
-	pattern.Width = 42
+	pattern.Width = inputW
 	pattern.Focus()
 
 	replace := textinput.New()
 	replace.Prompt = ""
 	replace.CharLimit = 80
-	replace.Width = 42
+	replace.Width = inputW
 
 	return retitleState{pattern: pattern, replace: replace}
 }

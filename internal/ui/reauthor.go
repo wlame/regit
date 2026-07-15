@@ -132,21 +132,21 @@ func (st reauthorState) email() string { return st.emailInput.Value() }
 // newReauthorInput builds one wizard text field, following the retitle modal's
 // textinput conventions (no prompt, fixed width). SetValue leaves the cursor at
 // the end of the prefilled text.
-func newReauthorInput(value string) textinput.Model {
+func newReauthorInput(value string, w int) textinput.Model {
 	ti := textinput.New()
 	ti.Prompt = ""
 	ti.CharLimit = 80
-	ti.Width = 42
+	ti.Width = w
 	ti.SetValue(value)
 	return ti
 }
 
 // newReauthorState builds the wizard state with a prefilled identity, the
 // committer checkbox on, and focus on the name field.
-func newReauthorState(name, email string, targets []model.Commit) reauthorState {
+func newReauthorState(name, email string, targets []model.Commit, inputW int) reauthorState {
 	st := reauthorState{
-		nameInput:    newReauthorInput(name),
-		emailInput:   newReauthorInput(email),
+		nameInput:    newReauthorInput(name, inputW),
+		emailInput:   newReauthorInput(email, inputW),
 		committerToo: true,
 		field:        fldRName,
 		targets:      targets,
@@ -198,7 +198,8 @@ func (m Model) beginReauthor() (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 	oldest := targets[0]
-	m.reauthorSt = newReauthorState(oldest.AuthorName, oldest.AuthorEmail, targets)
+	m.reauthorSt = newReauthorState(oldest.AuthorName, oldest.AuthorEmail, targets,
+		computeLayout(m.width, m.height).inputWidth)
 	m.mode = modeReauthor
 	return m, nil, true
 }

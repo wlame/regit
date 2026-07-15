@@ -8,7 +8,7 @@ import (
 )
 
 func TestPicker_filterAndSelect(t *testing.T) {
-	p := newPicker("Branches", []string{"main", "feature/auth", "feature/ui", "release"})
+	p := newPicker("Branches", []string{"main", "feature/auth", "feature/ui", "release"}, 64)
 
 	// Empty filter returns everything.
 	if got := len(p.filtered()); got != 4 {
@@ -34,7 +34,7 @@ func TestPicker_filterAndSelect(t *testing.T) {
 }
 
 func TestViewPicker_rendersError(t *testing.T) {
-	p := newPicker("Branches", []string{"main", "feature/ui"})
+	p := newPicker("Branches", []string{"main", "feature/ui"}, 64)
 	p.errMsg = "Working tree has uncommitted changes"
 	out := viewPicker(p, "enter switch · esc cancel", newStyles())
 	if !strings.Contains(out, "Working tree has uncommitted changes") {
@@ -43,7 +43,7 @@ func TestViewPicker_rendersError(t *testing.T) {
 }
 
 func TestPicker_updateKeepsCursorInRange(t *testing.T) {
-	p := newPicker("Branches", []string{"main", "feature/auth", "feature/ui"})
+	p := newPicker("Branches", []string{"main", "feature/auth", "feature/ui"}, 64)
 	p.filter.SetValue("feature")
 	p.moveCursor(1) // cursor on "feature/ui" (index 1 of the filtered pair)
 
@@ -54,5 +54,12 @@ func TestPicker_updateKeepsCursorInRange(t *testing.T) {
 	}
 	if sel, ok := p.selected(); !ok || sel != "feature/ui" {
 		t.Errorf("selected after narrowing = %q (ok=%v), want feature/ui", sel, ok)
+	}
+}
+
+func TestNewPickerUsesGivenFilterWidth(t *testing.T) {
+	p := newPicker("BRANCH", []string{"main"}, 64)
+	if p.filter.Width != 64 {
+		t.Fatalf("filter width = %d, want 64", p.filter.Width)
 	}
 }

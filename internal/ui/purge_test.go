@@ -39,7 +39,7 @@ func sendPurge(m Model, keys ...string) Model {
 // modelWithPurgeIndex builds a Model in modePurge with the given index already
 // delivered, as if the async scan had completed via purgeScanMsg.
 func modelWithPurgeIndex(idx *gitio.PathIndex) Model {
-	m := Model{purgeSt: newPurgeState(), mode: modePurge}
+	m := Model{purgeSt: newPurgeState(64), mode: modePurge}
 	updated, _ := m.Update(purgeScanMsg{index: idx})
 	return updated.(Model)
 }
@@ -117,7 +117,7 @@ func TestUpdatePurge_escBacksOut(t *testing.T) {
 
 func TestRenderPurgeWizard_showsMatchesAndSelection(t *testing.T) {
 	idx := purgeTestIndex()
-	st := newPurgeState()
+	st := newPurgeState(64)
 	st.scanning = false
 	st.index = idx
 	st.query.SetValue("jun")
@@ -139,7 +139,7 @@ func TestRenderPurgeWizard_showsMatchesAndSelection(t *testing.T) {
 // the directory-only trailing "/".
 func TestRenderPurgeWizard_renameDestinationHasNoTrailingSlash(t *testing.T) {
 	idx := purgeTestIndex()
-	st := newPurgeState()
+	st := newPurgeState(64)
 	st.scanning = false
 	st.index = idx
 	st.query.SetValue("help")
@@ -185,7 +185,7 @@ func TestPurgeChange_previewMarksDropsAndPaths(t *testing.T) {
 func TestRenderPurgeWizard_sanitizesEscapeSequenceInMatchRow(t *testing.T) {
 	scan := "\x00h1\n" + "A\tevil\x1b]0;PWNED\x07.txt\n"
 	idx := gitio.ParsePathScan(scan)
-	st := newPurgeState()
+	st := newPurgeState(64)
 	st.scanning = false
 	st.index = idx
 	st.query.SetValue("evil")
@@ -196,6 +196,13 @@ func TestRenderPurgeWizard_sanitizesEscapeSequenceInMatchRow(t *testing.T) {
 	}
 	if !strings.Contains(out, "evil.txt") {
 		t.Errorf("sanitization should keep the legitimate text around the escape sequence, got: %q", out)
+	}
+}
+
+func TestNewPurgeStateUsesGivenInputWidth(t *testing.T) {
+	s := newPurgeState(64)
+	if s.query.Width != 64 {
+		t.Fatalf("query width = %d, want 64", s.query.Width)
 	}
 }
 

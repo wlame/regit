@@ -39,15 +39,16 @@ const (
 	chromeRows    = 8
 	minBodyHeight = 8
 
-	// editorChrome is the columns the editor modal spends on the cursor, label
-	// column, padding, and border; the field width is clamped to a readable band.
-	editorChrome   = 17
-	editorMaxWidth = 75
-	editorMinWidth = 50
+	// inputChrome is the columns a modal spends on the cursor, label column,
+	// padding, and border around a single-line text input; the field width is
+	// clamped to a readable band shared by the editor and every modal input.
+	inputChrome   = 17
+	inputMaxWidth = 75
+	inputMinWidth = 50
 )
 
 // layoutDims is the computed column/row budget for the main screen, derived
-// entirely from the terminal size. listWidth, detailWidth, and editorWidth are
+// entirely from the terminal size. listWidth, detailWidth, and inputWidth are
 // consumed by production rendering today; contentWidth, rightWidth, and
 // bodyHeight are reserved for future work (3-zone responsive
 // breakpoints) and not yet wired — height still flows through the listHeight()
@@ -59,7 +60,7 @@ type layoutDims struct {
 	rightWidth   int  // right column (calendar/strategy) width — currently fixed (reserved for future work; not yet wired)
 	showRight    bool // whether the fixed right column fits; false → list-only layout on narrow terminals
 	bodyHeight   int  // rows available to the list/right body (reserved for future work; not yet wired)
-	editorWidth  int  // editor-modal field width
+	inputWidth   int  // single-line text-input width for the editor and every modal field
 }
 
 // computeLayout turns a terminal size into the region budget for the main
@@ -123,12 +124,12 @@ func computeLayout(termW, termH int) layoutDims {
 		bodyH = minBodyHeight
 	}
 
-	editorW := usable - editorChrome
-	if editorW > editorMaxWidth {
-		editorW = editorMaxWidth
+	inputW := usable - inputChrome
+	if inputW > inputMaxWidth {
+		inputW = inputMaxWidth
 	}
-	if editorW < editorMinWidth {
-		editorW = editorMinWidth
+	if inputW < inputMinWidth {
+		inputW = inputMinWidth
 	}
 
 	rightW := rightPaneWidth
@@ -142,6 +143,6 @@ func computeLayout(termW, termH int) layoutDims {
 		rightWidth:   rightW,
 		showRight:    showRight,
 		bodyHeight:   bodyH,
-		editorWidth:  editorW,
+		inputWidth:   inputW,
 	}
 }

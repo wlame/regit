@@ -163,11 +163,11 @@ type purgeScanMsg struct {
 // newPurgeState builds the wizard state with the scan already marked in
 // flight and the query field focused, following the retitle/reauthor
 // textinput conventions (no prompt, fixed width).
-func newPurgeState() purgeState {
+func newPurgeState(inputW int) purgeState {
 	q := textinput.New()
 	q.Prompt = ""
 	q.CharLimit = 120
-	q.Width = 48
+	q.Width = inputW
 	q.Focus()
 	return purgeState{scanning: true, query: q, selected: map[string]bool{}}
 }
@@ -178,7 +178,7 @@ func newPurgeState() purgeState {
 // recognizable as stale once the new one lands.
 func (m Model) beginPurge() (tea.Model, tea.Cmd, bool) {
 	seq := m.purgeSt.scanSeq + 1
-	m.purgeSt = newPurgeState()
+	m.purgeSt = newPurgeState(computeLayout(m.width, m.height).inputWidth)
 	m.purgeSt.scanSeq = seq
 	m.mode = modePurge
 	repo := m.repo

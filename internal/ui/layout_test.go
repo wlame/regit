@@ -70,12 +70,12 @@ func TestComputeLayout_DetailStretchesPastMinimum(t *testing.T) {
 	}
 }
 
-func TestComputeLayout_EditorWidth(t *testing.T) {
-	if got := computeLayout(220, 40).editorWidth; got != editorMaxWidth {
-		t.Fatalf("wide editor width = %d, want %d", got, editorMaxWidth)
+func TestComputeLayout_InputWidth(t *testing.T) {
+	if got := computeLayout(220, 40).inputWidth; got != inputMaxWidth {
+		t.Fatalf("wide input width = %d, want %d", got, inputMaxWidth)
 	}
-	if got := computeLayout(60, 40).editorWidth; got != editorMinWidth {
-		t.Fatalf("narrow editor width = %d, want %d", got, editorMinWidth)
+	if got := computeLayout(60, 40).inputWidth; got != inputMinWidth {
+		t.Fatalf("narrow input width = %d, want %d", got, inputMinWidth)
 	}
 }
 
@@ -85,5 +85,26 @@ func TestComputeLayout_BodyHeightFloor(t *testing.T) {
 	}
 	if got := computeLayout(120, 40).bodyHeight; got != 32 { // 40 - chromeRows(8)
 		t.Fatalf("bodyHeight = %d, want 32", got)
+	}
+}
+
+// TestComputeLayoutInputWidthClamp: modal input width tracks the terminal
+// inside the readable band; hardcoded 42/48/30 widths are gone.
+func TestComputeLayoutInputWidthClamp(t *testing.T) {
+	cases := []struct {
+		name  string
+		termW int
+		want  int
+	}{
+		{"narrow floor", 60, 50},  // 60-17=43 → floor 50
+		{"mid tracks", 80, 63},    // 80-17=63, inside [50,75]
+		{"wide ceiling", 200, 75}, // clamped to 75
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := computeLayout(tc.termW, 40).inputWidth; got != tc.want {
+				t.Fatalf("inputWidth(%d) = %d, want %d", tc.termW, got, tc.want)
+			}
+		})
 	}
 }
