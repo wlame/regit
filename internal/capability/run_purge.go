@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 
 	"github.com/wlame/regit/internal/gitio"
 	"github.com/wlame/regit/internal/model"
@@ -174,6 +175,25 @@ func runPurge(ctx *RunContext, a ParsedArgs) error {
 		if c.IsMerge {
 			return guardErr("cannot purge across merge commit %s", Short(c.Hash))
 		}
+	}
+	// A path can have history entirely on a merged-in side branch — including
+	// a "pocket" (added then removed within the side branch before it merged,
+	// net zero by merge time) that base's tree-content walk cannot see, since
+	// no surviving tree ever contains it, so the merge never lands in
+	// commits[base:] and the check above has nothing to catch. regit only
+	// rewrites the first-parent chain, so this can never be purged either way;
+	// catching it here (guardErr, exit 2) rather than letting
+	// safety.ApplyPurge's late verifyPurgeAbsence abort mid-rewrite keeps the
+	// failure a clean, up-front guard block. Checked AFTER the merge scan on
+	// purpose — see safety.Manager.ApplyPurge's Guards closure for why this
+	// check is a superset of that one, and which error a user sees first.
+	sidePaths, err := repo.PathsInSideHistory(commits, spec.Paths)
+	if err != nil {
+		return runtimeErr("check side-branch history: %v", err)
+	}
+	if len(sidePaths) > 0 {
+		return guardErr("%s also exists in a merged side branch's history, which regit cannot rewrite — see git filter-repo",
+			strings.Join(sidePaths, ", "))
 	}
 	// pv.Dropped was computed by BuildPurgePreview over the same commits and
 	// affected set; when the corrected base starts at the branch root AND

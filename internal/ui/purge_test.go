@@ -254,6 +254,28 @@ func TestPurgeChange_guardBlocksMergeAtStoredBase(t *testing.T) {
 	}
 }
 
+// TestPurgeChange_guardBlocksStoredSideHistory is the wizard-layer regression
+// test for finding 1 of the second final-review round: a purgeChange whose
+// stored sidePaths (computed at stage time by stagePurge, mirroring base)
+// is non-empty must block, even when no commit in the range is itself a
+// merge — mirrors the "pocket" fixture in gitio/safety/capability, where the
+// merge's own tree never carries the path forward at all, so only a
+// side-branch-history check (not the merge-in-suffix one) can catch it.
+func TestPurgeChange_guardBlocksStoredSideHistory(t *testing.T) {
+	commits := []model.Commit{{Hash: "a"}, {Hash: "b"}}
+	pc := purgeChange{
+		commits: commits, affected: map[string]bool{"b": true}, pv: capability.PurgePreview{},
+		base: 1, sidePaths: []string{"secret.env"},
+	}
+	g := pc.guard(model.RepoState{})
+	if !g.Blocked {
+		t.Error("a purge whose stored sidePaths is non-empty should block")
+	}
+	if !strings.Contains(g.BlockReason, "side branch") {
+		t.Errorf("block reason should mention the side branch, got: %q", g.BlockReason)
+	}
+}
+
 // TestUpdatePurge_staleScanMsgDiscarded exercises the beginPurge/purgeScanMsg
 // generation guard: reopening the wizard (a second beginPurge) bumps scanSeq,
 // so a result from the first, now-abandoned scan must not clobber the second

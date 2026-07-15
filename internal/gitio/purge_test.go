@@ -278,6 +278,16 @@ func TestCommitTouchedFiles_nonASCIIPath(t *testing.T) {
 // `git rev-list HEAD -- junk.log` lists the edit commit and the side-branch
 // commit, but NOT the merge commit — even though the merge commit's own tree
 // already contains junk.log. That is exactly the blind spot PurgeBase closes.
+//
+// The side branch also adds other-side.txt, alongside junk.log, in the SAME
+// commit as the rest of this fixture — deliberately, so the merge's tree
+// still differs from its parent's after junk.log alone is stripped back out.
+// Without that second file, stripping junk.log from the merge's tree would
+// collapse it to EXACTLY its parent's tree, and gitio.ApplyPurge would DROP
+// the merge outright (see its "tree == prevTree" rule) rather than
+// REWRITING it as a genuine merge object — which would silently hide finding
+// 2's bug (a rewritten merge's second parent is never remapped; see
+// TestApplyPurge_mergeInPrefixLeavesSideParentReachable).
 func purgeMergeInPrefixRepo(t *testing.T) (*Repo, []model.Commit, map[string]bool) {
 	t.Helper()
 	r, dir := purgeTestRepoEmpty(t)
@@ -286,8 +296,9 @@ func purgeMergeInPrefixRepo(t *testing.T) (*Repo, []model.Commit, map[string]boo
 	gitT(t, dir, "commit", "-m", "c0 keep only")
 	gitT(t, dir, "checkout", "-q", "-b", "side")
 	mustWriteFile(t, dir, "junk.log", "noise")
+	mustWriteFile(t, dir, "other-side.txt", "side stuff")
 	gitT(t, dir, "add", ".")
-	gitT(t, dir, "commit", "-m", "SA adds junk only")
+	gitT(t, dir, "commit", "-m", "SA adds junk and another file")
 	gitT(t, dir, "checkout", "-q", "main")
 	gitT(t, dir, "merge", "--no-ff", "-q", "-m", "merge side", "side")
 	mustWriteFile(t, dir, "junk.log", "noise\nmore")
@@ -347,14 +358,32 @@ func TestPurgeBase_extendsPastMergeThatCarriesPathForward(t *testing.T) {
 	}
 }
 
-// TestApplyPurge_mergeInPrefixFullyRemovesPath exercises gitio.ApplyPurge
-// directly — the layer with NO merge-in-suffix guard of its own (that guard
-// lives in safety.Manager.ApplyPurge) — to prove the corrected base actually
-// closes the hole rather than merely computing the right number: once
-// PurgeBase pulls the merge commit into the rewritten range, ApplyPurge
-// strips junk.log from the merge's tree too, so the path is fully gone from
-// the rewritten branch's entire history, not just its tip.
-func TestApplyPurge_mergeInPrefixFullyRemovesPath(t *testing.T) {
+// TestApplyPurge_mergeInPrefixLeavesSideParentReachable is the test-honesty
+// fix for finding 2 of the second final-review round. This test used to be
+// named "...FullyRemovesPath" and asserted gitio.ApplyPurge alone (no merge
+// guard — that lives in safety.Manager.ApplyPurge) fully removes junk.log
+// even through a merge-in-prefix history. That assertion only ever passed
+// because pulling the merge INTO the rewritten range (PurgeBase's fix) does
+// not, by itself, close the whole hole: purgeParents remaps ONLY a commit's
+// FIRST parent (see its own doc comment) — a merge's SECOND parent is never
+// touched. So when the merge is REWRITTEN as a genuine merge object (as
+// opposed to DROPPED, which erases the whole commit — including its
+// second-parent link — see purgeMergeInPrefixRepo's doc comment for why the
+// original single-file fixture always hit the DROP path instead), the
+// rewritten merge's second parent still points at the ORIGINAL, un-rewritten
+// side-branch commit, whose tree still has junk.log. The old test's
+// PathsReachableFrom check never caught this because, before finding 1's
+// second round, that helper used a plain (non-full-history) rev-list — the
+// exact same merge-simplification blind spot PurgeBase itself closes for the
+// forward-purge direction — so it never walked into the stale second parent
+// to notice the reachable blob.
+//
+// This is an accepted limitation of the gitio layer, which has no merge
+// guard of its own by design: safety.Manager.ApplyPurge's merge-in-suffix
+// guard is what actually blocks this case one layer up, BEFORE any rewrite
+// is attempted — see TestApplyPurge_mergeInPrefixBlocksCleanly in
+// internal/safety/purge_test.go.
+func TestApplyPurge_mergeInPrefixLeavesSideParentReachable(t *testing.T) {
 	r, commits, affected := purgeMergeInPrefixRepo(t)
 	spec := model.PurgeSpec{Paths: []string{"junk.log"}}
 
@@ -362,8 +391,11 @@ func TestApplyPurge_mergeInPrefixFullyRemovesPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ApplyPurge: %v", err)
 	}
-	// Before the fix, only the edit commit would have been rewritten and the
-	// merge (frozen, at its original hash) would still carry junk.log.
+	if _, ok := remap.Rewritten[commits[1].Hash]; !ok {
+		t.Fatalf("setup sanity: the merge commit should be REWRITTEN, not dropped — "+
+			"otherwise its stale second parent (what this test is about) never comes into play, remap: %+v", remap)
+	}
+	// The original merge hash must not survive unchanged...
 	out, err := r.git("log", "--format=%H", newHead)
 	if err != nil {
 		t.Fatal(err)
@@ -371,18 +403,127 @@ func TestApplyPurge_mergeInPrefixFullyRemovesPath(t *testing.T) {
 	if strings.Contains(out, commits[1].Hash) {
 		t.Errorf("the original merge commit hash must not survive unchanged in the rewritten history: %s", out)
 	}
-	// The definitive check: no commit reachable from newHead may still touch
-	// junk.log — this is exactly what safety's verifyPurgeAbsence re-checks
-	// at the layer above.
+	// ...yet junk.log remains reachable via the rewritten merge's untouched
+	// second parent (the original, un-rewritten side-branch commit).
+	// --full-history is required for PathsReachableFrom to even see this —
+	// see its doc comment for why a plain rev-list would miss it too.
 	reachable, err := r.PathsReachableFrom(newHead, spec.Paths)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reachable {
-		t.Errorf("junk.log must not be reachable from the rewritten head %s", short(newHead))
+	if !reachable {
+		t.Errorf("junk.log should still be reachable from %s via the merge's stale second parent — "+
+			"gitio.ApplyPurge alone cannot close this; the safety-layer merge guard is what actually blocks it",
+			short(newHead))
 	}
-	if len(remap.Dropped) == 0 && len(remap.Rewritten) == 0 {
-		t.Errorf("expected the merge commit to be either dropped or rewritten, remap: %+v", remap)
+}
+
+// purgePocketRepo builds the "pocket" fixture from finding 1 of the second
+// final-review round: a side branch adds THEN deletes secret.env entirely
+// (net zero by merge time — a "pocket"), merges into main with no further
+// change to that path (so the merge is TREESAME to BOTH parents, and git's
+// default rev-list simplification never even descends into the side
+// branch's own history), and a later main commit adds secret.env directly
+// for real.
+//
+// Empirically verified against real git before writing this fixture:
+// `git rev-list HEAD -- secret.env` (no --full-history) sees ONLY the edit
+// commit; `git rev-list --full-history HEAD -- secret.env` additionally
+// sees the side branch's add and delete commits, even though neither the
+// merge's tree nor any tree after it ever actually contains secret.env. That
+// gap — invisible to a tree-content walk like PurgeBase's, since no
+// surviving tree has anything to see — is exactly what PathsInSideHistory
+// and PathsReachableFrom's --full-history fix close.
+func purgePocketRepo(t *testing.T) (*Repo, []model.Commit, map[string]bool) {
+	t.Helper()
+	r, dir := purgeTestRepoEmpty(t)
+	mustWriteFile(t, dir, "keep.txt", "v1")
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "c0 keep only")
+	gitT(t, dir, "checkout", "-q", "-b", "side")
+	mustWriteFile(t, dir, "secret.env", "s3cr3t")
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "SA side adds secret")
+	gitT(t, dir, "rm", "-q", "secret.env")
+	gitT(t, dir, "commit", "-m", "SD side deletes secret")
+	gitT(t, dir, "checkout", "-q", "main")
+	gitT(t, dir, "merge", "--no-ff", "-q", "-m", "merge side (pocket)", "side")
+	mustWriteFile(t, dir, "secret.env", "s3cr3t2")
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "c_edit main adds secret directly")
+
+	commits, err := r.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) != 3 || !commits[1].IsMerge {
+		t.Fatalf("setup: want [c0, merge, edit] with commits[1] a merge, got %+v", commits)
+	}
+	affected, err := r.AffectedCommits([]string{"secret.env"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(affected) != 1 || !affected[commits[2].Hash] {
+		t.Fatalf("setup: only the edit commit should be in the naive (non-full-history) affected "+
+			"set — the pocket must be entirely invisible to it, got %v", affected)
+	}
+	return r, commits, affected
+}
+
+// TestPathsInSideHistory_detectsPocketCommit is the direct regression test
+// for finding 1's PathsInSideHistory helper: secret.env has no first-parent
+// history of its own beyond the later direct edit, yet the path was also
+// added-then-deleted inside the merged-in side branch. That side-branch
+// history must be detected even though it never surfaces in AffectedCommits'
+// (non-full-history) rev-list, and even though the merge's own tree — the
+// only thing PurgeBase's tree-content walk can see — never contains the path
+// at all (a pocket nets to zero, so there is nothing for a tree-content
+// check to find).
+func TestPathsInSideHistory_detectsPocketCommit(t *testing.T) {
+	r, commits, _ := purgePocketRepo(t)
+	sidePaths, err := r.PathsInSideHistory(commits, []string{"secret.env"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sidePaths) != 1 || sidePaths[0] != "secret.env" {
+		t.Errorf("PathsInSideHistory = %v, want exactly [secret.env]", sidePaths)
+	}
+}
+
+// TestPathsInSideHistory_mergeInPrefixAlsoCounts guards a subtlety: the
+// ordinary merge-in-prefix fixture (junk.log added by a side branch, merged
+// in, later edited directly on main) is NOT free of side-branch history
+// either — the side branch's own "adds junk only" commit is, by definition,
+// off the first-parent chain and its diff genuinely touches junk.log. So
+// PathsInSideHistory correctly reports junk.log here too, even though this
+// case is ALSO (separately) caught by the merge-in-suffix guard once
+// PurgeBase pulls the merge itself into the rewritten range — the two guards
+// overlap for any path with side-branch origin; only a genuine "pocket"
+// (purgePocketRepo) is caught EXCLUSIVELY by this check (see
+// TestPathsInSideHistory_detectsPocketCommit).
+func TestPathsInSideHistory_mergeInPrefixAlsoCounts(t *testing.T) {
+	r, commits, _ := purgeMergeInPrefixRepo(t)
+	sidePaths, err := r.PathsInSideHistory(commits, []string{"junk.log"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sidePaths) != 1 || sidePaths[0] != "junk.log" {
+		t.Errorf("PathsInSideHistory = %v, want [junk.log] (the side branch's own add commit "+
+			"is genuinely off the first-parent chain)", sidePaths)
+	}
+}
+
+// TestPathsInSideHistory_emptyWhenNoSideHistory is the negative companion:
+// a purely linear history with no side branches or merges at all (every
+// commit IS the first-parent chain) must report no side paths, for any path.
+func TestPathsInSideHistory_emptyWhenNoSideHistory(t *testing.T) {
+	r, commits := purgeHistoryRepo(t)
+	sidePaths, err := r.PathsInSideHistory(commits, []string{"junk.log"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sidePaths) != 0 {
+		t.Errorf("PathsInSideHistory = %v, want none (linear history has no side branches at all)", sidePaths)
 	}
 }
 

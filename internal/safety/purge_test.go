@@ -277,6 +277,145 @@ func TestApplyPurge_mergeInPrefixBlocksCleanly(t *testing.T) {
 	}
 }
 
+// purgePocketRepo mirrors the fixture in internal/gitio/purge_test.go's
+// purgePocketRepo (see its doc comment for the empirical git behavior this
+// relies on): a side branch adds THEN deletes secret.env entirely (net zero
+// by merge time — a "pocket"), merges into main with no further change to
+// that path, and a later main commit adds secret.env directly for real.
+// Unlike purgeMergeInPrefixRepo, the merge's own tree never contains
+// secret.env at any point, so gitio.PurgeBase's tree-content walk has no
+// reason to pull the merge into the rewritten range at all — this fixture is
+// caught ONLY by the new PathsInSideHistory guard, not the pre-existing
+// merge-in-suffix one.
+func purgePocketRepo(t *testing.T) *gitio.Repo {
+	t.Helper()
+	dir := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = gittest.Env(dir)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	write := func(name, content string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run("init", "-q")
+	run("symbolic-ref", "HEAD", "refs/heads/main")
+	run("config", "user.name", "wlame")
+	run("config", "user.email", "vvlame@gmail.com")
+	run("config", "commit.gpgsign", "false")
+
+	write("keep.txt", "v1")
+	run("add", ".")
+	run("commit", "-q", "-m", "c0 keep only")
+	run("checkout", "-q", "-b", "side")
+	write("secret.env", "s3cr3t")
+	run("add", ".")
+	run("commit", "-q", "-m", "SA side adds secret")
+	run("rm", "-q", "secret.env")
+	run("commit", "-q", "-m", "SD side deletes secret")
+	run("checkout", "-q", "main")
+	run("merge", "--no-ff", "-q", "-m", "merge side (pocket)", "side")
+	write("secret.env", "s3cr3t2")
+	run("add", ".")
+	run("commit", "-q", "-m", "c_edit main adds secret directly")
+
+	repo, err := gitio.Open(dir)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	return repo
+}
+
+// TestApplyPurge_pocketBlocksCleanly is the safety-layer regression test for
+// finding 1 of the second final-review round: the pocket's merge never
+// carries secret.env in its own tree (net zero), so it is never pulled into
+// the rewritten suffix and the pre-existing merge-in-suffix guard has
+// nothing to catch — only the new PathsInSideHistory-backed guard blocks
+// this. Asserts a clean abort: an error mentioning the side-branch history,
+// and the branch left exactly where it started.
+func TestApplyPurge_pocketBlocksCleanly(t *testing.T) {
+	repo := purgePocketRepo(t)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) != 3 || !commits[1].IsMerge {
+		t.Fatalf("setup: want [c0, merge, edit] with commits[1] a merge, got %+v", commits)
+	}
+	state, err := repo.ReadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := model.PurgeSpec{Paths: []string{"secret.env"}}
+	affected, err := repo.AffectedCommits(spec.Paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldHead := state.HeadHash
+
+	_, err = NewManager(repo).ApplyPurge(commits, spec, affected, state,
+		ApplyOptions{UnixTimestamp: 1, ExpectedHead: oldHead})
+	if err == nil {
+		t.Fatal("a purge whose target path has pocket history on a merged side branch must be blocked")
+	}
+	if !strings.Contains(err.Error(), "side branch") {
+		t.Errorf("error should mention the side branch, got: %v", err)
+	}
+	newHead, err := repo.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newHead != oldHead {
+		t.Errorf("a guard-blocked purge must not move the branch: %s -> %s", shortHash(oldHead), shortHash(newHead))
+	}
+}
+
+// TestVerifyPurgeAbsence_detectsPocketAfterHypotheticalRewrite is the
+// verification-layer test for finding 1: it drives verifyPurgeAbsence
+// directly on the head gitio.ApplyPurge (the layer with no pocket-awareness
+// of its own) actually produces for the pocket fixture, simulating what
+// would happen if the new PathsInSideHistory guard did not exist or ever
+// regressed. Because the merge's tree never contains secret.env, PurgeBase
+// has no reason to pull it into the rewritten range: gitio.ApplyPurge only
+// rewrites the later "c_edit" commit and leaves the merge completely
+// untouched, still pointing (via its second parent) at the side branch's own
+// SA commit, whose tree still has secret.env. Before PathsReachableFrom
+// gained --full-history, this check would have wrongly reported "not
+// reachable" for exactly the same merge-simplification reason
+// PathsInSideHistory itself has to work around — this proves the fix closes
+// that false-pass, independent of the guard added above.
+func TestVerifyPurgeAbsence_detectsPocketAfterHypotheticalRewrite(t *testing.T) {
+	repo := purgePocketRepo(t)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := model.PurgeSpec{Paths: []string{"secret.env"}}
+	affected, err := repo.AffectedCommits(spec.Paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Bypass the new guard entirely: call gitio.ApplyPurge directly, exactly
+	// as safety.Manager.ApplyPurge's own Rewrite step does, to get the head a
+	// hypothetical unguarded rewrite would produce.
+	newHead, _, err := repo.ApplyPurge(commits, spec, affected, gitio.DropSignatures)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr := NewManager(repo)
+	if err := mgr.verifyPurgeAbsence(newHead, spec.Paths); err == nil {
+		t.Fatal("verifyPurgeAbsence should catch the pocket's secret.env still reachable via the " +
+			"merge's untouched second parent, even with no guard involved")
+	} else if !strings.Contains(err.Error(), "still reachable") {
+		t.Errorf("error should mention reachability, got: %v", err)
+	}
+}
+
 // TestVerifyPurgeAbsence_detectsPathStillReachable unit-tests the CRITICAL
 // finding 1 (b) safety net directly: verifyPurgeAbsence must fire whenever a
 // path is still reachable from the given head, independent of how that head

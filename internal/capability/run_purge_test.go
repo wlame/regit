@@ -417,6 +417,86 @@ func TestRunPurge_wouldEmptyBranchExitsGuardBlocked(t *testing.T) {
 	}
 }
 
+// newPurgeRepoWithPocket builds the "pocket" fixture from finding 1 of the
+// second final-review round (mirroring internal/gitio/purge_test.go's and
+// internal/safety/purge_test.go's purgePocketRepo): a side branch adds THEN
+// deletes secret.env entirely (net zero by merge time), merges into main
+// with no further change to that path, and a later main commit adds
+// secret.env directly for real. The merge's own tree never contains
+// secret.env, so gitio.PurgeBase's tree-content walk never pulls it into the
+// rewritten range — this fixture is caught only by the new
+// PathsInSideHistory-backed guard, not the pre-existing merge-in-suffix one.
+func newPurgeRepoWithPocket(t *testing.T) *gitio.Repo {
+	t.Helper()
+	dir := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = gittest.Env(dir)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	write := func(name, content string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run("init", "-q", "-b", "main")
+	write("keep.txt", "v1")
+	run("add", ".")
+	run("commit", "-q", "-m", "c0 keep only")
+	run("checkout", "-q", "-b", "side")
+	write("secret.env", "s3cr3t")
+	run("add", ".")
+	run("commit", "-q", "-m", "SA side adds secret")
+	run("rm", "-q", "secret.env")
+	run("commit", "-q", "-m", "SD side deletes secret")
+	run("checkout", "-q", "main")
+	run("merge", "--no-ff", "-q", "-m", "merge side (pocket)", "side")
+	write("secret.env", "s3cr3t2")
+	run("add", ".")
+	run("commit", "-q", "-m", "c_edit main adds secret directly")
+
+	repo, err := gitio.Open(dir)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	return repo
+}
+
+// TestRunPurge_pocketExitsGuardBlocked is the end-to-end (headless CLI)
+// regression test for finding 1 of the second final-review round: without
+// the new PathsInSideHistory pre-check, this exact scenario would have
+// sailed straight through runPurge's merge-scan and would-empty pre-checks
+// (the pocket merge never lands in commits[base:] at all) and into
+// safety.ApplyPurge's Rewrite step, which — before PathsReachableFrom also
+// gained --full-history — would have reported success while secret.env
+// stayed reachable via the merge's untouched second parent. Asserts exit 2
+// and that HEAD never moved.
+func TestRunPurge_pocketExitsGuardBlocked(t *testing.T) {
+	repo := newPurgeRepoWithPocket(t)
+	var out bytes.Buffer
+	ctx := newPurgeCtx(&out, repo)
+	before, _ := repo.ReadState()
+
+	a, err := Parse(mustLookup(t, "purge"), []string{"secret.env", "--execute"})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	err = runPurge(ctx, a)
+	if got := ExitCode(err); got != 2 {
+		t.Fatalf("pocket purge exit = %d, want 2 (err=%v)", got, err)
+	}
+	if !strings.Contains(err.Error(), "side branch") {
+		t.Errorf("error should mention the side branch, got: %v", err)
+	}
+	after, _ := repo.ReadState()
+	if before.HeadHash != after.HeadHash {
+		t.Error("guard-blocked purge must not move HEAD")
+	}
+}
+
 // TestRunPurge_searchSanitizesEscapeSequences is the IMPORTANT finding 2
 // regression test: a history path carrying a raw terminal escape sequence
 // (here an OSC "set window title" payload terminated by BEL) must never reach

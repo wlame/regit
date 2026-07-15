@@ -50,6 +50,30 @@ func (m *Manager) ApplyPurge(commits []model.Commit, spec model.PurgeSpec, affec
 					return fmt.Errorf("cannot purge across merge commit %s", shortHash(c.Hash))
 				}
 			}
+			// A path can have history on a merged-in side branch that never
+			// touches the first-parent chain commits represents at all — including
+			// a "pocket" (added then removed within the side branch, net zero by
+			// merge time) that gitio.PurgeBase's tree-content walk cannot see,
+			// since no surviving tree ever contains it, so the merge is never
+			// pulled into suffix and the check above has nothing to catch. regit
+			// only rewrites the first-parent chain, so this can never be purged
+			// either way; checking it here (before any rewrite) turns what would
+			// otherwise be a late abort in verifyPurgeAbsence into a clear,
+			// up-front guard failure. Checked AFTER the merge-in-suffix loop
+			// above on purpose: a path that came from a side branch always has
+			// that branch's own add commit sitting off the first-parent chain, so
+			// this check is a superset of the merge-in-suffix one — ordering it
+			// second keeps the merge-in-suffix guard's own error message (naming
+			// the specific commit) as the one users see for that already-covered
+			// case, reserving this message for cases the other guard can't catch.
+			sidePaths, err := m.repo.PathsInSideHistory(commits, spec.Paths)
+			if err != nil {
+				return fmt.Errorf("check side-branch history: %w", err)
+			}
+			if len(sidePaths) > 0 {
+				return fmt.Errorf("%s also exists in a merged side branch's history, which regit cannot rewrite — see git filter-repo",
+					strings.Join(sidePaths, ", "))
+			}
 			if state.IsDirty {
 				return fmt.Errorf("rewrite blocked: working tree is dirty")
 			}

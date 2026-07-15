@@ -32,6 +32,12 @@ type purgeChange struct {
 	// where the rewritten suffix starts (see gitio.PurgeBase's doc comment
 	// for why the naive boundary alone is not safe to trust).
 	base int
+	// sidePaths holds any spec.Paths entries gitio.PathsInSideHistory found
+	// touched by a merged-in side branch's own history (including a "pocket":
+	// added then removed within the side branch before it merged) — computed
+	// once at stage time alongside base. regit can never purge these, so
+	// guard() blocks on them the same way the safety/capability layers do.
+	sidePaths []string
 }
 
 func (c purgeChange) commandLines() []string {
@@ -62,6 +68,17 @@ func (c purgeChange) guard(state model.RepoState) safety.Guard {
 		if cm.IsMerge {
 			return safety.Guard{Blocked: true, BlockReason: "cannot purge across a merge commit"}
 		}
+	}
+	// Checked AFTER the merge-in-suffix loop above on purpose — see
+	// safety.Manager.ApplyPurge's Guards closure for why this check is a
+	// superset of that one (a side-branch-sourced path always has that
+	// branch's own add commit off the first-parent chain), so ordering it
+	// second keeps the merge guard's more specific message for the case it
+	// already covers.
+	if len(c.sidePaths) > 0 {
+		return safety.Guard{Blocked: true, BlockReason: fmt.Sprintf(
+			"%s also exists in a merged side branch's history, which regit cannot rewrite — see git filter-repo",
+			strings.Join(c.sidePaths, ", "))}
 	}
 	if state.IsDirty {
 		return safety.Guard{Blocked: true,
@@ -278,7 +295,17 @@ func (m Model) stagePurge() (tea.Model, tea.Cmd) {
 		m.purgeSt.errMsg = "compute purge base: " + err.Error()
 		return m, nil
 	}
-	change := purgeChange{spec: spec, affected: affected, pv: pv, commits: m.plan.Commits, base: base,
+	// sidePaths mirrors the same up-front check safety.Manager.ApplyPurge and
+	// runPurge perform (see gitio.PathsInSideHistory's doc comment): a path
+	// with history on a merged-in side branch — including a "pocket" that
+	// nets to zero by merge time — can never be purged, since regit only
+	// rewrites the first-parent chain.
+	sidePaths, err := m.repo.PathsInSideHistory(m.plan.Commits, spec.Paths)
+	if err != nil {
+		m.purgeSt.errMsg = "check side-branch history: " + err.Error()
+		return m, nil
+	}
+	change := purgeChange{spec: spec, affected: affected, pv: pv, commits: m.plan.Commits, base: base, sidePaths: sidePaths,
 		cmd: capability.Render("purge", capability.PurgeArgMap(paths))}
 	guard := change.guard(m.state)
 	if guard.Blocked {
