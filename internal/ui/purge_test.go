@@ -124,11 +124,32 @@ func TestRenderPurgeWizard_showsMatchesAndSelection(t *testing.T) {
 	st = st.refreshMatches()
 	st.selected["junk.log"] = true
 	st.errMsg = "boom"
-	out := renderPurgeWizard(st, idx.AddedIn, newStyles())
+	out := renderPurgeWizard(st, purgeDirSet(idx), newStyles())
 	for _, want := range []string{"jun", "junk.log", "[x]", "boom"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("wizard missing %q:\n%s", want, out)
 		}
+	}
+}
+
+// TestRenderPurgeWizard_renameDestinationHasNoTrailingSlash guards against
+// classifying file-vs-directory by AddedIn membership: util.py is a rename
+// destination (an R record in purgeTestIndex, never a plain "A" add) and so
+// is absent from AddedIn, but it is still a file — it must render without
+// the directory-only trailing "/".
+func TestRenderPurgeWizard_renameDestinationHasNoTrailingSlash(t *testing.T) {
+	idx := purgeTestIndex()
+	st := newPurgeState()
+	st.scanning = false
+	st.index = idx
+	st.query.SetValue("help")
+	st = st.refreshMatches()
+	out := renderPurgeWizard(st, purgeDirSet(idx), newStyles())
+	if !strings.Contains(out, "util.py") {
+		t.Fatalf("expected util.py among the matches:\n%s", out)
+	}
+	if strings.Contains(out, "util.py/") {
+		t.Errorf("util.py is a rename destination, not a directory — it must not render with a trailing slash:\n%s", out)
 	}
 }
 
@@ -146,7 +167,9 @@ func TestPurgeChange_previewMarksDropsAndPaths(t *testing.T) {
 	pc := purgeChange{spec: model.PurgeSpec{Paths: []string{"junk.log"}}, pv: pv, commits: commits}
 	pm := pc.preview(newStyles())
 	joined := strings.Join(pm.lines, "\n")
-	for _, want := range []string{"junk.log", "✖", "3 later commit"} {
+	// "carried forward" must match the CLI wording in run_purge.go and the
+	// amendment exactly, so the two surfaces cannot silently drift apart.
+	for _, want := range []string{"junk.log", "✖", "3 later commit", "carried forward"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("preview missing %q:\n%s", want, joined)
 		}
@@ -159,5 +182,39 @@ func TestPurgeChange_guardBlocksDirtyTree(t *testing.T) {
 	g := pc.guard(model.RepoState{IsDirty: true})
 	if !g.Blocked {
 		t.Error("a dirty tree should block the purge guard")
+	}
+}
+
+// TestUpdatePurge_staleScanMsgDiscarded exercises the beginPurge/purgeScanMsg
+// generation guard: reopening the wizard (a second beginPurge) bumps scanSeq,
+// so a result from the first, now-abandoned scan must not clobber the second
+// scan's already-applied index — mirrors the splitGenSeq guard on splitResultMsg.
+func TestUpdatePurge_staleScanMsgDiscarded(t *testing.T) {
+	m := Model{}
+	updated, _, _ := m.beginPurge()
+	m = updated.(Model)
+	staleSeq := m.purgeSt.scanSeq
+
+	updated, _, _ = m.beginPurge() // reopen: a second, unrelated scan generation
+	m = updated.(Model)
+	if m.purgeSt.scanSeq == staleSeq {
+		t.Fatalf("beginPurge should bump scanSeq on each invocation, got %d both times", staleSeq)
+	}
+
+	currentIdx := purgeTestIndex()
+	out, _ := m.Update(purgeScanMsg{index: currentIdx, seq: m.purgeSt.scanSeq})
+	m = out.(Model)
+	if m.purgeSt.index != currentIdx {
+		t.Fatal("the current generation's scan result should be applied")
+	}
+
+	staleIdx := &gitio.PathIndex{}
+	out, _ = m.Update(purgeScanMsg{index: staleIdx, seq: staleSeq})
+	m = out.(Model)
+	if m.purgeSt.index != currentIdx {
+		t.Error("a stale-seq purgeScanMsg must not overwrite the current index")
+	}
+	if m.purgeSt.index == staleIdx {
+		t.Error("the stale scan's index must never be applied")
 	}
 }

@@ -554,6 +554,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case purgeScanMsg:
+		// Ignore a result for an abandoned scan (the wizard was closed and
+		// reopened, or reopened again before the first scan returned). The seq
+		// token, not the mode alone, identifies the specific in-flight scan —
+		// mirrors the splitResultMsg guard above.
+		if m.mode != modePurge || msg.seq != m.purgeSt.scanSeq {
+			return m, nil
+		}
 		m.purgeSt.scanning = false
 		if msg.err != nil {
 			m.purgeSt.scanErr = msg.err.Error()
@@ -1231,11 +1238,14 @@ func (m Model) storageIndexAtCursor() int {
 }
 
 // spinnerBusy reports whether any async generation is in flight that the shared
-// throbber animates: a split proposal, one or more reword variants, or a squash
-// summary. When nothing is pending the spinner tick loop stops re-arming itself so
-// the UI goes fully idle instead of waking every ~100ms.
+// throbber animates: a split proposal, one or more reword variants, a squash
+// summary, or a purge history scan. When nothing is pending the spinner tick loop
+// stops re-arming itself so the UI goes fully idle instead of waking every ~100ms.
 func (m Model) spinnerBusy() bool {
 	if m.mode == modeSplitGen || len(m.rewordSt.inFlight) > 0 {
+		return true
+	}
+	if m.mode == modePurge && m.purgeSt.scanning {
 		return true
 	}
 	for _, loading := range m.squashSt.loading {

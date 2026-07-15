@@ -91,7 +91,8 @@ func (c purgeChange) preview(st styles) previewModel {
 		}
 	}
 	if c.pv.Reparented > 0 {
-		lines = append(lines, st.dim.Render(fmt.Sprintf("  … plus %d later commit(s) reparented unchanged", c.pv.Reparented)))
+		lines = append(lines, st.dim.Render(fmt.Sprintf(
+			"  … plus %d later commit(s) carried forward (their own changes untouched)", c.pv.Reparented)))
 	}
 	return previewModel{title: c.title(), lines: lines}
 }
@@ -113,12 +114,22 @@ type purgeState struct {
 	cursor   int
 	selected map[string]bool
 	errMsg   string
+
+	// scanSeq is a per-invocation generation token, incremented by beginPurge
+	// before every dispatch. A purgeScanMsg is only accepted if its seq still
+	// matches, so a result from an abandoned scan (the wizard was reopened,
+	// starting a fresh one) is dropped instead of clobbering the current
+	// generation's already-applied result — mirrors splitGenSeq's guard for
+	// splitResultMsg (see Update's splitResultMsg case).
+	scanSeq int
 }
 
-// purgeScanMsg delivers the async history scan (or its failure).
+// purgeScanMsg delivers the async history scan (or its failure). seq ties the
+// result back to the beginPurge invocation that started it; see purgeState.scanSeq.
 type purgeScanMsg struct {
 	index *gitio.PathIndex
 	err   error
+	seq   int
 }
 
 // newPurgeState builds the wizard state with the scan already marked in
@@ -134,13 +145,18 @@ func newPurgeState() purgeState {
 }
 
 // beginPurge opens the finder and kicks off the history scan off-thread.
+// The scan sequence is bumped from the outgoing state so a late result from a
+// prior invocation (the wizard was reopened before its scan finished) is
+// recognizable as stale once the new one lands.
 func (m Model) beginPurge() (tea.Model, tea.Cmd, bool) {
+	seq := m.purgeSt.scanSeq + 1
 	m.purgeSt = newPurgeState()
+	m.purgeSt.scanSeq = seq
 	m.mode = modePurge
 	repo := m.repo
 	scan := func() tea.Msg {
 		idx, err := repo.ScanHistoryPaths()
-		return purgeScanMsg{index: idx, err: err}
+		return purgeScanMsg{index: idx, err: err, seq: seq}
 	}
 	return m, tea.Batch(scan, m.spinner.Tick), true
 }
@@ -258,8 +274,12 @@ func (m Model) stagePurge() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// renderPurgeWizard renders the finder modal body (pure, testable).
-func renderPurgeWizard(st purgeState, idxAdded map[string]string, s styles) string {
+// renderPurgeWizard renders the finder modal body (pure, testable). dirs is
+// the set of paths the index classifies as directories (gitio.PathIndex.Dirs,
+// as a lookup set) — the authoritative source for the trailing "/" suffix.
+// AddedIn membership is NOT a valid stand-in: a rename destination is never a
+// plain "A" add, so checking AddedIn instead would mislabel it as a directory.
+func renderPurgeWizard(st purgeState, dirs map[string]bool, s styles) string {
 	var b strings.Builder
 	b.WriteString(s.modalTitle.Render("PURGE FROM HISTORY") + "\n\n")
 	b.WriteString("Find    " + st.query.View() + "\n\n")
@@ -283,7 +303,7 @@ func renderPurgeWizard(st purgeState, idxAdded map[string]string, s styles) stri
 				check = "[x]"
 			}
 			row := p
-			if _, isFile := idxAdded[p]; !isFile {
+			if dirs[p] {
 				row += "/"
 			}
 			line := fmt.Sprintf("%s %s", check, truncate(row, 56))
@@ -306,11 +326,29 @@ func renderPurgeWizard(st purgeState, idxAdded map[string]string, s styles) stri
 	return b.String()
 }
 
-// viewPurge frames the wizard in the modal style.
-func (m Model) viewPurge() string {
-	var added map[string]string
-	if m.purgeSt.index != nil {
-		added = m.purgeSt.index.AddedIn
+// purgeDirSet builds the directory-membership lookup renderPurgeWizard needs
+// from a scanned index's sorted Dirs slice. Shared by viewPurge and tests so
+// the set-building logic lives in exactly one place.
+func purgeDirSet(idx *gitio.PathIndex) map[string]bool {
+	if idx == nil {
+		return nil
 	}
-	return m.st.modal.Render(renderPurgeWizard(m.purgeSt, added, m.st))
+	dirs := make(map[string]bool, len(idx.Dirs))
+	for _, d := range idx.Dirs {
+		dirs[d] = true
+	}
+	return dirs
+}
+
+// viewPurge renders the wizard overlay. renderPurgeWizard is a pure function
+// (used directly in tests without a spinner), so the shared spinner is
+// spliced in here as a post-processing step, mirroring viewSquash: while the
+// scan is in flight its static "scanning history…" line is swapped for the
+// ticking frame.
+func (m Model) viewPurge() string {
+	body := renderPurgeWizard(m.purgeSt, purgeDirSet(m.purgeSt.index), m.st)
+	if m.purgeSt.scanning {
+		body = strings.ReplaceAll(body, "scanning history…", m.spinner.View()+" scanning history…")
+	}
+	return m.st.modal.Render(body)
 }
