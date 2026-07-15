@@ -303,3 +303,104 @@ func TestE2E_repoFlag(t *testing.T) {
 		t.Errorf("expected the empty backup list:\n%s", out)
 	}
 }
+
+// e2ePurgeRepo builds a three-commit repo for the purge e2e test: c0 adds
+// keep.txt, c1 adds junk.log alone (purge must drop that commit entirely),
+// c2 touches both keep.txt and junk.log (purge must rewrite, not drop, it).
+// Modeled on capability.purgeFixtureFiles, adapted to e2eRepo's git
+// conventions (single shared timestamp, gittest.Env).
+func e2ePurgeRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	git := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = gittest.Env(dir,
+			"GIT_AUTHOR_DATE=2026-06-05T14:00:00+00:00",
+			"GIT_COMMITTER_DATE=2026-06-05T14:00:00+00:00")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	git("init", "-q")
+	git("symbolic-ref", "HEAD", "refs/heads/main")
+	git("config", "commit.gpgsign", "false")
+	commitFiles := []map[string]string{
+		{"keep.txt": "v1"},
+		{"junk.log": "noise"},
+		{"keep.txt": "v2", "junk.log": "more"},
+	}
+	for i, files := range commitFiles {
+		for name, content := range files {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		git("add", "-A")
+		git("commit", "-q", "-m", fmt.Sprintf("commit %d", i))
+	}
+	return dir
+}
+
+// TestE2E_purgePreviewExecuteUndo drives purge's full lifecycle through the
+// built binary: --search discovery, dry-run preview, --execute removal, and
+// undo — mirroring TestE2E_previewExecuteUndo's redate lifecycle for purge.
+func TestE2E_purgePreviewExecuteUndo(t *testing.T) {
+	dir := e2ePurgeRepo(t)
+	before := headOf(t, dir)
+
+	// 1. --search finds junk.log among history paths, read-only.
+	out, code := runRegit(t, dir, "purge", "--search=junk")
+	if code != 0 {
+		t.Fatalf("search: exit %d\n%s", code, out)
+	}
+	if !strings.Contains(out, "junk.log") {
+		t.Errorf("expected --search to list junk.log:\n%s", out)
+	}
+
+	// 2. Dry-run preview: the junk-only commit is marked dropped, the
+	// dry-run marker prints, and HEAD does not move.
+	out, code = runRegit(t, dir, "purge", "junk.log")
+	if code != 0 {
+		t.Fatalf("dry-run: exit %d\n%s", code, out)
+	}
+	if !strings.Contains(out, "will be dropped") {
+		t.Errorf("expected a drop marker for the junk-only commit:\n%s", out)
+	}
+	if !strings.Contains(out, "dry run") {
+		t.Errorf("expected the dry-run marker:\n%s", out)
+	}
+	if headOf(t, dir) != before {
+		t.Fatal("dry-run moved HEAD")
+	}
+
+	// 3. --execute rewrites branch history so junk.log's history on main is
+	// gone. The backup ref intentionally still reaches the old commits, so
+	// the absence proof must be branch-scoped ("log main"), never --all.
+	// The working tree is untouched: junk.log stays on disk, now untracked.
+	out, code = runRegit(t, dir, "purge", "junk.log", "--execute")
+	if code != 0 {
+		t.Fatalf("execute: exit %d\n%s", code, out)
+	}
+	rewritten := headOf(t, dir)
+	if rewritten == before {
+		t.Fatal("--execute did not move HEAD")
+	}
+	if lines := gitLines(t, dir, "log", "main", "--", "junk.log"); len(lines) != 0 {
+		t.Errorf("junk.log should have no history left on main, got: %v", lines)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "junk.log")); err != nil {
+		t.Errorf("junk.log should still exist on disk (working tree untouched): %v", err)
+	}
+
+	// 4. undo restores the pre-purge head. undo takes no --execute — it acts
+	// immediately (the registry's undo entry lists "regit undo --execute" as
+	// a Bad example: undo is exempt from dry-run).
+	out, code = runRegit(t, dir, "undo")
+	if code != 0 {
+		t.Fatalf("undo: exit %d\n%s", code, out)
+	}
+	if headOf(t, dir) != before {
+		t.Errorf("undo did not restore the original head")
+	}
+}
