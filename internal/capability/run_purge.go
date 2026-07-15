@@ -9,6 +9,7 @@ import (
 	"github.com/wlame/regit/internal/gitio"
 	"github.com/wlame/regit/internal/model"
 	"github.com/wlame/regit/internal/safety"
+	"github.com/wlame/regit/internal/termsafe"
 )
 
 // PurgePreview is everything both preview surfaces (CLI dry-run and the TUI
@@ -31,15 +32,22 @@ type PurgePreview struct {
 // BuildPurgePreview predicts the purge's effect: a commit whose full touched-
 // file list lies under the purge paths will be dropped. Directory selections
 // stay directories — member files are never listed.
+//
+// The rewritten-range boundary is gitio.PurgeBase, the SAME helper
+// gitio.ApplyPurge and safety.Manager.ApplyPurge use — so Reparented (and the
+// merge / would-empty pre-checks in runPurge, which reuse this preview's
+// Dropped map) always agree with what the actual apply will do, even when a
+// merge commit that never shows up in affected still has to be pulled into
+// the rewritten range (see PurgeBase's doc comment).
 func BuildPurgePreview(repo *gitio.Repo, commits []model.Commit, spec model.PurgeSpec, affected map[string]bool) (PurgePreview, error) {
 	pv := PurgePreview{Paths: spec.Paths, Dropped: map[string]bool{}}
-	firstAffected := -1
-	for i, c := range commits {
+	base, err := repo.PurgeBase(commits, spec.Paths, affected)
+	if err != nil {
+		return PurgePreview{}, err
+	}
+	for _, c := range commits {
 		if !affected[c.Hash] {
 			continue
-		}
-		if firstAffected < 0 {
-			firstAffected = i
 		}
 		pv.Affected = append(pv.Affected, c)
 		files, err := repo.CommitTouchedFiles(c.Hash)
@@ -57,8 +65,8 @@ func BuildPurgePreview(repo *gitio.Repo, commits []model.Commit, spec model.Purg
 			pv.Dropped[c.Hash] = true
 		}
 	}
-	if firstAffected >= 0 {
-		pv.Reparented = len(commits) - firstAffected - len(pv.Affected)
+	if base >= 0 {
+		pv.Reparented = len(commits) - base - len(pv.Affected)
 	}
 	return pv, nil
 }
@@ -78,13 +86,23 @@ func runPurge(ctx *RunContext, a ParsedArgs) error {
 			return nil
 		}
 		for _, p := range matches {
+			// p (and the rename chain below) are history-derived paths, printed
+			// verbatim to the terminal: termsafe.Line strips any embedded escape
+			// sequence for DISPLAY ONLY. The lookups into idx.AddedIn and
+			// idx.RenameChain below use the raw p, never the sanitized copy, so
+			// matching/selection is unaffected.
+			display := termsafe.Line(p)
 			if added, ok := idx.AddedIn[p]; ok {
-				fmt.Fprintf(ctx.Stdout, "%s\t(added in %s)\n", p, Short(added))
+				fmt.Fprintf(ctx.Stdout, "%s\t(added in %s)\n", display, Short(added))
 			} else {
-				fmt.Fprintf(ctx.Stdout, "%s/\t(directory)\n", p)
+				fmt.Fprintf(ctx.Stdout, "%s/\t(directory)\n", display)
 			}
 			if chain := idx.RenameChain(p); len(chain) > 1 {
-				fmt.Fprintf(ctx.Stdout, "\trename chain: %v\n", chain)
+				safeChain := make([]string, len(chain))
+				for i, c := range chain {
+					safeChain[i] = termsafe.Line(c)
+				}
+				fmt.Fprintf(ctx.Stdout, "\trename chain: %v\n", safeChain)
 			}
 		}
 		return nil
@@ -136,22 +154,45 @@ func runPurge(ctx *RunContext, a ParsedArgs) error {
 	if state.IsDirty {
 		return guardErr("working tree has uncommitted changes; commit or stash them first")
 	}
-	// commits[firstAffected:] is the same rewritten suffix BuildPurgePreview
-	// used to compute Reparented: gitio.ApplyPurge rewrites every commit's
-	// tree from the first affected commit onward (trees are full snapshots),
-	// so an already-pushed commit anywhere in that suffix — even one whose own
-	// changes were never under the purge paths — needs --force before its
-	// hash is rewritten out from under a remote. Mirrors run_split.go and
-	// run_squash.go, which scope model.AnyPushed to their own rewrite ranges
-	// rather than to whether the branch has any upstream at all.
-	firstAffected := -1
-	for i, c := range commits {
-		if affected[c.Hash] {
-			firstAffected = i
-			break
+	// base is the SAME corrected rewrite boundary safety.Manager.ApplyPurge
+	// and gitio.ApplyPurge independently recompute via gitio.PurgeBase (see
+	// its doc comment): the first commits[i] flagged in affected, walked
+	// backward past any earlier commit whose tree still carries a purge path
+	// (the merge-simplification blind spot). Pre-checking the merge and
+	// would-empty conditions here — on the SAME base — means
+	// safety.ApplyPurge's own equivalent guards are never the ones that fire,
+	// so a blocked purge reports exit 2 (guard) instead of exit 3 (runtime
+	// error from a plain, sentinel-less Go error), matching split/squash.
+	base, err := repo.PurgeBase(commits, spec.Paths, affected)
+	if err != nil {
+		return runtimeErr("compute purge base: %v", err)
+	}
+	if base < 0 {
+		return runtimeErr("purge base: affected commits not on this branch")
+	}
+	for _, c := range commits[base:] {
+		if c.IsMerge {
+			return guardErr("cannot purge across merge commit %s", Short(c.Hash))
 		}
 	}
-	if firstAffected >= 0 && model.AnyPushed(commits[firstAffected:]) && !a.Bool("force") {
+	// pv.Dropped was computed by BuildPurgePreview over the same commits and
+	// affected set; when the corrected base starts at the branch root AND
+	// every commit from there on is predicted dropped, the purge would leave
+	// no commit at all — the same condition gitio.ApplyPurge signals by
+	// returning newHead == "", which safety.ApplyPurge otherwise only catches
+	// with a plain (non-guard) error deep inside the rewrite step.
+	if base == 0 && len(pv.Dropped) == len(commits)-base {
+		return guardErr("purge would remove every commit on the branch")
+	}
+	// commits[base:] is the same rewritten suffix BuildPurgePreview used to
+	// compute Reparented: gitio.ApplyPurge rewrites every commit's tree from
+	// the base commit onward (trees are full snapshots), so an already-pushed
+	// commit anywhere in that suffix — even one whose own changes were never
+	// under the purge paths — needs --force before its hash is rewritten out
+	// from under a remote. Mirrors run_split.go and run_squash.go, which
+	// scope model.AnyPushed to their own rewrite ranges rather than to
+	// whether the branch has any upstream at all.
+	if model.AnyPushed(commits[base:]) && !a.Bool("force") {
 		return guardErr("some commits are already pushed — re-run with --force to rewrite them")
 	}
 	sm, err := signMode(ctx, a)
@@ -200,7 +241,14 @@ func purgeSuggestions(repo *gitio.Repo, paths []string) string {
 	if len(cands) > 5 {
 		cands = cands[:5]
 	}
-	return fmt.Sprintf(" — did you mean: %v?", cands)
+	// cands are history-derived paths folded into a usage-error string that
+	// ultimately reaches the terminal; sanitize for DISPLAY ONLY (the sort
+	// above, and any earlier matching, already ran against the raw values).
+	safeCands := make([]string, len(cands))
+	for i, c := range cands {
+		safeCands[i] = termsafe.Line(c)
+	}
+	return fmt.Sprintf(" — did you mean: %v?", safeCands)
 }
 
 // printPurgePreview renders paths, then affected commits newest-first with
@@ -217,7 +265,9 @@ func printPurgePreview(w io.Writer, pv PurgePreview) {
 		if pv.Dropped[c.Hash] {
 			marker = "✖ will be dropped"
 		}
-		fmt.Fprintf(w, "  %s  %-50s %s\n", Short(c.Hash), c.Subject, marker)
+		// c.Subject is the repo-derived commit subject; sanitize for DISPLAY
+		// ONLY (pv.Dropped is keyed on c.Hash, never on this rendered text).
+		fmt.Fprintf(w, "  %s  %-50s %s\n", Short(c.Hash), termsafe.Line(c.Subject), marker)
 	}
 	if pv.Reparented > 0 {
 		fmt.Fprintf(w, "  … plus %d later commit(s) carried forward (their own changes untouched)\n", pv.Reparented)

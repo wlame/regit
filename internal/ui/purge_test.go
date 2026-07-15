@@ -176,6 +176,51 @@ func TestPurgeChange_previewMarksDropsAndPaths(t *testing.T) {
 	}
 }
 
+// TestRenderPurgeWizard_sanitizesEscapeSequenceInMatchRow is the ui-layer
+// IMPORTANT finding 2 regression test (wizard match rows, site 4): a
+// history-derived match containing a raw OSC escape sequence must not reach
+// the rendered wizard body verbatim. termsafe strips the whole OSC payload
+// (introducer through terminator — see termsafe_test.go), so the injected
+// text itself must be gone while the surrounding legitimate text survives.
+func TestRenderPurgeWizard_sanitizesEscapeSequenceInMatchRow(t *testing.T) {
+	scan := "\x00h1\n" + "A\tevil\x1b]0;PWNED\x07.txt\n"
+	idx := gitio.ParsePathScan(scan)
+	st := newPurgeState()
+	st.scanning = false
+	st.index = idx
+	st.query.SetValue("evil")
+	st = st.refreshMatches()
+	out := renderPurgeWizard(st, purgeDirSet(idx), newStyles())
+	if strings.ContainsAny(out, "\x1b\x07") || strings.Contains(out, "PWNED") {
+		t.Fatalf("wizard output leaked the raw OSC payload: %q", out)
+	}
+	if !strings.Contains(out, "evil.txt") {
+		t.Errorf("sanitization should keep the legitimate text around the escape sequence, got: %q", out)
+	}
+}
+
+// TestPurgeChange_previewSanitizesCommitSubject is the ui-layer companion for
+// site 5 (purgeChange.preview's subject rows): a repo-derived commit subject
+// carrying a raw escape sequence must not reach the staged-change preview
+// verbatim.
+func TestPurgeChange_previewSanitizesCommitSubject(t *testing.T) {
+	commits := []model.Commit{{Hash: "aaaa1111", Subject: "evil\x1b]0;PWNED\x07 subject"}}
+	pv := capability.PurgePreview{
+		Paths:    []string{"junk.log"},
+		Affected: commits,
+		Dropped:  map[string]bool{"aaaa1111": true},
+	}
+	pc := purgeChange{spec: model.PurgeSpec{Paths: []string{"junk.log"}}, pv: pv, commits: commits}
+	pm := pc.preview(newStyles())
+	joined := strings.Join(pm.lines, "\n")
+	if strings.ContainsAny(joined, "\x1b\x07") || strings.Contains(joined, "PWNED") {
+		t.Fatalf("preview leaked the raw OSC payload: %q", joined)
+	}
+	if !strings.Contains(joined, "evil subject") {
+		t.Errorf("sanitization should keep the legitimate text around the escape sequence, got: %q", joined)
+	}
+}
+
 func TestPurgeChange_guardBlocksDirtyTree(t *testing.T) {
 	commits := []model.Commit{{Hash: "a"}, {Hash: "b"}}
 	pc := purgeChange{commits: commits, affected: map[string]bool{"b": true}, pv: capability.PurgePreview{}}

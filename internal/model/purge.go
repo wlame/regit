@@ -14,9 +14,10 @@ type PurgeSpec struct {
 	Paths []string
 }
 
-// Validate rejects empty, absolute, escaping, glob-carrying, and duplicate
-// paths. Paths are matched byte-exactly against history, so no cleaning is
-// applied beyond validation — callers pass paths discovered by the scan.
+// Validate rejects empty, absolute, escaping, glob-carrying, pathspec-magic,
+// the repo-root ".", and duplicate paths. Paths are matched byte-exactly
+// against history, so no cleaning is applied beyond validation — callers pass
+// paths discovered by the scan.
 func (s PurgeSpec) Validate() error {
 	if len(s.Paths) == 0 {
 		return fmt.Errorf("purge: no paths given")
@@ -26,10 +27,14 @@ func (s PurgeSpec) Validate() error {
 		switch {
 		case p == "":
 			return fmt.Errorf("purge: empty path")
+		case p == ".":
+			return fmt.Errorf("purge: %q is not a valid path to purge", p)
 		case strings.HasPrefix(p, "/"):
 			return fmt.Errorf("purge: %q is absolute; paths are repo-relative", p)
 		case p != path.Clean(p) || strings.HasPrefix(p, ".."):
 			return fmt.Errorf("purge: %q must be a clean repo-relative path", p)
+		case strings.HasPrefix(p, ":"):
+			return fmt.Errorf("purge: %q starts with %q, which git treats as pathspec magic; exact paths only", p, ":")
 		case strings.ContainsAny(p, "*?["):
 			return fmt.Errorf("purge: %q contains glob characters; exact paths only", p)
 		case seen[p]:

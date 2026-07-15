@@ -277,6 +277,7 @@ var registry = []Command{
 			"Exact repo-relative paths only (no globs); renamed ancestors are separate paths — use --search to find them.",
 			"Branch-scoped: other branches, tags, reflog, and regit's own backup refs still reference the old objects until pruned (`git gc`). For whole-repo, all-refs scrubbing use `git filter-repo` — regit purge is the branch-scoped, preview-first, undoable member of the filter-repo/filter-branch family.",
 			"The working tree is never touched: a purged path still on disk becomes untracked.",
+			"Commits the purge empties are dropped; commits that were already empty are preserved.",
 		},
 		ExitCodes: map[int]string{0: "ok / dry-run", 1: "usage error", 2: "guard blocked", 3: "apply error"},
 	},

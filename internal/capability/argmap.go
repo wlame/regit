@@ -155,9 +155,20 @@ func ReauthorArgMap(name, email string, committer bool, commits string) map[stri
 }
 
 // PurgeArgMap builds the flag map for a `regit purge <paths> --execute` line.
-// Paths render as positionals, matching the registry's variadic positional slot.
+// Paths render as positionals, matching the registry's variadic positional
+// slot. Render never shell-quotes "_positional" (split's single commitish,
+// squash's "a^..b,c" spec, and reword's space-joined hashes never need it),
+// so a path containing whitespace is quoted HERE, per-path, before joining —
+// otherwise "my file.txt" would split into two separate positional tokens
+// once the rendered line is tokenized or pasted into a real shell. Quoting
+// per-path (rather than teaching Render to quote "_positional" generically)
+// keeps every other verb's positional rendering byte-identical to before.
 func PurgeArgMap(paths []string) map[string]string {
-	return map[string]string{"_positional": strings.Join(paths, " "), "execute": "true"}
+	quoted := make([]string, len(paths))
+	for i, p := range paths {
+		quoted[i] = shellQuote(p)
+	}
+	return map[string]string{"_positional": strings.Join(quoted, " "), "execute": "true"}
 }
 
 // keyValsToString serialises a map[date]count as "DAY=N,DAY=N" in stable

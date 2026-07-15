@@ -141,6 +141,44 @@ func TestRenderWrapsLongInvocation(t *testing.T) {
 	}
 }
 
+// TestPurgeArgMap_spacedPath_roundTrip is the IMPORTANT finding 5 regression
+// test: PurgeArgMap must shell-quote each path before joining them into the
+// shared "_positional" slot. Render never quotes "_positional" itself, so
+// without per-path quoting a path like "my file.txt" would split into two
+// separate positional tokens once the rendered line is tokenized (or pasted
+// into a real shell) — silently turning one purge target into two.
+func TestPurgeArgMap_spacedPath_roundTrip(t *testing.T) {
+	argMap := PurgeArgMap([]string{"my file.txt", "other.txt"})
+	line := Render("purge", argMap)
+	toks := tokenize(line)
+	if len(toks) < 2 || toks[0] != "regit" || toks[1] != "purge" {
+		t.Fatalf("unexpected tokens: %v", toks)
+	}
+	parsed, err := Parse(mustLookup(t, "purge"), toks[2:])
+	if err != nil {
+		t.Fatalf("re-parse err: %v from %q", err, line)
+	}
+	if len(parsed.Positional) != 2 || parsed.Positional[0] != "my file.txt" || parsed.Positional[1] != "other.txt" {
+		t.Errorf("purge positional round-trip: got %v, want [\"my file.txt\" \"other.txt\"], line: %q",
+			parsed.Positional, line)
+	}
+}
+
+// TestSquashArgMap_specUnaffectedByPurgeQuoting guards that PurgeArgMap's new
+// per-path quoting is scoped to purge alone: squash's comma/caret spec has no
+// whitespace and must still render byte-identical and unquoted, since Render
+// itself was deliberately left untouched (see PurgeArgMap's doc comment).
+func TestSquashArgMap_specUnaffectedByPurgeQuoting(t *testing.T) {
+	argMap := SquashArgMap("a^..b,c")
+	line := Render("squash", argMap)
+	if !strings.Contains(line, " a^..b,c ") && !strings.HasSuffix(line, " a^..b,c") {
+		t.Errorf("squash spec should render unchanged and unquoted, got: %q", line)
+	}
+	if strings.Contains(line, "'a^..b,c'") {
+		t.Errorf("squash spec must not be shell-quoted, got: %q", line)
+	}
+}
+
 func mustLookup(t *testing.T, name string) Command {
 	t.Helper()
 	c, ok := Lookup(name)

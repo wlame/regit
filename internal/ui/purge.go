@@ -12,6 +12,7 @@ import (
 	"github.com/wlame/regit/internal/gitio"
 	"github.com/wlame/regit/internal/model"
 	"github.com/wlame/regit/internal/safety"
+	"github.com/wlame/regit/internal/termsafe"
 )
 
 // purgeChange is the staged purge that drops into the apply pipeline: the
@@ -83,7 +84,9 @@ func (c purgeChange) preview(st styles) previewModel {
 	lines = append(lines, "")
 	for i := len(c.pv.Affected) - 1; i >= 0; i-- {
 		cm := c.pv.Affected[i]
-		row := fmt.Sprintf("%s  %s", short(cm.Hash), truncate(cm.Subject, 40))
+		// cm.Subject is the repo-derived commit subject; sanitize for DISPLAY
+		// ONLY (c.pv.Dropped stays keyed on cm.Hash, never on this text).
+		row := fmt.Sprintf("%s  %s", short(cm.Hash), truncate(termsafe.Line(cm.Subject), 40))
 		if c.pv.Dropped[cm.Hash] {
 			lines = append(lines, st.statusErr.Render("  ✖ "+row+"  (will be dropped)"))
 		} else {
@@ -306,7 +309,10 @@ func renderPurgeWizard(st purgeState, dirs map[string]bool, s styles) string {
 			if dirs[p] {
 				row += "/"
 			}
-			line := fmt.Sprintf("%s %s", check, truncate(row, 56))
+			// row is a history-derived path (plus the synthetic "/" suffix);
+			// sanitize for DISPLAY ONLY. st.selected/RenameChain lookups
+			// elsewhere in this function key off the raw p, never this copy.
+			line := fmt.Sprintf("%s %s", check, truncate(termsafe.Line(row), 56))
 			if chain := st.index.RenameChain(p); len(chain) > 1 {
 				line += s.dim.Render(" (rename chain)")
 			}

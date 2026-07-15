@@ -311,6 +311,163 @@ func TestRunPurge_noArgsIsUsageError(t *testing.T) {
 	}
 }
 
+// newPurgeRepoWithMergeInPrefix builds the fixture CRITICAL finding 1
+// describes (mirroring internal/gitio/purge_test.go's purgeMergeInPrefixRepo
+// and internal/safety/purge_test.go's purgeMergeInPrefixRepo): a side branch
+// adds junk.log, merges into main untouched further (git simplifies the
+// merge out of `rev-list HEAD -- junk.log`), then a later main commit edits
+// junk.log directly. newPurgeRepo's per-commit file-map fixtures can't
+// express a real branch/merge, so this is built directly.
+func newPurgeRepoWithMergeInPrefix(t *testing.T) *gitio.Repo {
+	t.Helper()
+	dir := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = gittest.Env(dir)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	write := func(name, content string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run("init", "-q", "-b", "main")
+	write("keep.txt", "v1")
+	run("add", ".")
+	run("commit", "-q", "-m", "c0 keep only")
+	run("checkout", "-q", "-b", "side")
+	write("junk.log", "noise")
+	run("add", ".")
+	run("commit", "-q", "-m", "SA adds junk only")
+	run("checkout", "-q", "main")
+	run("merge", "--no-ff", "-q", "-m", "merge side", "side")
+	write("junk.log", "noise\nmore")
+	run("add", ".")
+	run("commit", "-q", "-m", "edit junk directly")
+
+	repo, err := gitio.Open(dir)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	return repo
+}
+
+// TestRunPurge_mergeInPrefixExitsGuardBlocked is the end-to-end (headless
+// CLI) regression test for both CRITICAL finding 1 and IMPORTANT finding 4:
+// before either fix, this exact scenario would have gone through
+// safety.ApplyPurge's OWN internal merge-in-suffix guard (once the base was
+// eventually corrected) and come back as a plain, sentinel-less error that
+// applyGuardErr mapped to exit 3 (runtime error) — contradicting the
+// registry's documented exit code 2 for a guard block. The new pre-check in
+// runPurge, using the same gitio.PurgeBase-corrected base, must catch it
+// first and report exit 2, with the branch left untouched.
+func TestRunPurge_mergeInPrefixExitsGuardBlocked(t *testing.T) {
+	repo := newPurgeRepoWithMergeInPrefix(t)
+	var out bytes.Buffer
+	ctx := newPurgeCtx(&out, repo)
+	before, _ := repo.ReadState()
+
+	a, err := Parse(mustLookup(t, "purge"), []string{"junk.log", "--execute"})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	err = runPurge(ctx, a)
+	if got := ExitCode(err); got != 2 {
+		t.Fatalf("merge-in-prefix purge exit = %d, want 2 (err=%v)", got, err)
+	}
+	if !strings.Contains(err.Error(), "merge") {
+		t.Errorf("error should mention merge, got: %v", err)
+	}
+	after, _ := repo.ReadState()
+	if before.HeadHash != after.HeadHash {
+		t.Error("guard-blocked purge must not move HEAD")
+	}
+}
+
+// TestRunPurge_wouldEmptyBranchExitsGuardBlocked is IMPORTANT finding 4's
+// second case: purging the only file in a single-commit repo empties the
+// whole branch. Before the fix this fell through to safety.ApplyPurge's
+// Rewrite step, whose "purge would remove every commit" error carries no
+// sentinel and so mapped to exit 3 via applyGuardErr; the new pre-check
+// (reusing BuildPurgePreview's Dropped map) must catch it as a guard block
+// (exit 2) instead.
+func TestRunPurge_wouldEmptyBranchExitsGuardBlocked(t *testing.T) {
+	repo, _ := newPurgeRepo(t, []map[string]string{{"junk.log": "noise"}})
+	var out bytes.Buffer
+	ctx := newPurgeCtx(&out, repo)
+	before, _ := repo.ReadState()
+
+	a, err := Parse(mustLookup(t, "purge"), []string{"junk.log", "--execute"})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	err = runPurge(ctx, a)
+	if got := ExitCode(err); got != 2 {
+		t.Fatalf("would-empty-branch purge exit = %d, want 2 (err=%v)", got, err)
+	}
+	if !strings.Contains(err.Error(), "every commit") {
+		t.Errorf("error should mention removing every commit, got: %v", err)
+	}
+	after, _ := repo.ReadState()
+	if before.HeadHash != after.HeadHash {
+		t.Error("guard-blocked purge must not move HEAD")
+	}
+}
+
+// TestRunPurge_searchSanitizesEscapeSequences is the IMPORTANT finding 2
+// regression test: a history path carrying a raw terminal escape sequence
+// (here an OSC "set window title" payload terminated by BEL) must never reach
+// --search output verbatim. termsafe.Line strips the WHOLE OSC sequence
+// (introducer, payload, and terminator alike — see termsafe_test.go's own
+// "OSC window-title spoof removed" case), so "PWNED" must be gone entirely
+// while the legitimate text on either side of it survives.
+func TestRunPurge_searchSanitizesEscapeSequences(t *testing.T) {
+	evil := "evil\x1b]0;PWNED\x07.txt"
+	repo, _ := newPurgeRepo(t, []map[string]string{{evil: "x"}})
+	var out bytes.Buffer
+	ctx := newPurgeCtx(&out, repo)
+
+	a, err := Parse(mustLookup(t, "purge"), []string{"--search=evil"})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if err := runPurge(ctx, a); err != nil {
+		t.Fatalf("runPurge: %v", err)
+	}
+	s := out.String()
+	if strings.ContainsAny(s, "\x1b\x07") || strings.Contains(s, "PWNED") {
+		t.Fatalf("search output leaked the raw OSC payload: %q", s)
+	}
+	if !strings.Contains(s, "evil.txt") {
+		t.Errorf("sanitization should keep the legitimate text around the escape sequence, got: %q", s)
+	}
+}
+
+// TestPrintPurgePreview_sanitizesCommitSubject is the companion IMPORTANT
+// finding 2 test for the OTHER capability-layer site: a commit subject
+// carrying a raw escape sequence must not reach the dry-run preview verbatim,
+// and (per termsafe's OSC handling) the injected payload itself must be gone,
+// not merely its control bytes.
+func TestPrintPurgePreview_sanitizesCommitSubject(t *testing.T) {
+	var buf bytes.Buffer
+	pv := PurgePreview{
+		Paths:    []string{"junk.log"},
+		Affected: []model.Commit{{Hash: "aaaa1111", Subject: "evil\x1b]0;PWNED\x07 subject"}},
+		Dropped:  map[string]bool{"aaaa1111": true},
+	}
+	printPurgePreview(&buf, pv)
+	s := buf.String()
+	if strings.ContainsAny(s, "\x1b\x07") || strings.Contains(s, "PWNED") {
+		t.Fatalf("preview leaked the raw OSC payload: %q", s)
+	}
+	if !strings.Contains(s, "evil subject") {
+		t.Errorf("sanitization should keep the legitimate text around the escape sequence, got: %q", s)
+	}
+}
+
 func TestBuildPurgePreview_marksDropsWithoutEnumeratingDirs(t *testing.T) {
 	repo, _ := newPurgeRepo(t, []map[string]string{
 		{"keep.txt": "v1"},

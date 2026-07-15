@@ -22,6 +22,9 @@ func TestPurgeSpecValidate_rejectsBadInput(t *testing.T) {
 		{"glob question", []string{"a?.txt"}},
 		{"glob bracket", []string{"a[0].txt"}},
 		{"duplicate", []string{"a.txt", "a.txt"}},
+		{"pathspec magic colon", []string{":(exclude)foo"}},
+		{"bare colon", []string{":foo"}},
+		{"repo root dot", []string{"."}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
