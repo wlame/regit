@@ -37,7 +37,7 @@ type RedactOccurrence struct {
 // RedactSpec is the validated selection driving an apply: per-path line
 // contents to act on, the mode, and (replace mode) the rule.
 type RedactSpec struct {
-	Match   string              // the literal that was searched (logging + absence check)
+	Match   string // the literal that was searched (logging + absence check)
 	Mode    RedactMode
 	Rule    RedactRule          // used iff Mode == RedactReplace
 	Targets map[string][]string // path → full line contents to act on in that path
