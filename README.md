@@ -83,6 +83,7 @@ The full keymap, grouped the same way as the in-app `?` help overlay
 | `U` | undo the last apply |
 | `R` | reset all pending edits |
 | `L` | toggle the command-log footer (read-only) |
+| `m` | open the action panel for the current selection |
 
 **COMMIT LIST (focused)**
 

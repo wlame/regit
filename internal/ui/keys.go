@@ -59,6 +59,7 @@ var keymap = []keyBinding{
 	{Key: "U", Scope: scopeAction, Desc: "undo the last apply", Bar: "[U]ndo"},
 	{Key: "R", Scope: scopeAction, Desc: "reset all pending edits", Bar: "[R]eset"},
 	{Key: "L", Scope: scopeAction, Desc: "toggle the command-log footer (read-only)", Bar: "[L]og"},
+	{Key: "m", Scope: scopeAction, Desc: "open the action panel for the current selection", Bar: "[m]actions"},
 
 	// Commit list (focused)
 	{Key: "d", Scope: scopeList, Desc: "toggle date grouping in the commit list", Bar: "[d]ates"},

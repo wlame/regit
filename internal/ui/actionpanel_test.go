@@ -80,3 +80,38 @@ func TestPanelViewShowsVerbAndReason(t *testing.T) {
 		}
 	}
 }
+
+// TestPanelOpenPreservesSelection: the spec's core invariant — opening,
+// navigating, and closing the panel never mutates an explicit selection.
+func TestPanelOpenPreservesSelection(t *testing.T) {
+	m := newTestModel(t)
+	h := m.plan.Commits[0].Hash
+	m.sel.toggle(h, false)
+
+	mm := send(m, "m")    // open
+	mm = send(mm, "down") // navigate
+	mm = send(mm, "esc")  // close
+
+	if !mm.sel.isSet(h) || mm.panel.open {
+		t.Fatalf("selection lost or panel stuck: isSet=%v open=%v", mm.sel.isSet(h), mm.panel.open)
+	}
+}
+
+// TestPanelEnterOnDisabledRowReportsReason: enter on a dimmed row must not
+// run anything; it surfaces the reason in the status bar instead.
+func TestPanelEnterOnDisabledRowReportsReason(t *testing.T) {
+	m := newTestModel(t)
+	m.panel.open = true
+	rows := m.panelRows()
+	for i, r := range rows {
+		if !r.Enabled {
+			m.panel.cursor = i
+			mm := send(m, "enter")
+			if mm.mode != modeMain || mm.statusMsg == "" {
+				t.Fatalf("disabled row ran or gave no reason: mode=%v status=%q", mm.mode, mm.statusMsg)
+			}
+			return
+		}
+	}
+	t.Skip("no disabled row under cursor-kind selection (unexpected)")
+}

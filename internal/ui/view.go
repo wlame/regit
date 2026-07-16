@@ -31,7 +31,11 @@ func (m Model) viewMain() string {
 	}
 	status := m.viewStatusBar()
 	keybar := m.st.keybar.Render(keybarHintWidth(m.width))
-	regions := []string{title, tabs, body, status}
+	regions := []string{title, tabs, body}
+	if m.panel.open {
+		regions = append(regions, m.viewActionPanel(m.width))
+	}
+	regions = append(regions, status)
 	if log := m.viewCommandLog(); log != "" {
 		regions = append(regions, log)
 	}

@@ -181,3 +181,15 @@ func computeLayout(termW, termH int) layoutDims {
 		previewWidth:       previewW,
 	}
 }
+
+// panelHeightFor is the terminal rows an open action panel consumes: its rows
+// plus title, footer hint, and frame line, capped so the panel can never
+// starve the commit list of space (panelMaxRows is defined in actionpanel.go,
+// beside the panel state it bounds).
+func panelHeightFor(rows int) int {
+	h := rows + 3
+	if h > panelMaxRows+3 {
+		h = panelMaxRows + 3
+	}
+	return h
+}

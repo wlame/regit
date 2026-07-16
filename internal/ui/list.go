@@ -110,7 +110,8 @@ func (m *Model) syncListViewport() {
 // chrome budget for the title bar, tab bar, status line, keybar, and the pane
 // borders, and otherwise fills the terminal height so the panes span the screen
 // even on a repo with only a few commits. When the command-log footer is
-// visible, logPanelHeight additional rows are subtracted from the budget.
+// visible, logPanelHeight additional rows are subtracted from the budget; when
+// the action panel is open, its own (capped) row budget is subtracted too.
 func (m Model) listHeight() int {
 	if m.height < 16 {
 		return 8
@@ -118,6 +119,9 @@ func (m Model) listHeight() int {
 	h := m.height - 9 // title + tabs + status + keybar + spacing/borders
 	if m.logVisible {
 		h -= logPanelHeight
+	}
+	if m.panel.open {
+		h -= panelHeightFor(len(m.panelRows()))
 	}
 	return h
 }

@@ -653,6 +653,13 @@ func clampHelpOffset(offset, height int) int {
 // --- Main view -------------------------------------------------------------
 
 func (m Model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// The open panel owns every key first: it must swallow list/workspace
+	// navigation and globals alike so the underlying panes never react to a
+	// keystroke the panel is also interpreting (e.g. 'j' moving the panel
+	// cursor instead of the list cursor behind it).
+	if m.panel.open {
+		return m.updateActionPanel(msg)
+	}
 	if m.focus == focusWorkspace {
 		return m.updateWorkspaceMenu(msg)
 	}
@@ -780,6 +787,13 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	case "L":
 		m.logVisible = !m.logVisible
+		return m, nil, true
+	case "m":
+		// Opening/closing the panel only flips panel state; it never touches
+		// m.sel, since the panel is a pure read of the current selection, not
+		// a mutator of it (TestPanelOpenPreservesSelection pins this).
+		m.panel.open = !m.panel.open
+		m.panel.cursor = 0
 		return m, nil, true
 	}
 	return m, nil, false
