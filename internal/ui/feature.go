@@ -75,7 +75,13 @@ type featureBinding struct {
 // Dates tab still reports its one feature. Each Run re-invokes an existing action
 // method, so this introduces no new mutation path (the safety contract is unchanged).
 var featureBindings = map[string]featureBinding{
-	"redate": {Title: "Date/time spread", Run: nil},
+	"redate": {Title: "Date/time spread", Run: func(m Model) (tea.Model, tea.Cmd) {
+		// Stand-in until the redate flow lands (Task 3): jump to the Dates tab.
+		for m.workspace != WSDates {
+			m.nextWorkspace()
+		}
+		return m, nil
+	}},
 	"split": {Title: "Split commit", Run: func(m Model) (tea.Model, tea.Cmd) {
 		model, cmd, _ := m.beginSplit()
 		return model, cmd

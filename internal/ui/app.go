@@ -125,6 +125,10 @@ type Model struct {
 	workspace    WorkspaceID
 	wsMenuCursor int
 
+	// panel is the bottom action-panel state (actionpanel.go). Opening or
+	// closing it never touches the commit selection — spec §2 invariant.
+	panel panelState
+
 	width, height int
 	mode          mode
 	focus         focusArea
