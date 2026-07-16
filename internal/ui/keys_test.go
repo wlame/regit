@@ -154,6 +154,10 @@ func TestCurrentKeyCtx(t *testing.T) {
 	if m.currentKeyCtx() != ctxRedate {
 		t.Fatal("redate flow should own the keybar")
 	}
+	m.panel.open = true
+	if m.currentKeyCtx() != ctxPanel {
+		t.Fatal("panel open over an active flow should still own the keybar (panel takes priority)")
+	}
 }
 
 func TestDocSections_projectsEveryKeymapRowOnceInScopeOrder(t *testing.T) {

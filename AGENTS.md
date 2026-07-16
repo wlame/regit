@@ -16,7 +16,7 @@ Three independent features share a common safety/gitio core:
    semantically meaningful commits using an external LLM to group its diff hunks.
 3. **Commit rewording** (`regit reword`) — regenerate the commit message of one
    or more commits using an LLM; proposes ranked title + body alternatives, with
-   an interactive picker in the TUI (via the Restructure menu) and a headless
+   an interactive picker in the TUI (via the `m` action panel) and a headless
    dry-run/`--execute` flow on the CLI (one proposal, previewed by default,
    applied with `--execute` — no interactive prompt).
 
@@ -64,21 +64,42 @@ internal/
   ui/               Bubble Tea TUI (depends on all of the above, incl. capability)
 ```
 
-The TUI is a bounded tab chassis (internal/ui). Five fixed category tabs —
-Dates · Restructure · History · Authorship · Search — sit over a persistent
-commit backbone (list + detail). Tabs and per-tab feature menus are DATA. The
-`workspaces` table in feature.go drives the tab bar; the per-tab menus are a
-**projection of `capability.Registry()`** — `featuresFor(id)` filters the registry
-by `Command.Workspace` and joins each row to its TUI presentation (display title +
-`Run` closure) held in `featureBindings` (feature.go), keyed by command `Name`. So
-the headless surface and the menu cannot drift (add a verb = a registry row + a
-`featureBindings` entry; the action surface grows down, never wide).
-`< / >` (or `[ / ]`) switch tabs; `tab` focuses the active workspace's widget. Dates is the
-rich calendar/strategy workspace; Restructure is a menu that re-invokes the
-existing split/reword/retitle/drop-bodies actions; Authorship is a menu that runs the change-author (reauthor) action; History/Search are
-disabled stub tabs awaiting future work.
+The TUI is a two-zone chassis (internal/ui) over a persistent commit backbone
+(list + detail): a right-hand FLOW ZONE and a bottom `m` ACTION PANEL, both
+data-driven projections rather than a fixed tab bar. `viewFlowZone`
+(workspace.go) renders the flow zone: by default it shows the commit detail
+(`viewDetailPane`); launching an action that needs an interactive stage swaps
+its widget in for the flow's duration instead (flow.go). Redate is the only
+flow today — `enterRedateFlow` opens the calendar/strategy widget
+(`viewDatesWorkspace`, ws_dates.go) and moves focus onto the calendar; `esc`
+exits the flow and returns the zone to the detail pane (`exitFlow`); `tab`
+cycles focus list → calendar → params → list while a flow is open
+(`focusAfterList`, `updateParamsPane`), and just toggles list/flow focus
+otherwise.
 
-The Dates workspace holds per-strategy state (`m.strats`, selected by `m.stratIdx`):
+Every action is launched from the `m` action panel (actionpanel.go), a
+full-width bottom region that replaced the old per-tab feature menus. Its rows
+are a pure projection of `capability.Registry()` joined to `featureBindings`
+(feature.go) by command `Name` — the same drift-proof guarantee the menus had,
+now keyed by what is SELECTED rather than which tab is active (add a verb = a
+registry row + a `featureBindings` entry). `selectionKind` coarsens the live
+selection to cursor/set/range, and `actionCompat` is the (`Command.Selection`
+× kind) → allowed lookup table deciding which rows apply to the current
+selection; a row that fails that check, or a verb-specific `panelDetail`
+predicate (e.g. squash's "select 2+ consecutive commits"), stays visible but
+dimmed with its disabled reason shown in place of a detail string — the panel
+teaches the selection model instead of hiding actions. Enabled rows also show
+the CLI verb they correspond to (the same name `capability.Render` logs), so
+the panel doubles as a lookup from UI action to headless command. Navigation
+is arrow-first (`↑/↓` move, `enter` runs, `esc`/`m` close); rows are windowed
+to the terminal height (`panelWindowRows`, capped at `panelMaxRows` = 10)
+rather than growing the frame past the screen. The always-visible keybar is
+similarly context-filtered: `currentKeyCtx` maps focus state (panel open >
+flow open > commit list) to a `keyCtx`, and `keybarHintFor` renders only the
+keymap rows tagged for that context, so the hint line never advertises a key
+the current screen doesn't honor.
+
+The redate flow's widget holds per-strategy state (`m.strats`, selected by `m.stratIdx`):
 a `◀ Name ▶` carousel on the strategy pane's first focus row picks the strategy
 (`←/→`); there is no separate palette. Date-range strategies start with their date
 fields **unset** (greyed placeholders) and are not applicable until filled; the
@@ -113,26 +134,36 @@ fully editable instead of freezing all but the newest commit (base.go
 `startsUnlocked`); the apply-time pushed-commit confirmation is unchanged, so this
 is a convenience default, not a safety relaxation.
 
-**Authorship workspace:** the `Authorship` tab hosts the `reauthor` action —
-select commits in the list, open the tab, and run "Change author" to rewrite the
-author (and, via a checkbox checked by default, the committer) name/email. The
-field prefills from the oldest selected commit. It changes only commit headers,
-never file content (the rewrite reuses each original tree and verifies it).
-Headless: `regit reauthor --name=… --email=… --commits=A..B [--committer=false] [--execute]`.
+**Change-author action:** `reauthor` is a `featureBindings` row ("Change
+author") in the `m` action panel — select commits in the list, open the panel,
+and run it to rewrite the author (and, via a checkbox checked by default, the
+committer) name/email in a modal wizard (`modeReauthor`, reauthor.go). The
+field prefills from the oldest target commit (`reauthorTargetCommits`). It
+changes only commit headers, never file content (the rewrite reuses each
+original tree and verifies it). Headless: `regit reauthor --name=… --email=…
+--commits=A..B [--committer=false] [--execute]`.
 
 The commit list has a selection mode (selection.go) that gives each feature the
 selection it needs with a distinct visual language: Single (▸ cursor), Range (┃
 band, built with vim visual mode `v`), Set (○/● gutter, Space toggles · `a` all ·
 `n` clear), Active (whole non-frozen range, frozen cone dimmed), Global (list
-dimmed). The mode defaults from the workspace (Dates → Active, others → Single).
-Reword consumes a Set as multi-reword (walks the picker per selected commit);
-Squash consumes a Set/Range to define one or more chains to collapse; Dates
-consumes an explicit Set/Range as its redate target (unselected commits become
-anchors), else the whole Active range, with `redate --commits=` as the headless
-equivalent; frozen commits are never selectable. Global awaits future consumers
-(Search).
+dimmed). The mode defaults to Single everywhere (`newSelection`/`reset`); the
+one exception is entering the redate flow with no explicit selection already
+made, which scopes it to the whole active range (`SelActive`) instead —
+`enterRedateFlow`'s own default, mirrored by a bare `redate --commits=`. An
+explicit Set or Range selection, once made, survives every navigation in or
+out of a flow (`restoreFlowSelectionScope` reapplies Active whenever the
+redate flow is still open and no explicit selection remains). Reword consumes
+a Set as multi-reword (walks the picker per selected commit); Squash consumes
+a Set/Range to define one or more chains to collapse; the redate flow consumes
+an explicit Set/Range as its target (unselected commits become anchors), else
+the whole Active range, with `redate --commits=` as the headless equivalent;
+frozen commits are never selectable. Global ignores the selection entirely:
+`purge` (repo-wide by nature) is its only panel consumer; `undo` also declares
+`SelGlobal` but has no `featureBindings` row, staying bound to the `U` global
+key instead of the panel.
 
-Bulk actions (Drop bodies, Retitle) and the Restructure panel's affected-commit
+Bulk actions (Drop bodies, Retitle) and the action panel's affected-commit
 count operate on `affectedCommits()` — the explicit Set/Range selection when one
 exists, else the whole active range. Drop bodies opens a confirmation popup
 (`modeDropBodies`) reporting how many commits would change before any edit is staged.
@@ -140,7 +171,7 @@ exists, else the whole active range. Drop bodies opens a confirmation popup
 Every history mutation funnels through one stage → preview → confirm → apply
 pipeline (pipeline.go). A feature stages a `pendingChange` (planChange
 for date/message edits, applied with `A`; splitChange for a reviewed split, run
-from the Restructure menu); the
+from the action panel); the
 `modePipeline` overlay shows its mandatory before/after preview; a typed
 branch-name confirm gates already-pushed rewrites; then `commitPending` applies it
 through `safety.Manager` (backup ref → op → per-commit change-set verify →
@@ -201,7 +232,7 @@ applies `REGIT_*` environment variable overrides. Env vars always win over
 the file. Never read `os.Getenv` anywhere else for configuration values.
 
 **`internal/ui`** — Bubble Tea TUI. Imports all packages above, including
-`capability`. The Split action (in the Restructure menu) uses the same
+`capability`. The Split action (in the `m` action panel) uses the same
 `split.Engine` that the headless `capability` `Run` uses — one code path, not two.
 
 ## The capability registry (`internal/capability`)
@@ -560,10 +591,11 @@ internal/ui/
   split.go              Split review screen + backend wiring for TUI
   reword.go             Reword variant picker + async Generate cmd for TUI
   retitle.go            Retitle (regex) input modal (modeRetitle)
-  feature.go            WorkspaceID/SelectionMode aliases, workspaces tab table, featureBindings + featuresFor (menu = projection of capability.Registry())
-  workspace.go          Tab bar render + tab navigation (< / > switch); zone-3 dispatch (viewRightColumn)
-  ws_dates.go           Dates workspace widget (calendar + strategy form)
-  ws_restructure.go     Restructure feature menu + the disabled stub-tab panel
+  feature.go            SelectionMode aliases, featureBindings (action panel = projection of capability.Registry())
+  flow.go               flowID + enterRedateFlow/exitFlow (the flow zone's occupant)
+  workspace.go          viewFlowZone: renders the flow zone (detail by default, active flow's widget otherwise) + the AUTHORS pane
+  actionpanel.go        The `m` action panel: panelRows projection, selectionKind/actionCompat, arrow-nav, row windowing
+  ws_dates.go           Redate flow widget (calendar + strategy form)
   selection.go          Commit-list selection model: Single/Range/Set/Active/Global + visual-mode range, set toggling
   pipeline.go           Apply pipeline: pendingChange interface + planChange/splitChange + the preview overlay
   view.go               Layout incl. viewCommandLog (the L-toggle transparency panel)

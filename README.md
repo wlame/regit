@@ -8,7 +8,6 @@ of strategies, edit messages, and apply the change with strong safety guarantees
 
 ```
 ┌ regit · myrepo · main · 24 commits ───────────────────────────────────────────┐
-│  Dates │ Restructure │ History │ Authorship │ Search                          │
 ├────────────────────────────────┬──────────────────────────────────────────────┤
 │ COMMITS (24)                   │ 2026  ◀ March ▶                              │
 │ ▸ a1b2c3  Fix login bug        │   Mon ░░▓░░ ░░░░░ ▓▓░░░ ░░░░░                │
@@ -17,7 +16,7 @@ of strategies, edit messages, and apply the change with strong safety guarantees
 │    06-05 14:25 → 03-02 11:40   │   Less ·▇▇▇▇ More                            │
 │   7890ab  Refactor API         │   ◀ Even Spread ▶ · 24 commits · ✓ sequential│
 ├────────────────────────────────┴──────────────────────────────────────────────┤
-│ [?]help [q]uit [tab]focus [<>]tabs [e]dit [.]detail [p]review [A]pply …       │
+│ [?]help [q]uit [tab]focus [e]dit [.]detail [p]review [A]pply [m]actions …     │
 └───────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -331,7 +330,7 @@ must pass on the original commit before splitting begins; if it does not,
 ## Commit squashing
 
 `regit squash` collapses consecutive runs of commits into one commit per run,
-in the TUI (Restructure → Squash, a tabbed wizard with one tab per chain) or
+in the TUI (the `m` action panel's Squash action, a tabbed wizard with one tab per chain) or
 headless:
 
 ```bash
@@ -383,7 +382,7 @@ regit reword [<commit-ish>...]     # commits to reword (default: HEAD)
 
 Multiple commit-ishes may be supplied; they are de-duplicated and processed in
 root-first history order. In headless mode exactly one variant is requested per
-commit (no TUI to choose from); use the TUI's Restructure → Reword menu to browse
+commit (no TUI to choose from); use the TUI's `m` action panel → Reword to browse
 multiple ranked alternatives interactively.
 
 ### API key resolution
@@ -431,7 +430,7 @@ When rewording multiple commits, `regit` starts generating the next commit's
 proposal while you are reading and accepting the current one. The pipeline buffer
 depth is controlled by `reword.prefetch` in the config (default: 1 ahead). The
 TUI also prefetches the next commit below the cursor when you use the
-Restructure → Reword menu.
+`m` action panel's Reword action.
 
 ### Configuration defaults
 
