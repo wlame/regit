@@ -152,12 +152,14 @@ func TestComputeLayoutPreviewWidth(t *testing.T) {
 }
 
 // TestComputeLayoutPanelHeight: the open panel's row budget is bounded so it
-// can never crowd out the commit list.
+// can never crowd out the commit list. The overhead is 4 (title + footer +
+// the RoundedBorder frame's top AND bottom rows — verified against the
+// actual rendered height in TestPanelOpenAtMinTerminalKeepsListFloor).
 func TestComputeLayoutPanelHeight(t *testing.T) {
-	if got := panelHeightFor(5); got != 8 {
-		t.Fatalf("panelHeightFor(5) = %d, want 8 (rows+title+footer+frame)", got)
+	if got := panelHeightFor(5); got != 9 {
+		t.Fatalf("panelHeightFor(5) = %d, want 9 (rows+title+footer+2 border rows)", got)
 	}
-	if got := panelHeightFor(50); got != panelMaxRows+3 {
-		t.Fatalf("panelHeightFor(50) = %d, want cap %d", got, panelMaxRows+3)
+	if got := panelHeightFor(50); got != panelMaxRows+panelHeightOverhead {
+		t.Fatalf("panelHeightFor(50) = %d, want cap %d", got, panelMaxRows+panelHeightOverhead)
 	}
 }

@@ -70,8 +70,12 @@ type panelState struct {
 	cursor int
 }
 
-// panelMaxRows caps how many action rows render before the panel scrolls the
-// cursor window; with 9 registry verbs this is headroom, not a limit.
+// panelMaxRows caps BOTH the row budget listHeight reserves (panelHeightFor,
+// layout.go) AND the number of rows viewActionPanel actually renders
+// (panelShownRows, layout.go) — the two must agree, or the panel can render
+// more than the space reserved for it and overlap the commit list beneath it.
+// Past the cap, the panel shows a cursor-following window instead of every
+// row. With 8 registry verbs today this is headroom, not a limit.
 const panelMaxRows = 10
 
 // panelDetail computes a row's context detail and enablement beyond the
@@ -147,10 +151,34 @@ func (m Model) panelRows() []panelRow {
 	return out
 }
 
+// panelWindowStart returns the first row index to render so the cursor stays
+// visible within a `shown`-row window into `total` rows. It centers the
+// cursor in the window and clamps so the window never runs past either end —
+// a stateless computation (no persisted offset, unlike the commit list's
+// scrollOffset) since the panel only needs this once total exceeds
+// panelMaxRows, which the registry has headroom before reaching.
+func panelWindowStart(cursor, total, shown int) int {
+	if total <= shown {
+		return 0
+	}
+	start := cursor - shown/2
+	if start < 0 {
+		start = 0
+	}
+	if start > total-shown {
+		start = total - shown
+	}
+	return start
+}
+
 // viewActionPanel renders the bottom panel at the given full terminal width.
-// The body above stays visible — the panel is a region, not an overlay.
+// The body above stays visible — the panel is a region, not an overlay. Rows
+// are windowed to panelShownRows so the rendered height never exceeds the
+// budget listHeight reserved via panelHeightFor (panelMaxRows bounds both).
 func (m Model) viewActionPanel(width int) string {
 	rows := m.panelRows()
+	shown := panelShownRows(len(rows))
+	start := panelWindowStart(m.panel.cursor, len(rows), shown)
 	kind := selectionKind(m.sel)
 	scope := "cursor commit"
 	if kind != selKindCursor {
@@ -158,7 +186,8 @@ func (m Model) viewActionPanel(width int) string {
 	}
 	var b strings.Builder
 	b.WriteString(m.st.modalTitle.Render("ACTIONS · "+scope) + "\n")
-	for i, r := range rows {
+	for i := start; i < start+shown && i < len(rows); i++ {
+		r := rows[i]
 		marker, title := "  ", r.Title
 		if i == m.panel.cursor {
 			marker = m.st.selected.Render("▸ ")

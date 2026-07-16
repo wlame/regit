@@ -106,12 +106,23 @@ func (m *Model) syncListViewport() {
 	m.listOffset = scrollOffset(m.listOffset, rowOfCommit(rows, m.listCursor), len(rows), visible)
 }
 
+// minListRows is the smallest the commit list may ever be budgeted, regardless
+// of how much the log footer and action panel subtract. The list must keep its
+// header, at least one commit row, and its border visible under any panel/log
+// combination — at the app's minimum terminal height (minTermHeight, app.go),
+// the fixed chrome subtraction below plus the log and panel budgets can exceed
+// m.height entirely, which would otherwise drive listHeight negative instead
+// of just cramped.
+const minListRows = 3
+
 // listHeight is the commit list's inner height in rows. It reserves a fixed
 // chrome budget for the title bar, tab bar, status line, keybar, and the pane
 // borders, and otherwise fills the terminal height so the panes span the screen
 // even on a repo with only a few commits. When the command-log footer is
 // visible, logPanelHeight additional rows are subtracted from the budget; when
-// the action panel is open, its own (capped) row budget is subtracted too.
+// the action panel is open, its own (capped) row budget is subtracted too. The
+// result is floored at minListRows so a small terminal with both panels open
+// shrinks the list to a minimum instead of going negative.
 func (m Model) listHeight() int {
 	if m.height < 16 {
 		return 8
@@ -121,7 +132,10 @@ func (m Model) listHeight() int {
 		h -= logPanelHeight
 	}
 	if m.panel.open {
-		h -= panelHeightFor(len(m.panelRows()))
+		h -= panelHeightFor(panelShownRows(len(m.panelRows())))
+	}
+	if h < minListRows {
+		h = minListRows
 	}
 	return h
 }

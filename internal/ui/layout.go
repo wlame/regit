@@ -182,14 +182,31 @@ func computeLayout(termW, termH int) layoutDims {
 	}
 }
 
+// panelHeightOverhead is the panel's chrome outside its row lines: a title
+// line, a footer hint line, and the RoundedBorder frame's top AND bottom
+// border rows (paneActive, styles.go — the border draws two extra rows, not
+// one; an earlier version of this budget undercounted that and let the
+// rendered panel run one row past what it had reserved).
+const panelHeightOverhead = 4
+
 // panelHeightFor is the terminal rows an open action panel consumes: its rows
-// plus title, footer hint, and frame line, capped so the panel can never
-// starve the commit list of space (panelMaxRows is defined in actionpanel.go,
-// beside the panel state it bounds).
+// plus panelHeightOverhead, capped so the panel can never starve the commit
+// list of space. Callers should pass an already-windowed row count (see
+// panelShownRows) so this cap and viewActionPanel's rendered row count always
+// agree — panelMaxRows bounds both, not just this budget math.
 func panelHeightFor(rows int) int {
-	h := rows + 3
-	if h > panelMaxRows+3 {
-		h = panelMaxRows + 3
+	h := rows + panelHeightOverhead
+	if h > panelMaxRows+panelHeightOverhead {
+		h = panelMaxRows + panelHeightOverhead
 	}
 	return h
+}
+
+// panelShownRows caps how many of the panel's rows are actually rendered,
+// mirroring the cap panelHeightFor already applies to the row budget it hands
+// listHeight. Without this, a registry that grows past panelMaxRows commands
+// would render every row regardless while listHeight only reserved space for
+// panelMaxRows of them, overlapping the panel into the commit list beneath it.
+func panelShownRows(total int) int {
+	return min(total, panelMaxRows)
 }
