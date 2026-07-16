@@ -162,7 +162,7 @@ type purgeScanMsg struct {
 
 // newPurgeState builds the wizard state with the scan already marked in
 // flight and the query field focused, following the retitle/reauthor
-// textinput conventions (no prompt, fixed width).
+// textinput conventions (no prompt, width from the caller's layout).
 func newPurgeState(inputW int) purgeState {
 	q := textinput.New()
 	q.Prompt = ""

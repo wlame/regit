@@ -42,8 +42,9 @@ func (m *Model) prevWorkspace() { m.cycleWorkspace(-1) }
 // Set or a Range) is deliberately preserved across the switch — the selection
 // is the subject of the user's next action and navigation must never drop it;
 // only with no explicit selection does the workspace's default mode apply.
-// onDatesSelectionChanged is a no-op outside Dates and, when landing ON Dates
-// with a selection, re-attributes pins and re-stages against the new windows.
+// The idx assignment above lands on the NEW workspace before the call below,
+// so onDatesSelectionChanged re-syncs pins/staging when the switch lands on
+// Dates and is a no-op for every other destination.
 func (m *Model) cycleWorkspace(delta int) {
 	n := len(workspaces)
 	idx := 0

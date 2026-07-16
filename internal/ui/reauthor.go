@@ -130,8 +130,8 @@ func (st reauthorState) name() string  { return st.nameInput.Value() }
 func (st reauthorState) email() string { return st.emailInput.Value() }
 
 // newReauthorInput builds one wizard text field, following the retitle modal's
-// textinput conventions (no prompt, fixed width). SetValue leaves the cursor at
-// the end of the prefilled text.
+// textinput conventions (no prompt, width from the caller's layout). SetValue
+// leaves the cursor at the end of the prefilled text.
 func newReauthorInput(value string, w int) textinput.Model {
 	ti := textinput.New()
 	ti.Prompt = ""

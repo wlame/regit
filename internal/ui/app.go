@@ -851,10 +851,21 @@ func (m Model) listSelectionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 // fit the new one. reattributeActivePins MUST run before stageActive — it
 // silently evicts or clamps whatever no longer fits, so stageActive then
 // stages exactly what survived; the other order would briefly stage an edit
-// built from a pick/pin that reattribution was about to drop. A no-op outside
-// WSDates, so it is safe to call unconditionally from every selection-mutating
-// site.
+// built from a pick/pin that reattribution was about to drop.
+//
+// The leading workspace guard below is what actually makes this a no-op
+// outside WSDates: stageActive is NOT itself workspace-guarded, and on an
+// unready strategy it calls unstageActive, which clears NewAuthorDate /
+// NewCommitDate on every active commit — including a date the user just typed
+// in the per-commit editor. Without the guard, calling this from a
+// selection-mutating site outside Dates (e.g. a workspace-tab switch) would
+// silently discard that editor edit. cycleWorkspace assigns the NEW workspace
+// before calling this, so landing ON Dates still re-attributes and re-stages
+// as before; only leaving (or staying off) Dates is now a true no-op.
 func (m *Model) onDatesSelectionChanged() {
+	if m.workspace != WSDates {
+		return
+	}
 	m.reattributeActivePins()
 	m.stageActive()
 }

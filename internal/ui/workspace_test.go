@@ -3,9 +3,12 @@ package ui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
+
+	"github.com/wlame/regit/internal/model"
 )
 
 func TestViewAuthorsPane_listsContributorsAndLightsCursorAuthor(t *testing.T) {
@@ -67,6 +70,24 @@ func TestCycleWorkspaceKeepsRangeSelection(t *testing.T) {
 	if m.sel.mode != SelRange || !m.sel.fixed {
 		t.Fatalf("explicit Range selection lost after workspace switch: mode=%v fixed=%v",
 			m.sel.mode, m.sel.fixed)
+	}
+}
+
+// TestCycleWorkspaceKeepsEditorDateEdit: switching tabs must never discard a
+// date edit staged from the per-commit editor — the old unguarded
+// stageActive/unstageActive path wiped NewAuthorDate on every tab switch.
+func TestCycleWorkspaceKeepsEditorDateEdit(t *testing.T) {
+	m := newTestModel(t)
+	m.workspace = WSRestructure
+	m.applyDefaultSelectionMode()
+	newDate := time.Date(2026, 6, 10, 9, 0, 0, 0, time.UTC)
+	m.plan.Edits[m.plan.Commits[0].Hash] = model.Edit{NewAuthorDate: &newDate}
+
+	m.nextWorkspace()
+
+	e, ok := m.plan.Edits[m.plan.Commits[0].Hash]
+	if !ok || e.NewAuthorDate == nil || !e.NewAuthorDate.Equal(newDate) {
+		t.Fatalf("editor-staged date edit lost after workspace switch: %+v", e)
 	}
 }
 
