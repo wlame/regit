@@ -11,7 +11,7 @@ import (
 func TestBlocks_containExpectedAnchors(t *testing.T) {
 	b := Blocks()
 	anchors := map[string][]string{
-		"keys":           {"**GLOBAL**", "| Key | Action |", "| `?` | toggle this help |", "**CALENDAR (focused)**"},
+		"keys":           {"**GLOBAL**", "| Key | Action |", "| `?` | toggle this help |", "**CALENDAR (redate flow)**"},
 		"commands":       {"| Command | What it does |", "`regit reauthor`", "`regit redate --strategy=…`", "`regit retitle --match=…`", "`regit undo`"},
 		"strategies":     {"Even Spread", "Backwards-from-Deadline"},
 		"time-models":    {"Evening hours", "Non-working hours", "Preserve original"},

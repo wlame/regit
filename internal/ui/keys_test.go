@@ -126,6 +126,36 @@ func TestHelpText_documentsPreviewThenApply(t *testing.T) {
 	}
 }
 
+// TestKeybarFiltersByContext: the keybar shows list keys when the list is
+// focused and panel keys while the panel is open — same table, filtered.
+func TestKeybarFiltersByContext(t *testing.T) {
+	list := keybarHintFor(ctxList, 500)
+	panel := keybarHintFor(ctxPanel, 500)
+	if !strings.Contains(list, "[m]actions") || strings.Contains(list, "enter run") {
+		t.Fatalf("list keybar wrong: %q", list)
+	}
+	if !strings.Contains(panel, "esc") || strings.Contains(panel, "[m]actions") {
+		t.Fatalf("panel keybar wrong: %q", panel)
+	}
+}
+
+// TestCurrentKeyCtx: the model maps its state to the keybar context.
+func TestCurrentKeyCtx(t *testing.T) {
+	m := newTestModel(t)
+	if m.currentKeyCtx() != ctxList {
+		t.Fatal("default ctx should be list")
+	}
+	m.panel.open = true
+	if m.currentKeyCtx() != ctxPanel {
+		t.Fatal("open panel should own the keybar")
+	}
+	m.panel.open = false
+	m.enterRedateFlow()
+	if m.currentKeyCtx() != ctxRedate {
+		t.Fatal("redate flow should own the keybar")
+	}
+}
+
 func TestDocSections_projectsEveryKeymapRowOnceInScopeOrder(t *testing.T) {
 	secs := DocSections()
 	if len(secs) != len(scopeOrder) {

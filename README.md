@@ -83,6 +83,7 @@ The full keymap, grouped the same way as the in-app `?` help overlay
 | `R` | reset all pending edits |
 | `L` | toggle the command-log footer (read-only) |
 | `m` | open the action panel for the current selection |
+| `↑/↓ · enter · esc` | action panel: move · run · close |
 
 **COMMIT LIST (focused)**
 
@@ -113,7 +114,7 @@ The full keymap, grouped the same way as the in-app `?` help overlay
 | `B` | open the branch picker — enter switches branch, tab sets it as the base |
 | `b` | set/clear the base at the cursor commit (freeze older history) |
 
-**CALENDAR (focused)**
+**CALENDAR (redate flow)**
 
 | Key | Action |
 |-----|--------|
@@ -122,7 +123,7 @@ The full keymap, grouped the same way as the in-app `?` help overlay
 | `0-9` | pin a per-day quota (Manual Pin strategy active); live-stages the distribution |
 | `space` | pick/unpick the day (Picked Days strategy active); reshuffles live |
 
-**STRATEGY PANE (focused)**
+**STRATEGY PANE (redate flow)**
 
 | Key | Action |
 |-----|--------|
