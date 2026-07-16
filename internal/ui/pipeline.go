@@ -280,7 +280,9 @@ func (c splitChange) apply(mgr *safety.Manager, state model.RepoState, opts safe
 // (apply vs a read-only peek). width is the modal's full column budget
 // (from layoutDims.previewWidth); body lines are clamped to the content
 // area so an adversarially long path or subject cannot break the frame.
-func viewPipeline(p previewModel, offset, visible int, applyMode bool, width int, st styles) string {
+func viewPipeline(
+	p previewModel, offset, visible int, applyMode bool, width int, st styles,
+) string {
 	var b strings.Builder
 	b.WriteString(st.modalTitle.Render(p.title) + "\n\n")
 
