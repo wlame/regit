@@ -125,42 +125,47 @@ func send(m Model, keys ...string) Model {
 	return m
 }
 
-// applyStrategyInPane focuses the strategy pane (tab tab), fills date fields for
-// the Even Spread strategy (start 2026-06-01, end 2026-06-30) so the strategy is
-// ready, then presses enter to apply and return focus to the list.
+// applyStrategyInPane opens the redate flow and focuses the strategy pane
+// (calendar -> params), fills date fields for the Even Spread strategy (start
+// 2026-06-01, end 2026-06-30) so the strategy is ready, then presses enter to
+// apply and return focus to the list.
 func applyStrategyInPane(m Model) Model {
-	m = send(m, "tab", "tab") // list -> calendar -> params pane
-	m = send(m, "down")       // carousel row -> Start date
+	m.enterRedateFlow()
+	m = send(m, "tab")  // calendar -> params pane
+	m = send(m, "down") // carousel row -> Start date
 	m = typeDate(m, "2026-06-01")
 	m = send(m, "down") // Start date -> End date
 	m = typeDate(m, "2026-06-30")
 	return send(m, "enter")
 }
 
-// selectStrategy focuses the pane and lands the carousel on the strategy at registry
-// offset n from the default (Even Spread). It resets to the default first so n is an
-// absolute offset regardless of any strategy selected earlier in the test.
+// selectStrategy opens the redate flow, focuses the pane, and lands the
+// carousel on the strategy at registry offset n from the default (Even
+// Spread). It resets to the default first so n is an absolute offset
+// regardless of any strategy selected earlier in the test.
 func selectStrategy(m Model, n int) Model {
 	m.stratIdx = 0 // start from Even Spread so n is absolute, not relative
-	m = send(m, "tab", "tab")
+	m.enterRedateFlow()
+	m = send(m, "tab") // calendar -> params pane
 	for i := 0; i < n; i++ {
 		m = send(m, "right")
 	}
 	return m
 }
 
-// runRestructureFeature invokes a Restructure feature by name through the same
-// Run the menu's Enter calls — independent of menu focus/cursor state and of any
-// global hotkey. The menu navigation path itself is covered by TestMenu_restructureRuns*.
-func runRestructureFeature(t *testing.T, m Model, name string) Model {
+// runFeatureNamed invokes a featureBinding by its Title through the same Run
+// the action panel's enter calls — independent of panel cursor state and of
+// any global hotkey. The panel navigation path itself is covered by the
+// actionpanel tests.
+func runFeatureNamed(t *testing.T, m Model, name string) Model {
 	t.Helper()
-	for _, f := range featuresFor(WSRestructure) {
-		if f.Name == name {
-			model, _ := f.Run(m)
+	for _, b := range featureBindings {
+		if b.Title == name {
+			model, _ := b.Run(m)
 			return model.(Model)
 		}
 	}
-	t.Fatalf("no Restructure feature named %q", name)
+	t.Fatalf("no feature named %q", name)
 	return m
 }
 
@@ -389,11 +394,15 @@ func TestView_commitEntriesAreSingleLine(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
 	m = updated.(Model)
 
-	view := m.View()
+	// Search the list pane alone: the flow zone's commit-detail panel (the
+	// default occupant with no flow open) also carries the cursor commit's
+	// hash — short in its title, full on the line below — which would collide
+	// with a hash8 substring search over the whole joined view.
+	list := m.viewCommitList()
 	newest := m.plan.Commits[len(m.plan.Commits)-1]
 	hash8 := newest.Hash[:8]
 	var entryLine string
-	for _, line := range strings.Split(view, "\n") {
+	for _, line := range strings.Split(list, "\n") {
 		if strings.Contains(line, hash8) {
 			entryLine = line
 			break
@@ -409,13 +418,13 @@ func TestView_commitEntriesAreSingleLine(t *testing.T) {
 
 	// All test commits share one day, so the list shows exactly one date divider
 	// plus one line per visible commit within the listHeight-1 window.
-	if !strings.Contains(view, "commit(s)") {
+	if !strings.Contains(list, "commit(s)") {
 		t.Error("a date divider should head the day group")
 	}
 	window := m.listHeight() - 1
 	gotVisible := 0
 	for _, c := range m.plan.Commits {
-		if strings.Contains(view, c.Hash[:8]) {
+		if strings.Contains(list, c.Hash[:8]) {
 			gotVisible++
 		}
 	}
@@ -444,11 +453,13 @@ func TestView_cursorStaysVisibleWhenScrolling(t *testing.T) {
 
 func TestPaletteToParamsToApply_spreadsCommits(t *testing.T) {
 	m := newTestModel(t)
-	// Focus the strategy pane (Even Spread is default-selected), fill the date
-	// fields (they start unset/greyed), and apply.
-	m = send(m, "tab", "tab") // list -> calendar -> params
+	// Open the redate flow and focus the strategy pane (Even Spread is
+	// default-selected), fill the date fields (they start unset/greyed), and
+	// apply.
+	m.enterRedateFlow()
+	m = send(m, "tab") // calendar -> params
 	if m.mode != modeMain || m.focus != focusParams {
-		t.Fatalf("tab tab should focus the params pane, got mode %v focus %v", m.mode, m.focus)
+		t.Fatalf("tab should focus the params pane, got mode %v focus %v", m.mode, m.focus)
 	}
 	m = send(m, "down")           // carousel row -> Start date
 	m = typeDate(m, "2026-06-01") // fill Start date
@@ -466,16 +477,21 @@ func TestPaletteToParamsToApply_spreadsCommits(t *testing.T) {
 	}
 }
 
-// The strategy pane is always present and reachable via the tab cycle:
-// list -> calendar -> params -> list.
-func TestTabCycle_includesStrategyPane(t *testing.T) {
+// The strategy pane renders once the redate flow is open (not by default —
+// the flow zone shows the commit detail until a flow is launched), and is
+// reachable via the tab cycle: calendar -> params -> list.
+func TestTabCycle_includesStrategyPaneInRedateFlow(t *testing.T) {
 	m := newTestModel(t)
-	if !strings.Contains(m.View(), "STRATEGY") {
-		t.Error("main view should render the strategy pane")
+	if strings.Contains(m.View(), "STRATEGY") {
+		t.Error("main view should not render the strategy pane with no flow open")
 	}
-	m = send(m, "tab", "tab")
+	m.enterRedateFlow()
+	if !strings.Contains(m.View(), "STRATEGY") {
+		t.Error("main view should render the strategy pane once the redate flow is open")
+	}
+	m = send(m, "tab")
 	if m.focus != focusParams {
-		t.Fatalf("tab tab should focus the params pane, got %v", m.focus)
+		t.Fatalf("tab should focus the params pane, got %v", m.focus)
 	}
 	m = send(m, "tab")
 	if m.focus != focusList {
@@ -510,9 +526,9 @@ func TestEditor_dropBodyMarksEdit(t *testing.T) {
 // (up/down = ∓/± 1 day) and weeks run left-to-right (left/right = ∓/± 7 days).
 func TestCalendarArrows_followVisualAxes(t *testing.T) {
 	m := newTestModel(t)
-	m = send(m, "tab") // focus calendar
+	m.enterRedateFlow() // opens directly on the calendar
 	if m.focus != focusCalendar {
-		t.Fatal("tab should focus the calendar")
+		t.Fatal("entering the redate flow should focus the calendar")
 	}
 	start := m.calCursor
 
@@ -741,7 +757,7 @@ func TestBaseBoundary_freezesOlderCommits(t *testing.T) {
 func TestBulkDropBodies_marksActiveOnly(t *testing.T) {
 	m := newTestModelN(t, 4)
 	m = send(m, "down", "down", "b") // base at storage index 1: root frozen
-	m = runRestructureFeature(t, m, "Drop bodies")
+	m = runFeatureNamed(t, m, "Drop bodies")
 	m = send(m, "enter")
 
 	root := m.plan.Commits[0]
@@ -766,7 +782,7 @@ func TestBulkDropBodies_marksActiveOnly(t *testing.T) {
 // shows the effective (edited) titles.
 func TestRetitle_regexReplacesActiveTitles(t *testing.T) {
 	m := newTestModelN(t, 3) // titles: "Refactor the authentication ... c00N"
-	m = runRestructureFeature(t, m, "Retitle (regex)")
+	m = runFeatureNamed(t, m, "Retitle (regex)")
 	if m.mode != modeRetitle {
 		t.Fatalf("R should open the retitle modal, got %v", m.mode)
 	}
@@ -792,7 +808,7 @@ func TestRetitle_regexReplacesActiveTitles(t *testing.T) {
 	}
 
 	// Replacing back to the original clears the edits entirely.
-	m = runRestructureFeature(t, m, "Retitle (regex)")
+	m = runFeatureNamed(t, m, "Retitle (regex)")
 	for _, ch := range "Fix" {
 		m = send(m, string(ch))
 	}
@@ -810,7 +826,7 @@ func TestRetitle_regexReplacesActiveTitles(t *testing.T) {
 // results never keep leading/trailing whitespace.
 func TestRetitle_trailingSpaceInPatternIsHonored(t *testing.T) {
 	m := newTestModelN(t, 3) // titles: "Refactor the authentication ..."
-	m = runRestructureFeature(t, m, "Retitle (regex)")
+	m = runFeatureNamed(t, m, "Retitle (regex)")
 	for _, ch := range "Refactor the " { // note the trailing space
 		m = send(m, string(ch))
 	}
@@ -828,7 +844,7 @@ func TestRetitle_trailingSpaceInPatternIsHonored(t *testing.T) {
 // also work with no pattern at all.
 func TestRetitle_togglesCapitalizeAndEnsureDot(t *testing.T) {
 	m := newTestModelN(t, 3)
-	m = runRestructureFeature(t, m, "Retitle (regex)")
+	m = runFeatureNamed(t, m, "Retitle (regex)")
 	for _, ch := range "Refactor" {
 		m = send(m, string(ch))
 	}
@@ -852,7 +868,7 @@ func TestRetitle_togglesCapitalizeAndEnsureDot(t *testing.T) {
 
 	// Toggles alone (no pattern) are a valid operation: re-running ensure-dot
 	// changes nothing further, so it reports no matches.
-	m = runRestructureFeature(t, m, "Retitle (regex)")
+	m = runFeatureNamed(t, m, "Retitle (regex)")
 	m = send(m, "tab", "tab", "tab", " ", "enter")
 	if m.mode != modeRetitle || m.retitle.errMsg == "" {
 		t.Error("a no-op toggle run should stay open and report no changes")
@@ -864,7 +880,7 @@ func TestRetitle_togglesCapitalizeAndEnsureDot(t *testing.T) {
 // carry) logs an honest "#" note in the footer instead of an invalid line.
 func TestRetitle_togglesOnlyLogsNoteNotInvalidMatch(t *testing.T) {
 	m := newTestModelN(t, 3)
-	m = runRestructureFeature(t, m, "Retitle (regex)")
+	m = runFeatureNamed(t, m, "Retitle (regex)")
 	// Fixture titles already start with a capital letter, so the capitalize
 	// toggle alone would be a no-op; ensure-dot always changes them (none end
 	// with sentence punctuation), so use that toggle to prove real work happened.
@@ -918,7 +934,7 @@ func TestRetitleTransform_edgeCases(t *testing.T) {
 // Invalid patterns and zero-match patterns keep the modal open with an error.
 func TestRetitle_invalidPatternShowsError(t *testing.T) {
 	m := newTestModelN(t, 3)
-	m = runRestructureFeature(t, m, "Retitle (regex)")
+	m = runFeatureNamed(t, m, "Retitle (regex)")
 	m = send(m, "(", "enter")
 	if m.mode != modeRetitle {
 		t.Fatal("invalid pattern should keep the modal open")
@@ -939,7 +955,7 @@ func TestRetitle_invalidPatternShowsError(t *testing.T) {
 func TestRetitle_respectsBase(t *testing.T) {
 	m := newTestModelN(t, 3)
 	m = send(m, "down", "b") // base at storage index 1: root frozen
-	m = runRestructureFeature(t, m, "Retitle (regex)")
+	m = runFeatureNamed(t, m, "Retitle (regex)")
 	for _, ch := range "Refactor" {
 		m = send(m, string(ch))
 	}
@@ -975,7 +991,7 @@ func TestBaseBoundary_dropsEditsOnFrozen(t *testing.T) {
 // and moves the list cursor to the newest commit of that day.
 func TestCalendarFocus_highlightsCommitsOfDay(t *testing.T) {
 	m := newTestModelN(t, 3) // all commits land on 2026-06-05
-	m = send(m, "tab")       // calendar cursor starts on the newest commit's day
+	m.enterRedateFlow()      // calendar cursor starts on the newest commit's day
 
 	// The list cursor row shows ▸; the two other same-day rows show ▌.
 	if got := strings.Count(m.View(), "▌"); got != 2 {
@@ -1012,7 +1028,14 @@ func TestListFocus_noDayHighlight(t *testing.T) {
 // error rather than a parse failure.
 func TestParamsForm_showsErrorInsidePane(t *testing.T) {
 	m := newTestModel(t)
-	m = send(m, "tab", "tab") // list -> calendar -> params pane (Even Spread)
+	// A wide terminal so the strategy pane renders at its natural width
+	// instead of clamping down (layout.go's flowWidth) and wrapping its
+	// description onto an extra line that would push the error line past the
+	// flow zone's height budget.
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 220, Height: 40})
+	m = updated.(Model)
+	m.enterRedateFlow()
+	m = send(m, "tab") // calendar -> params pane (Even Spread)
 	if m.focus != focusParams {
 		t.Fatalf("expected params focus, got %v", m.focus)
 	}
@@ -1271,7 +1294,7 @@ func TestGlobalKeys_workFromAnyPane(t *testing.T) {
 	}
 	m = send(m, "esc")
 
-	m = runRestructureFeature(t, m, "Drop bodies") // open the popup then confirm
+	m = runFeatureNamed(t, m, "Drop bodies") // open the popup then confirm
 	m = send(m, "enter")
 	if len(m.plan.Edits) != 3 {
 		t.Errorf("D+enter should drop bodies from the params pane, got %d edits", len(m.plan.Edits))
@@ -1364,10 +1387,11 @@ func TestParamsPane_manualPinAndPickedDaysApply(t *testing.T) {
 // The half-year heatmap labels follow the calendar cursor.
 func TestCalendarHalfYear_labelFollowsCursor(t *testing.T) {
 	m := newTestModel(t) // commits on 2026-06-05 -> first half
+	m.enterRedateFlow()
 	if !strings.Contains(m.View(), "Jan–Jun") {
 		t.Error("June cursor should render the Jan–Jun half")
 	}
-	m = send(m, "tab", "right", "right", "right", "right") // +28 days -> July
+	m = send(m, "right", "right", "right", "right") // +28 days -> July
 	if !strings.Contains(m.View(), "Jul–Dec") {
 		t.Error("July cursor should render the Jul–Dec half")
 	}
@@ -1475,11 +1499,12 @@ func TestModel_ListWidthGrowsWithTerminal(t *testing.T) {
 
 func TestDetail_paneRendersForCursorCommit(t *testing.T) {
 	m := newTestModelN(t, 3)
-	// Wide terminal -> the detail column is seated next to the list.
+	// Wide terminal -> the flow zone (showing the commit detail with no flow
+	// open) is seated next to the list.
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 220, Height: 40})
 	m = updated.(Model)
-	if computeLayout(m.width, m.height).detailWidth == 0 {
-		t.Fatal("220-col terminal should seat the detail column")
+	if computeLayout(m.width, m.height).flowWidth == 0 {
+		t.Fatal("220-col terminal should seat the flow zone")
 	}
 	if !strings.Contains(m.View(), "DETAIL") {
 		t.Errorf("wide main view should render the detail panel header")
@@ -1508,9 +1533,12 @@ func TestDetail_statCmdCachesResult(t *testing.T) {
 }
 
 func TestDetail_overlayTogglesAtNarrowWidth(t *testing.T) {
-	m := newTestModelN(t, 3) // sized 120x40 -> detail column hidden
-	if computeLayout(m.width, m.height).detailWidth != 0 {
-		t.Fatal("120-col terminal should hide the detail column")
+	m := newTestModelN(t, 3)
+	// 70 cols is narrower than the flow zone's showRight threshold.
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 70, Height: 40})
+	m = updated.(Model)
+	if computeLayout(m.width, m.height).showRight {
+		t.Fatal("70-col terminal should hide the flow zone")
 	}
 	m = send(m, ".")
 	if m.mode != modeDetail {
@@ -1982,147 +2010,8 @@ func TestAutoBase_mergeBaseOffFirstParentLineClaimsNoBase(t *testing.T) {
 	}
 }
 
-func TestTabs_switchWithAngleBrackets(t *testing.T) {
-	m := newTestModel(t) // defaults to the Dates workspace
-	if m.workspace != WSDates {
-		t.Fatalf("should start on Dates, got %v", m.workspace)
-	}
-	m = send(m, ">")
-	if m.workspace != WSRestructure {
-		t.Errorf("> should advance to Restructure, got %v", m.workspace)
-	}
-	m = send(m, "<")
-	if m.workspace != WSDates {
-		t.Errorf("< should return to Dates, got %v", m.workspace)
-	}
-	m = send(m, "<") // wrap from the first tab to the last
-	if m.workspace != WSSearch {
-		t.Errorf("< from Dates should wrap to Search, got %v", m.workspace)
-	}
-}
-
-func TestTabs_switchWithSquareBrackets(t *testing.T) {
-	m := newTestModel(t) // starts on Dates
-	if m.workspace != WSDates {
-		t.Fatalf("should start on Dates, got %v", m.workspace)
-	}
-	m = send(m, "]")
-	if m.workspace != WSRestructure {
-		t.Errorf("] should advance to Restructure, got %v", m.workspace)
-	}
-	m = send(m, "[")
-	if m.workspace != WSDates {
-		t.Errorf("[ should return to Dates, got %v", m.workspace)
-	}
-	m = send(m, "[") // wrap from the first tab to the last
-	if m.workspace != WSSearch {
-		t.Errorf("[ should wrap to the last tab, got %v", m.workspace)
-	}
-}
-
-func TestView_tabBarShowsAllWorkspaces(t *testing.T) {
-	m := newTestModel(t)
-	view := m.View()
-	for _, title := range []string{"Dates", "Restructure", "History", "Authorship", "Search"} {
-		if !strings.Contains(view, title) {
-			t.Errorf("tab bar should list %q", title)
-		}
-	}
-}
-
-func TestView_stubWorkspaceShowsComingSoon(t *testing.T) {
-	m := newTestModel(t)
-	m = send(m, ">", ">") // Dates -> Restructure -> History (a v1 stub)
-	if m.workspace != WSHistory {
-		t.Fatalf("expected History, got %v", m.workspace)
-	}
-	if !strings.Contains(m.View(), "Coming soon") {
-		t.Error("a stub workspace should render a 'Coming soon' panel")
-	}
-}
-
-func TestTabs_switchingResetsFocusToList(t *testing.T) {
-	m := newTestModel(t)
-	m = send(m, "tab") // Dates: list -> calendar
-	if m.focus != focusCalendar {
-		t.Fatalf("tab on Dates should focus the calendar, got %v", m.focus)
-	}
-	m = send(m, ">") // switch workspace
-	if m.focus != focusList {
-		t.Errorf("switching workspace should reset focus to the list, got %v", m.focus)
-	}
-}
-
-func TestMenu_restructureTabFocusesMenu(t *testing.T) {
-	m := newTestModel(t)
-	m = send(m, ">") // Dates -> Restructure
-	m = send(m, "tab")
-	if m.focus != focusWorkspace {
-		t.Errorf("tab on Restructure should focus the feature menu, got %v", m.focus)
-	}
-}
-
-func TestMenu_restructureRunsRetitle(t *testing.T) {
-	m := newTestModel(t)
-	m = send(m, ">", "tab") // Restructure, focus the menu
-	// Menu order: Split(0), Reword(1), Squash(2), Retitle(3), Drop bodies(4).
-	m = send(m, "down", "down", "down")
-	if m.wsMenuCursor != 3 {
-		t.Fatalf("cursor should be on Retitle (index 3), got %d", m.wsMenuCursor)
-	}
-	m = send(m, "enter")
-	if m.mode != modeRetitle {
-		t.Errorf("enter on Retitle should open the retitle modal, got mode %v", m.mode)
-	}
-}
-
-func TestMenu_restructureRunsDropBodies(t *testing.T) {
-	m := newTestModel(t) // commits c000..c002, each WITH a body
-	m = send(m, ">", "tab")
-	m = send(m, "down", "down", "down", "down") // Drop bodies (index 4)
-	m = send(m, "enter")                        // opens the confirmation popup
-	if m.mode != modeDropBodies {
-		t.Fatalf("running Drop bodies from the menu should open the popup, got mode %v", m.mode)
-	}
-	m = send(m, "enter") // confirm
-	if !m.plan.HasChanges() {
-		t.Error("confirming Drop bodies should stage body-drop edits")
-	}
-}
-
-func TestMenu_cursorClampsToMenuLength(t *testing.T) {
-	m := newTestModel(t)
-	m = send(m, ">", "tab")
-	for i := 0; i < 10; i++ {
-		m = send(m, "down")
-	}
-	if last := len(featuresFor(WSRestructure)) - 1; m.wsMenuCursor != last {
-		t.Errorf("cursor should clamp to the last feature %d, got %d", last, m.wsMenuCursor)
-	}
-}
-
-func TestMenu_tabReturnsToList(t *testing.T) {
-	m := newTestModel(t)
-	m = send(m, ">", "tab") // focus the menu
-	m = send(m, "tab")      // back to the list
-	if m.focus != focusList {
-		t.Errorf("tab from the menu should return to the list, got %v", m.focus)
-	}
-}
-
-func TestView_restructureRendersMenu(t *testing.T) {
-	m := newTestModel(t)
-	m = send(m, ">")
-	view := m.View()
-	for _, name := range []string{"RESTRUCTURE", "Split commit", "Drop bodies"} {
-		if !strings.Contains(view, name) {
-			t.Errorf("Restructure workspace should render %q", name)
-		}
-	}
-}
-
 func TestListVisuals_setModeShowsCircleGutter(t *testing.T) {
-	m := newTestModel(t) // 3 commits, none frozen, on Dates
+	m := newTestModel(t) // 3 commits, none frozen, no flow open
 	m.sel.mode = SelSet
 	m.sel.set = map[string]bool{m.commitAtDisplayIndex(0).Hash: true}
 
@@ -2174,7 +2063,7 @@ func TestListVisuals_defaultModeUnchanged(t *testing.T) {
 }
 
 func TestSelectionKeys_spaceTogglesSet(t *testing.T) {
-	m := newTestModel(t) // Dates, focusList, 3 commits, none frozen
+	m := newTestModel(t) // focusList, 3 commits, none frozen
 	cursorHash := m.commitAtCursor().Hash
 	m = send(m, " ")
 	if m.sel.mode != SelSet || !m.sel.isSet(cursorHash) {
@@ -2234,23 +2123,40 @@ func TestSelectionKeys_visualRangeExtendsWithMovement(t *testing.T) {
 	}
 }
 
-func TestSelectionKeys_escResetsSelection(t *testing.T) {
+// TestSelectionKeys_escResetsSelectionToSingleWithNoFlow: with no flow open
+// there is no implicit Active scope to fall back to, so esc after a Set
+// selection lands on plain Single (the newSelection() default).
+func TestSelectionKeys_escResetsSelectionToSingleWithNoFlow(t *testing.T) {
 	m := newTestModel(t)
 	m = send(m, "s") // Set mode with all selected
 	m = send(m, "esc")
-	if m.sel.mode != SelActive { // Dates default is Active
-		t.Errorf("esc should reset to the workspace default (Active on Dates), got %v", m.sel.mode)
+	if m.sel.mode != SelSingle {
+		t.Errorf("esc should reset to Single with no flow open, got %v", m.sel.mode)
 	}
 }
 
-func TestSelection_defaultModeFollowsWorkspace(t *testing.T) {
+// TestSelectionKeys_escResetsSelectionToActiveInRedateFlow: with the redate
+// flow open, esc after a Set selection falls back to the flow's own implicit
+// Active scope instead of Single (mirrors enterRedateFlow's own default).
+func TestSelectionKeys_escResetsSelectionToActiveInRedateFlow(t *testing.T) {
 	m := newTestModel(t)
+	m.enterRedateFlow()
+	m.focus = focusList // tab back to the list without leaving the flow
+	m = send(m, "s")    // Set mode with all selected
+	m = send(m, "esc")
 	if m.sel.mode != SelActive {
-		t.Errorf("the Dates workspace should default to Active selection, got %v", m.sel.mode)
+		t.Errorf("esc should reset to the flow's Active default, got %v", m.sel.mode)
 	}
-	m = send(m, ">") // Dates -> Restructure
+}
+
+// TestSelection_defaultModeIsSingleWithNoFlowOpen: with no flow open (the
+// startup state — flows replaced the old per-tab default), the selection
+// starts in plain Single mode. Entering the redate flow's own Active default
+// is covered by TestEnterRedateFlowDefaultsToActiveScope (flow_test.go).
+func TestSelection_defaultModeIsSingleWithNoFlowOpen(t *testing.T) {
+	m := newTestModel(t)
 	if m.sel.mode != SelSingle {
-		t.Errorf("Restructure should default to Single selection, got %v", m.sel.mode)
+		t.Errorf("default selection mode should be Single with no flow open, got %v", m.sel.mode)
 	}
 }
 
@@ -2550,7 +2456,7 @@ func TestPipeline_pushedSplitRoutesToConfirm(t *testing.T) {
 
 func TestDropBodies_popupConfirms(t *testing.T) {
 	m := newTestModelN(t, 3)
-	m = runRestructureFeature(t, m, "Drop bodies")
+	m = runFeatureNamed(t, m, "Drop bodies")
 	if m.mode != modeDropBodies {
 		t.Fatalf("D should open the drop-bodies popup, got %v", m.mode)
 	}
@@ -2577,7 +2483,7 @@ func TestDropBodies_popupConfirms(t *testing.T) {
 
 func TestDropBodies_escCancels(t *testing.T) {
 	m := newTestModelN(t, 3)
-	m = runRestructureFeature(t, m, "Drop bodies")
+	m = runFeatureNamed(t, m, "Drop bodies")
 	m = send(m, "esc")
 	if m.mode != modeMain {
 		t.Errorf("esc should close the popup, got %v", m.mode)
@@ -2710,7 +2616,7 @@ func TestGlobalAction_detailWithNoCommitsDoesNotPanic(t *testing.T) {
 func TestDropBodies_honorsSelection(t *testing.T) {
 	m := newTestModelN(t, 4)
 	m = send(m, " ") // select the cursor (newest) commit
-	m = runRestructureFeature(t, m, "Drop bodies")
+	m = runFeatureNamed(t, m, "Drop bodies")
 	if !strings.Contains(m.View(), "Will drop the body of 1") {
 		t.Errorf("with one commit selected the popup should target 1, got:\n%s", m.View())
 	}
@@ -2733,7 +2639,7 @@ func TestDropBodies_contiguousSelectionLogsCommitsRange(t *testing.T) {
 	m := newTestModelN(t, 4) // display: 0=newest .. 3=oldest/root
 	m = send(m, " ")         // select display 0
 	m = send(m, "down", " ") // select display 1 too -> {display0, display1} contiguous, non-root
-	m = runRestructureFeature(t, m, "Drop bodies")
+	m = runFeatureNamed(t, m, "Drop bodies")
 	m = send(m, "enter")
 	found := false
 	for _, l := range m.planCmds {
@@ -2754,7 +2660,7 @@ func TestDropBodies_nonContiguousSelectionLogsHonestNote(t *testing.T) {
 	m := newTestModelN(t, 4)         // display: 0=newest .. 3=oldest/root
 	m = send(m, " ")                 // select display 0
 	m = send(m, "down", "down", " ") // skip display 1, select display 2 -> a gap
-	m = runRestructureFeature(t, m, "Drop bodies")
+	m = runFeatureNamed(t, m, "Drop bodies")
 	m = send(m, "enter")
 	found := false
 	for _, l := range m.planCmds {
@@ -2779,7 +2685,7 @@ func TestCommitPending_honestNoteNotWrittenToOnDiskLog(t *testing.T) {
 	m := newTestModelN(t, 4)         // display: 0=newest .. 3=oldest/root
 	m = send(m, " ")                 // select display 0
 	m = send(m, "down", "down", " ") // skip display 1, select display 2 -> a gap
-	m = runRestructureFeature(t, m, "Drop bodies")
+	m = runFeatureNamed(t, m, "Drop bodies")
 	m = send(m, "enter") // confirm the popup -> stages DropBody edits + the "#" note
 	staged := false
 	for _, l := range m.planCmds {
@@ -2842,9 +2748,10 @@ func mkBranch(t *testing.T, m Model, name string) {
 
 func TestStrategyCarousel_cyclesAndRepaints(t *testing.T) {
 	m := newTestModelN(t, 3)
-	m = send(m, "tab", "tab") // focus the strategy pane (list -> calendar -> params)
+	m.enterRedateFlow()
+	m = send(m, "tab") // focus the strategy pane (calendar -> params)
 	if m.focus != focusParams {
-		t.Fatalf("tab tab should focus the params pane, got %v", m.focus)
+		t.Fatalf("tab should focus the params pane, got %v", m.focus)
 	}
 	start := m.activeStrat().form.strat.Name()
 	m = send(m, "right") // carousel: next strategy
@@ -2888,7 +2795,8 @@ func TestStrategy_unsetDatesAreNotApplicable(t *testing.T) {
 
 func TestStrategy_fillingDatesStagesLive(t *testing.T) {
 	m := newTestModelN(t, 3)
-	m = send(m, "tab", "tab")     // strategy pane (Even Spread)
+	m.enterRedateFlow()
+	m = send(m, "tab")            // strategy pane (Even Spread)
 	m = send(m, "down")           // move from carousel row to Start date field
 	m = typeDate(m, "2026-06-01") // Start date field
 	m = send(m, "down")           // to End date
@@ -2913,8 +2821,9 @@ func TestStageActive_RespectsSetSelection(t *testing.T) {
 	// Fill Even Spread's date range through the real key path — the same one
 	// TestStrategy_fillingDatesStagesLive uses — since updateParamsPane already
 	// re-stages live on every keystroke; no separate stage call is needed.
-	m = send(m, "tab", "tab") // list -> calendar -> params (Even Spread, default)
-	m = send(m, "down")       // carousel -> Start date
+	m.enterRedateFlow()
+	m = send(m, "tab")  // calendar -> params (Even Spread, default)
+	m = send(m, "down") // carousel -> Start date
 	m = typeDate(m, "2026-06-01")
 	m = send(m, "down") // Start date -> End date
 	m = typeDate(m, "2026-06-30")
@@ -2940,7 +2849,8 @@ func TestStageActive_RespectsSetSelection(t *testing.T) {
 // selection (the workspace default), staging must cover every active commit.
 func TestStageActive_NoSelectionStagesWholeActiveRange(t *testing.T) {
 	m := newTestModelN(t, 4)
-	m = send(m, "tab", "tab")
+	m.enterRedateFlow()
+	m = send(m, "tab")
 	m = send(m, "down")
 	m = typeDate(m, "2026-06-01")
 	m = send(m, "down")
@@ -2959,7 +2869,8 @@ func TestStageActive_NoSelectionStagesWholeActiveRange(t *testing.T) {
 
 func TestReset_clearsAllStrategyState(t *testing.T) {
 	m := newTestModelN(t, 3)
-	m = send(m, "tab", "tab")
+	m.enterRedateFlow()
+	m = send(m, "tab")
 	m = send(m, "down")
 	m = typeDate(m, "2026-06-01")
 	m = send(m, "down")
@@ -3151,8 +3062,8 @@ func TestFooter_compoundApplyLogsAllPlanLines(t *testing.T) {
 		t.Fatal("setup: applyStrategyInPane should have set redateCmd")
 	}
 
-	m = runRestructureFeature(t, m, "Drop bodies") // stages a planCmds line
-	m = send(m, "enter")                           // confirm the drop-bodies popup
+	m = runFeatureNamed(t, m, "Drop bodies") // stages a planCmds line
+	m = send(m, "enter")                     // confirm the drop-bodies popup
 	if len(m.planCmds) == 0 {
 		t.Fatal("setup: drop-bodies should have staged a planCmds line")
 	}

@@ -15,23 +15,21 @@ const (
 
 	// listFloorWidth/listCeilWidth bound the commit-list pane. The floor is a
 	// conservative minimum so narrow terminals do not regress; the ceiling
-	// caps the list at a scannable ~80 columns so the detail pane absorbs the rest
+	// caps the list at a scannable ~80 columns so the flow zone absorbs the rest
 	// of a wide terminal and stretches.
 	listFloorWidth = 44
 	listCeilWidth  = 80
 
-	// paneFrames is the columns consumed by the list and right panes' left/right
-	// borders (2 each). rightPaneWidth (the fixed calendar column) is defined in
-	// view.go.
+	// paneFrames is the columns consumed by the list and flow-zone panes'
+	// left/right borders (2 each).
 	paneFrames = 4
 
-	// detailMinWidth is the narrowest the commit-detail column may be before we
-	// drop it entirely and fall back to the two-column layout (detail-on-overlay).
-	detailMinWidth = 32
-
-	// paneFrames3 is the columns consumed by three panes' left/right borders
-	// (2 each) when the detail column is present, vs paneFrames for two panes.
-	paneFrames3 = 6
+	// flowMinWidth is the narrowest the flow zone (calendar or commit detail)
+	// may be before we drop it entirely and fall back to the list-only layout
+	// (detail reachable via the '.' overlay). Below their natural width, the
+	// calendar clamps down to it (ws_dates.go) and the detail pane just renders
+	// narrower — neither forces the column wider the way a fixed column did.
+	flowMinWidth = 40
 
 	// chromeRows is the vertical budget taken by the title bar, status line,
 	// keybar, and the spacing around the body. minBodyHeight keeps the body
@@ -62,18 +60,16 @@ const (
 )
 
 // layoutDims is the computed column/row budget for the main screen, derived
-// entirely from the terminal size. listWidth, detailWidth, and inputWidth are
-// consumed by production rendering today; contentWidth, rightWidth, and
-// bodyHeight are reserved for future work (3-zone responsive
-// breakpoints) and not yet wired — height still flows through the listHeight()
-// method, width through rightPaneWidth const.
+// entirely from the terminal size. listWidth, flowWidth, and inputWidth are
+// consumed by production rendering today; contentWidth and bodyHeight are
+// reserved for future work (3-zone responsive breakpoints) and not yet wired —
+// height still flows through the listHeight() method.
 type layoutDims struct {
 	contentWidth       int  // terminal width, capped at maxContentWidth (reserved for future work; not yet wired)
 	listWidth          int  // commit-list pane width (border excluded)
-	detailWidth        int  // commit-detail pane width (0 when the detail column is hidden)
-	rightWidth         int  // right column (calendar/strategy) width — currently fixed (reserved for future work; not yet wired)
-	showRight          bool // whether the fixed right column fits; false → list-only layout on narrow terminals
-	bodyHeight         int  // rows available to the list/right body (reserved for future work; not yet wired)
+	flowWidth          int  // flow-zone pane width (0 when the flow zone is hidden)
+	showRight          bool // whether the flow zone fits; false → list-only on narrow terminals
+	bodyHeight         int  // rows available to the body (reserved for future work; not yet wired)
 	inputWidth         int  // single-line text-input width for the editor and every modal field
 	detailOverlayWidth int  // width of the on-demand commit-detail overlay ('.')
 	previewWidth       int  // pipeline (stage→preview→apply) overlay width
@@ -94,45 +90,34 @@ func computeLayout(termW, termH int) layoutDims {
 		usable = maxContentWidth
 	}
 
-	// Decide whether the fixed right column (calendar/strategy) fits at all. On a
-	// terminal too narrow to seat even the list floor plus the right column, we drop
-	// the right column entirely and give the whole width to the list, rather than
-	// joining a floor-width list to a fixed right column and overflowing the frame
-	// (which is what happened for every width between minTermWidth and ~108).
-	showRight := usable >= listFloorWidth+rightPaneWidth+paneFrames
+	// Decide whether the flow zone fits at all. On a terminal too narrow to
+	// seat even the list floor plus a usable flow column, drop the flow zone
+	// entirely and give the whole width to the list, rather than joining a
+	// floor-width list to a too-narrow flow column and overflowing the frame.
+	showRight := usable >= listFloorWidth+flowMinWidth+paneFrames
 
-	var listW, detailW int
+	var listW, flowW int
 	switch {
 	case !showRight:
 		// List-only: the list pane spends the whole usable width minus its own
-		// left/right border. The detail and right columns are hidden; detail is
-		// still reachable as an on-demand overlay.
+		// left/right border. The flow zone is hidden; detail is still reachable
+		// as an on-demand overlay.
 		listW = usable - 2
 		if listW < listFloorWidth {
 			listW = listFloorWidth
 		}
-	case usable >= listFloorWidth+detailMinWidth+rightPaneWidth+paneFrames3:
-		// Wide enough to seat a detail column between the list and the right column.
-		// The list keeps priority: it grows to listCeilWidth first, detail takes the
-		// rest.
-		avail := usable - rightPaneWidth - paneFrames3
-		listW = avail - detailMinWidth
-		if listW > listCeilWidth {
-			listW = listCeilWidth
-		}
-		if listW < listFloorWidth {
-			listW = listFloorWidth
-		}
-		detailW = avail - listW
 	default:
-		// Two-column: list + right, no detail pane (overlay on demand).
-		listW = usable - rightPaneWidth - paneFrames
-		if listW < listFloorWidth {
-			listW = listFloorWidth
-		}
+		// Two-column: list + flow zone. The list keeps priority: it grows to
+		// listCeilWidth first, the flow zone absorbs whatever remains — unlike
+		// the old fixed calendar column, nothing here caps how wide it gets.
+		listW = usable - flowMinWidth - paneFrames
 		if listW > listCeilWidth {
 			listW = listCeilWidth
 		}
+		if listW < listFloorWidth {
+			listW = listFloorWidth
+		}
+		flowW = usable - listW - paneFrames
 	}
 
 	bodyH := termH - chromeRows
@@ -156,11 +141,6 @@ func computeLayout(termW, termH int) layoutDims {
 		detailOverlayW = detailOverlayFloor
 	}
 
-	rightW := rightPaneWidth
-	if !showRight {
-		rightW = 0
-	}
-
 	previewW := usable * 8 / 10
 	if previewW > previewCeil {
 		previewW = previewCeil
@@ -172,8 +152,7 @@ func computeLayout(termW, termH int) layoutDims {
 	return layoutDims{
 		contentWidth:       usable,
 		listWidth:          listW,
-		detailWidth:        detailW,
-		rightWidth:         rightW,
+		flowWidth:          flowW,
 		showRight:          showRight,
 		bodyHeight:         bodyH,
 		inputWidth:         inputW,

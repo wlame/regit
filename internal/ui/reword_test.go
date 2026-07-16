@@ -105,7 +105,7 @@ func TestRewordTargets_fallsBackToCursorWithoutSet(t *testing.T) {
 // edit for the commit that was pending at cancel time, and (d) resets the Set
 // selection back to the workspace default (Active for the Dates workspace).
 func TestReword_escMidWalkReportsPartialAndResets(t *testing.T) {
-	m := newTestModel(t) // 3 commits, none frozen, Dates → SelActive by default
+	m := newTestModel(t) // 3 commits, none frozen, no flow open → Single by default
 	h0 := m.commitAtDisplayIndex(0).Hash
 	h1 := m.commitAtDisplayIndex(1).Hash
 
@@ -155,8 +155,8 @@ func TestReword_escMidWalkReportsPartialAndResets(t *testing.T) {
 	}
 
 	// Selection must be reset — no stale Set should linger.
-	if m.sel.mode != SelActive {
-		t.Errorf("selection mode should be reset to SelActive (Dates default), got %v", m.sel.mode)
+	if m.sel.mode != SelSingle {
+		t.Errorf("selection mode should be reset to Single (no flow open), got %v", m.sel.mode)
 	}
 	if len(m.sel.set) != 0 {
 		t.Errorf("selection set should be empty after cancel, got %v", m.sel.set)

@@ -7,13 +7,13 @@ func TestComputeLayout_ListWidthBounds(t *testing.T) {
 		name         string
 		termW, termH int
 		wantList     int
-		wantDetail   int
+		wantFlow     int
 	}{
-		{"zero width renders at the 120 target floor", 0, 40, 56, 0},             // 120 < 142 -> 2-col, 120-64
-		{"narrow drops the right column, list fills width", 90, 40, 88, 0},       // 90 < 108 -> list-only, 90-2
-		{"target floor width", 120, 40, 56, 0},                                   // 120-64, 2-col
-		{"wide terminal caps the list at 80, detail stretches", 220, 40, 80, 74}, // avail=220-66=154; list capped 80; detail=154-80
-		{"ultrawide caps list at 80, detail stretches", 400, 40, 80, 94},         // avail=240-66=174; list capped 80; detail=174-80
+		{"zero width renders at the 120 target floor", 0, 40, 76, 40},  // 120-44, 2-col
+		{"narrow drops the flow zone", 80, 40, 78, 0},                  // 80 < 88 -> list-only, 80-2
+		{"target floor width", 120, 40, 76, 40},                        // 120-44, 2-col
+		{"wide terminal: list caps, flow stretches", 220, 40, 80, 136}, // flow=220-80-4
+		{"ultrawide: list caps, flow stretches", 400, 40, 80, 156},     // usable 240; flow=240-80-4
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -21,8 +21,8 @@ func TestComputeLayout_ListWidthBounds(t *testing.T) {
 			if got.listWidth != tc.wantList {
 				t.Fatalf("listWidth = %d, want %d", got.listWidth, tc.wantList)
 			}
-			if got.detailWidth != tc.wantDetail {
-				t.Fatalf("detailWidth = %d, want %d", got.detailWidth, tc.wantDetail)
+			if got.flowWidth != tc.wantFlow {
+				t.Fatalf("flowWidth = %d, want %d", got.flowWidth, tc.wantFlow)
 			}
 			if got.contentWidth > maxContentWidth {
 				t.Fatalf("contentWidth = %d exceeds the %d cap", got.contentWidth, maxContentWidth)
@@ -32,41 +32,37 @@ func TestComputeLayout_ListWidthBounds(t *testing.T) {
 }
 
 // TestComputeLayout_narrowTerminalsFitTheFrame proves the fix for the frame
-// overflow at widths between minTermWidth and ~108: below the threshold the right
-// column is dropped (showRight=false) and the total rendered width (list pane +
-// its border + right column + join frames) never exceeds the terminal.
+// overflow at widths between minTermWidth and ~88: below the threshold the flow
+// zone is dropped (showRight=false) and the total rendered width (list pane +
+// its border + flow zone + join frames) never exceeds the terminal.
 func TestComputeLayout_narrowTerminalsFitTheFrame(t *testing.T) {
 	for w := minTermWidth; w <= 140; w++ {
 		d := computeLayout(w, 40)
 		// Total columns the body join consumes: pane widths plus their borders.
-		// list-only is one pane (2 border cols); with the right column it is two
-		// panes (paneFrames) or three when detail is present (paneFrames3).
+		// list-only is one pane (2 border cols); with the flow zone it is two
+		// panes (paneFrames).
 		total := d.listWidth + 2
 		if d.showRight {
-			frames := paneFrames
-			if d.detailWidth > 0 {
-				frames = paneFrames3
-			}
-			total = d.listWidth + d.detailWidth + d.rightWidth + frames
+			total = d.listWidth + d.flowWidth + paneFrames
 		}
 		if total > w {
-			t.Errorf("width %d: body total %d exceeds terminal (list=%d detail=%d right=%d showRight=%v)",
-				w, total, d.listWidth, d.detailWidth, d.rightWidth, d.showRight)
+			t.Errorf("width %d: body total %d exceeds terminal (list=%d flow=%d showRight=%v)",
+				w, total, d.listWidth, d.flowWidth, d.showRight)
 		}
-		// Below the list+right threshold the right column must be dropped.
-		if w < listFloorWidth+rightPaneWidth+paneFrames && d.showRight {
-			t.Errorf("width %d: right column should be hidden", w)
+		// Below the list+flow threshold the flow zone must be dropped.
+		if w < listFloorWidth+flowMinWidth+paneFrames && d.showRight {
+			t.Errorf("width %d: flow zone should be hidden", w)
 		}
 	}
 }
 
-func TestComputeLayout_DetailStretchesPastMinimum(t *testing.T) {
+func TestComputeLayout_FlowZoneStretchesPastMinimum(t *testing.T) {
 	got := computeLayout(220, 40)
 	if got.listWidth != 80 {
 		t.Fatalf("list should cap at 80, got %d", got.listWidth)
 	}
-	if got.detailWidth <= detailMinWidth {
-		t.Fatalf("detail should stretch past the %d minimum, got %d", detailMinWidth, got.detailWidth)
+	if got.flowWidth <= flowMinWidth {
+		t.Fatalf("flow zone should stretch past the %d minimum, got %d", flowMinWidth, got.flowWidth)
 	}
 }
 

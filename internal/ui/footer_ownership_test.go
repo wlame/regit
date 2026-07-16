@@ -75,7 +75,7 @@ func TestFooter_directApplyDoesNotFlushPlanLines(t *testing.T) {
 	m := newTestModelN(t, 4) // display: 0=newest .. 3=oldest/root
 
 	// Stage a drop-bodies plan edit (a one-shot planCmds line) without applying it.
-	m = runRestructureFeature(t, m, "Drop bodies")
+	m = runFeatureNamed(t, m, "Drop bodies")
 	m = send(m, "enter")
 	if len(m.planCmds) == 0 {
 		t.Fatal("setup: drop-bodies should have staged a planCmds line")

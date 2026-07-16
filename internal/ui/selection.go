@@ -23,8 +23,8 @@ func newSelection() selectionState {
 }
 
 // reset returns the selection to a clean Single mode, dropping any range/set
-// state. Used when switching workspaces or reloading so a stale multi-selection
-// never leaks across contexts.
+// state. Used when leaving a flow or reloading so a stale multi-selection never
+// leaks across contexts.
 func (s *selectionState) reset() {
 	s.mode = SelSingle
 	s.visual = false

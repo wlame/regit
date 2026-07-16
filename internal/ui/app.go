@@ -52,8 +52,7 @@ type focusArea int
 const (
 	focusList focusArea = iota
 	focusCalendar
-	focusParams    // the strategy/params pane below the calendar
-	focusWorkspace // a menu workspace's feature list (e.g. Restructure)
+	focusParams // the strategy/params pane below the calendar
 )
 
 type statusKind int
@@ -119,11 +118,10 @@ type Model struct {
 	contribs   []contributor
 	contribIdx map[string]int
 
-	// workspace is the active category tab; wsMenuCursor is the cursor within a
-	// menu workspace (Restructure). The tab bar and zone-3 widget are derived
-	// from these plus the workspaces/features tables (feature.go).
-	workspace    WorkspaceID
-	wsMenuCursor int
+	// flow is the flow zone's occupant: flowNone shows the commit detail, or a
+	// launched feature's interactive widget for the duration of the flow (see
+	// flow.go) — the replacement for the old category-tab chassis.
+	flow flowID
 
 	// panel is the bottom action-panel state (actionpanel.go). Opening or
 	// closing it never touches the commit selection — spec §2 invariant.
@@ -413,6 +411,7 @@ func New(repo *gitio.Repo, mgr *safety.Manager, cfg config.Config, state model.R
 		strategies:   strategy.Strategies(),
 		st:           newStyles(),
 		groupByDate:  true,
+		flow:         flowNone,
 	}
 	sp := spinner.New(spinner.WithSpinner(spinner.Dot))
 	m.spinner = sp
@@ -421,8 +420,7 @@ func New(repo *gitio.Repo, mgr *safety.Manager, cfg config.Config, state model.R
 	// the cursor on the newest editable commit and seed the calendar there.
 	m.applyAutoBase()
 	m.rebuildContributors()
-	m.sel = newSelection()
-	m.applyDefaultSelectionMode()
+	m.sel = newSelection() // Single mode: no flow is open at startup (flow: flowNone above)
 	m.listCursor = m.firstEditableDisplayIndex()
 
 	seed := time.Now().In(loc)
@@ -653,15 +651,12 @@ func clampHelpOffset(offset, height int) int {
 // --- Main view -------------------------------------------------------------
 
 func (m Model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// The open panel owns every key first: it must swallow list/workspace
+	// The open panel owns every key first: it must swallow list/flow
 	// navigation and globals alike so the underlying panes never react to a
 	// keystroke the panel is also interpreting (e.g. 'j' moving the panel
 	// cursor instead of the list cursor behind it).
 	if m.panel.open {
 		return m.updateActionPanel(msg)
-	}
-	if m.focus == focusWorkspace {
-		return m.updateWorkspaceMenu(msg)
 	}
 	if m.focus == focusList {
 		if model, cmd, ok := m.listSelectionKey(msg); ok {
@@ -679,6 +674,11 @@ func (m Model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return model, cmd
 	}
 	switch msg.String() {
+	case "esc":
+		if m.flow != flowNone {
+			m.exitFlow()
+			return m, nil
+		}
 	case "tab":
 		m.quotaTyping = false
 		switch m.focus {
@@ -779,12 +779,6 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		m.picker = newPicker("Branches", branches, computeLayout(m.width, m.height).inputWidth)
 		m.mode = modePicker
 		return m, nil, true
-	case ">", "]":
-		m.nextWorkspace()
-		return m, nil, true
-	case "<", "[":
-		m.prevWorkspace()
-		return m, nil, true
 	case "L":
 		m.logVisible = !m.logVisible
 		return m, nil, true
@@ -852,7 +846,7 @@ func (m Model) listSelectionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	case "esc":
 		if m.sel.mode == SelSet || m.sel.mode == SelRange {
 			m.sel.reset()
-			m.applyDefaultSelectionMode()
+			m.restoreFlowSelectionScope()
 			m.setStatus("Selection reset", statusNone)
 			m.onDatesSelectionChanged()
 			return m, nil, true
@@ -863,25 +857,25 @@ func (m Model) listSelectionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 }
 
 // onDatesSelectionChanged re-syncs the active strategy's pins/picks and staged
-// distribution after the commit-list selection changes while the Dates
-// workspace is focused: a narrower or wider selection can shrink or grow each
-// segment's window, so picks/pins placed under the OLD selection may no longer
-// fit the new one. reattributeActivePins MUST run before stageActive — it
-// silently evicts or clamps whatever no longer fits, so stageActive then
-// stages exactly what survived; the other order would briefly stage an edit
-// built from a pick/pin that reattribution was about to drop.
+// distribution after the commit-list selection changes while the redate flow
+// is open: a narrower or wider selection can shrink or grow each segment's
+// window, so picks/pins placed under the OLD selection may no longer fit the
+// new one. reattributeActivePins MUST run before stageActive — it silently
+// evicts or clamps whatever no longer fits, so stageActive then stages exactly
+// what survived; the other order would briefly stage an edit built from a
+// pick/pin that reattribution was about to drop.
 //
-// The leading workspace guard below is what actually makes this a no-op
-// outside WSDates: stageActive is NOT itself workspace-guarded, and on an
-// unready strategy it calls unstageActive, which clears NewAuthorDate /
-// NewCommitDate on every active commit — including a date the user just typed
-// in the per-commit editor. Without the guard, calling this from a
-// selection-mutating site outside Dates (e.g. a workspace-tab switch) would
-// silently discard that editor edit. cycleWorkspace assigns the NEW workspace
-// before calling this, so landing ON Dates still re-attributes and re-stages
-// as before; only leaving (or staying off) Dates is now a true no-op.
+// The leading flow guard below is what actually makes this a no-op while no
+// flow is open: stageActive is NOT itself flow-guarded, and on an unready
+// strategy it calls unstageActive, which clears NewAuthorDate / NewCommitDate
+// on every active commit — including a date the user just typed in the
+// per-commit editor. Without the guard, calling this from a selection-mutating
+// site with no flow open would silently discard that editor edit.
+// enterRedateFlow assigns the flow before calling this, so opening the redate
+// flow still re-attributes and re-stages as before; only leaving (or staying
+// off) it is now a true no-op.
 func (m *Model) onDatesSelectionChanged() {
-	if m.workspace != WSDates {
+	if m.flow != flowRedate {
 		return
 	}
 	m.reattributeActivePins()
@@ -890,13 +884,13 @@ func (m *Model) onDatesSelectionChanged() {
 
 // reattributeActivePins re-syncs the ACTIVE strategy slot's pins/picks
 // against the current segment windows, dropping or clamping whatever no
-// longer fits and surfacing a status warning when it does. A no-op outside
-// WSDates. Shared by onDatesSelectionChanged (selection changed under the
+// longer fits and surfacing a status warning when it does. A no-op while no
+// flow is open. Shared by onDatesSelectionChanged (selection changed under the
 // active strategy) and cycleStrategy (the carousel just made a DIFFERENT
 // strategy slot active, one whose pins may have gone stale under a selection
 // change that happened while it was not active — see cycleStrategy's comment).
 func (m *Model) reattributeActivePins() {
-	if m.workspace != WSDates {
+	if m.flow != flowRedate {
 		return
 	}
 	a := m.activeStrat()
@@ -1355,32 +1349,14 @@ func (m Model) commitsInRange() []model.Commit {
 	return out
 }
 
-// focusAfterList returns the zone the focus moves to when tab is pressed on the
-// commit list. It depends on the active workspace: the Dates calendar, the
-// Restructure or Authorship feature menu, or (for a stub workspace with no
-// focusable widget) the list itself, a no-op.
+// focusAfterList is where tab moves focus from the commit list: into the
+// active flow's widget when one is open, else nowhere (the panel and global
+// keys are the action surface — there is no menu to focus anymore).
 func (m Model) focusAfterList() focusArea {
-	switch m.workspace {
-	case WSDates:
+	if m.flow == flowRedate {
 		return focusCalendar
-	case WSRestructure, WSAuthorship:
-		if len(featuresFor(m.workspace)) > 0 {
-			return focusWorkspace
-		}
 	}
 	return focusList
-}
-
-// applyDefaultSelectionMode sets the list's selection mode from the active
-// workspace: Dates operates on the whole active range (Active), other workspaces
-// default to a single-commit cursor (Single). Called on load, reload, and every
-// workspace switch so the mode always matches the visible context.
-func (m *Model) applyDefaultSelectionMode() {
-	if m.workspace == WSDates {
-		m.sel.mode = SelActive
-	} else {
-		m.sel.mode = SelSingle
-	}
 }
 
 // applyAutoBase detects the base branch (per chooseBaseBranch's precedence) and freezes the
@@ -1891,7 +1867,9 @@ func (m *Model) reload() error {
 	}
 	m.applyAutoBase()
 	m.sel.reset()
-	m.applyDefaultSelectionMode()
+	// Keep the redate flow's implicit scope alive across the reload instead of
+	// silently dropping to Single underneath an open flow.
+	m.restoreFlowSelectionScope()
 	// After an apply/undo the plan's dates ARE the applied distribution: the
 	// pre-apply pins were consumed by it and must not leak into the next
 	// session's pinOwnerFor/AttributePins run against the rebuilt windows.

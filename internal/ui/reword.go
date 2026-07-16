@@ -369,7 +369,7 @@ func (m Model) updateReword(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Reset the selection so no stale Set lingers — mirrors the completion
 		// path (enter-applies-last) which also clears the set.
 		m.sel.reset()
-		m.applyDefaultSelectionMode()
+		m.restoreFlowSelectionScope()
 		return m, nil
 	case "left":
 		m.rewordSt.cycleTitle(-1)
@@ -426,7 +426,7 @@ func (m Model) updateReword(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.mode = modeMain
 			m.sel.reset()
-			m.applyDefaultSelectionMode()
+			m.restoreFlowSelectionScope()
 			if total := len(m.rewordSt.targets); total > 1 {
 				m.setStatus(fmt.Sprintf("Reworded %d commits", total), statusOK)
 			} else {

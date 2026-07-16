@@ -9,7 +9,7 @@ import (
 func TestKeybarHint_containsCoreActions(t *testing.T) {
 	bar := keybarHint()
 	// [s]trategy has been removed — carousel replaces it; the other tokens remain.
-	for _, tok := range []string{"[A]pply", "[?]help", "[q]uit", "tabs"} {
+	for _, tok := range []string{"[A]pply", "[?]help", "[q]uit", "[tab]focus"} {
 		if !strings.Contains(bar, tok) {
 			t.Errorf("keybar should contain %q, got: %s", tok, bar)
 		}
@@ -18,7 +18,9 @@ func TestKeybarHint_containsCoreActions(t *testing.T) {
 
 func TestHelpText_groupsScopesAndDocsNewKeys(t *testing.T) {
 	help := helpText()
-	for _, want := range []string{"GLOBAL", "WORKSPACES", "COMMIT LIST", "STRATEGY", "switch workspace"} {
+	for _, want := range []string{
+		"GLOBAL", "FLOW", "COMMIT LIST", "STRATEGY", "focus the active flow's widget",
+	} {
 		if !strings.Contains(help, want) {
 			t.Errorf("help should contain %q", want)
 		}
@@ -50,8 +52,8 @@ func TestView_helpOverlayUsesGeneratedText(t *testing.T) {
 	if m.mode != modeHelp {
 		t.Fatalf("? should open help, got %v", m.mode)
 	}
-	if !strings.Contains(m.View(), "WORKSPACES") {
-		t.Error("help overlay should render the generated keymap including WORKSPACES")
+	if !strings.Contains(m.View(), "FLOW") {
+		t.Error("help overlay should render the generated keymap including FLOW")
 	}
 }
 
@@ -77,7 +79,11 @@ func TestKeybar_reflectsRetiredAndRenamedActions(t *testing.T) {
 			t.Errorf("keybar should contain %q, got: %s", want, bar)
 		}
 	}
-	for _, gone := range []string{"[S]plit", "[w]reword", "[D]rop-bodies", "[R]etitle", "[u]ndo", "[r]eset", "[s]trategy"} {
+	retiredTokens := []string{
+		"[S]plit", "[w]reword", "[D]rop-bodies", "[R]etitle",
+		"[u]ndo", "[r]eset", "[s]trategy", "[<>]tabs",
+	}
+	for _, gone := range retiredTokens {
 		if strings.Contains(bar, gone) {
 			t.Errorf("keybar should no longer contain %q, got: %s", gone, bar)
 		}

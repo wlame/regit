@@ -20,7 +20,7 @@ type keyScope int
 
 const (
 	scopeGlobal keyScope = iota
-	scopeWorkspace
+	scopeFlow
 	scopeAction
 	scopeList
 	scopeSelection
@@ -44,12 +44,11 @@ var keymap = []keyBinding{
 	// Global
 	{Key: "?", Scope: scopeGlobal, Desc: "toggle this help", Bar: "[?]help"},
 	{Key: "q / ctrl+c", Scope: scopeGlobal, Desc: "quit", Bar: "[q]uit"},
-	{Key: "tab", Scope: scopeGlobal, Desc: "cycle focus across the list and the active workspace widget", Bar: "[tab]focus"},
+	{Key: "tab", Scope: scopeGlobal, Desc: "cycle focus across the list and the active flow's widget", Bar: "[tab]focus"},
 
-	// Workspaces / tabs
-	{Key: "< / > or [ / ]", Scope: scopeWorkspace, Desc: "switch workspace tabs (Dates · Restructure · …)", Bar: "[<>]tabs"},
-	{Key: "tab", Scope: scopeWorkspace, Desc: "focus the active workspace's widget (calendar or feature menu)"},
-	{Key: "↑/↓ · enter", Scope: scopeWorkspace, Desc: "in a feature menu: move the cursor / run the selected feature"},
+	// Flow zone
+	{Key: "tab", Scope: scopeFlow, Desc: "focus the active flow's widget (the calendar), when one is open"},
+	{Key: "esc", Scope: scopeFlow, Desc: "exit the active flow, returning the zone to the commit detail"},
 
 	// Actions (work from any pane)
 	{Key: "e / enter", Scope: scopeAction, Desc: "edit the selected commit (title, body, date)", Bar: "[e]dit"},
@@ -74,7 +73,7 @@ var keymap = []keyBinding{
 	{Key: "s", Scope: scopeSelection, Desc: "select all active commits"},
 	{Key: "n", Scope: scopeSelection, Desc: "clear the selection"},
 	{Key: "v", Scope: scopeSelection, Desc: "visual range — anchor, move to extend, v/enter to fix, esc to cancel"},
-	{Key: "esc", Scope: scopeSelection, Desc: "cancel the selection (back to the workspace default)"},
+	{Key: "esc", Scope: scopeSelection, Desc: "cancel the selection (back to Active if a flow is open, else Single)"},
 	{Key: "(reword)", Scope: scopeSelection, Desc: "with a set selected, Reword runs multi-reword over every chosen commit"},
 
 	// Branch & base
@@ -96,12 +95,12 @@ var keymap = []keyBinding{
 
 // scopeOrder and scopeTitles drive the help overlay's sectioning.
 var scopeOrder = []keyScope{
-	scopeGlobal, scopeWorkspace, scopeAction, scopeList, scopeSelection, scopeBranch, scopeCalendar, scopeStrategy,
+	scopeGlobal, scopeFlow, scopeAction, scopeList, scopeSelection, scopeBranch, scopeCalendar, scopeStrategy,
 }
 
 var scopeTitles = map[keyScope]string{
 	scopeGlobal:    "GLOBAL",
-	scopeWorkspace: "WORKSPACES",
+	scopeFlow:      "FLOW",
 	scopeAction:    "ACTIONS (any pane)",
 	scopeList:      "COMMIT LIST (focused)",
 	scopeSelection: "SELECTION (commit list)",

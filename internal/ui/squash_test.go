@@ -209,16 +209,10 @@ func TestSquashState_editDateField(t *testing.T) {
 	}
 }
 
-func TestRestructureMenu_includesSquash(t *testing.T) {
-	feats := featuresFor(WSRestructure)
-	found := false
-	for _, f := range feats {
-		if strings.Contains(strings.ToLower(f.Name), "squash") {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("the Restructure menu should include a Squash row")
+func TestSquashFeature_isBound(t *testing.T) {
+	b, ok := featureBindings["squash"]
+	if !ok || !strings.Contains(strings.ToLower(b.Title), "squash") {
+		t.Errorf("\"squash\" should have a featureBinding titled for squash, got %+v", b)
 	}
 }
 

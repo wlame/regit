@@ -228,23 +228,23 @@ func sendReauthor(m Model, keys ...string) Model {
 	return m
 }
 
-func TestAuthorshipWorkspace_enabledWithChangeAuthorRow(t *testing.T) {
-	feats := featuresFor(WSAuthorship)
-	if len(feats) == 0 {
-		t.Fatal("Authorship workspace should expose at least one feature")
+func TestChangeAuthorFeature_isBoundAndPanelVisible(t *testing.T) {
+	b, ok := featureBindings["reauthor"]
+	if !ok {
+		t.Fatal("\"reauthor\" should have a featureBinding")
 	}
+	if !strings.Contains(strings.ToLower(b.Title), "author") {
+		t.Errorf("reauthor binding title should mention author, got %q", b.Title)
+	}
+	m := newTestModel(t)
 	found := false
-	for _, f := range feats {
-		if strings.Contains(strings.ToLower(f.Name), "author") {
+	for _, r := range m.panelRows() {
+		if r.Verb == "reauthor" {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("Authorship menu should list a change-author feature, got %+v", feats)
-	}
-	meta, ok := workspaceByID(WSAuthorship)
-	if !ok || !meta.Enabled {
-		t.Error("Authorship tab should be enabled")
+		t.Error("the action panel should list the change-author row")
 	}
 }
 

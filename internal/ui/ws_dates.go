@@ -10,14 +10,13 @@ import (
 	"github.com/wlame/regit/internal/strategy"
 )
 
-// ws_dates.go is the Dates workspace: the contribution calendar over the
-// strategy/params form. Dates is the one "rich" (non-menu) workspace — its
-// selection mode is the whole active range — so it keeps the calendar-driven
-// scheduling UX that predates the tab chassis.
+// ws_dates.go is the redate flow's widget: the contribution calendar over the
+// strategy/params form. Its selection mode is the whole active range, so it
+// keeps the calendar-driven scheduling UX that predates the tab chassis.
 
-// viewDatesWorkspace renders zone 3 for the Dates tab: the calendar pane above
-// the strategy pane. Height clamping for the whole right column (this widget plus
-// the AUTHORS panel) is handled by viewRightColumn.
+// viewDatesWorkspace renders the redate flow's widget: the calendar pane above
+// the strategy pane. Height clamping for the whole flow zone (this widget plus
+// the AUTHORS panel) is handled by viewFlowZone.
 func (m Model) viewDatesWorkspace() string {
 	return lipgloss.JoinVertical(lipgloss.Left, m.viewCalendarPane(), m.viewStrategyPane())
 }
@@ -98,7 +97,11 @@ func (m Model) viewCalendarPane() string {
 	if m.focus == focusCalendar {
 		pane = m.st.paneActive
 	}
-	return pane.Width(rightPaneWidth).Render(content)
+	// The calendar no longer dictates the flow zone's width: it renders at its
+	// natural width when the column is wide enough, else clamps down to
+	// whatever the layout gave the zone (flowWidth, layout.go).
+	width := min(rightPaneWidth, computeLayout(m.width, m.height).flowWidth)
+	return pane.Width(width).Render(content)
 }
 
 // viewStrategyPane shows the currently selected strategy with its editable
@@ -113,8 +116,12 @@ func (m Model) viewStrategyPane() string {
 	if m.focus == focusParams {
 		pane = m.st.paneActive
 	}
+	// The strategy pane shares the calendar's width policy: natural width
+	// (rightPaneWidth) when the flow zone is wide enough, else clamped down to
+	// it (layout.go's flowWidth).
+	width := min(rightPaneWidth, computeLayout(m.width, m.height).flowWidth)
 	// MaxWidth guards against long labels/errors wrapping inside the pane,
 	// which would inflate its height.
-	return pane.Width(rightPaneWidth).Render(
-		lipgloss.NewStyle().MaxWidth(rightPaneWidth - 2).Render(content))
+	return pane.Width(width).Render(
+		lipgloss.NewStyle().MaxWidth(width - 2).Render(content))
 }

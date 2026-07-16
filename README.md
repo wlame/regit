@@ -62,15 +62,14 @@ The full keymap, grouped the same way as the in-app `?` help overlay
 |-----|--------|
 | `?` | toggle this help |
 | `q / ctrl+c` | quit |
-| `tab` | cycle focus across the list and the active workspace widget |
+| `tab` | cycle focus across the list and the active flow's widget |
 
-**WORKSPACES**
+**FLOW**
 
 | Key | Action |
 |-----|--------|
-| `< / > or [ / ]` | switch workspace tabs (Dates · Restructure · …) |
-| `tab` | focus the active workspace's widget (calendar or feature menu) |
-| `↑/↓ · enter` | in a feature menu: move the cursor / run the selected feature |
+| `tab` | focus the active flow's widget (the calendar), when one is open |
+| `esc` | exit the active flow, returning the zone to the commit detail |
 
 **ACTIONS (any pane)**
 
@@ -104,7 +103,7 @@ The full keymap, grouped the same way as the in-app `?` help overlay
 | `s` | select all active commits |
 | `n` | clear the selection |
 | `v` | visual range — anchor, move to extend, v/enter to fix, esc to cancel |
-| `esc` | cancel the selection (back to the workspace default) |
+| `esc` | cancel the selection (back to Active if a flow is open, else Single) |
 | `(reword)` | with a set selected, Reword runs multi-reword over every chosen commit |
 
 **BRANCH & BASE**

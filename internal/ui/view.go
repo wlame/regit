@@ -7,31 +7,27 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// viewMain composes the main screen: title bar, the category tab bar, the commit
-// backbone (list + detail) beside the active workspace's widget, then the status
-// bar and keybar.
+// viewMain composes the main screen: title bar, the commit list beside the
+// flow zone (the active flow's widget, or the commit detail when none is
+// open), then the status bar and keybar.
 func (m Model) viewMain() string {
 	title := m.viewTitle()
-	tabs := m.viewTabBar()
 	list := m.viewCommitList()
-	right := m.viewRightColumn()
+	right := m.viewFlowZone()
 
 	var body string
 	switch dims := computeLayout(m.width, m.height); {
 	case !dims.showRight:
-		// Terminal too narrow for the right column — render the list alone rather
-		// than overflowing the frame. The workspace widget is unavailable at this
-		// width; detail is still reachable via the '.' overlay.
+		// Terminal too narrow for the flow zone — render the list alone rather
+		// than overflowing the frame. Detail is still reachable via the '.'
+		// overlay at this width.
 		body = list
-	case dims.detailWidth > 0:
-		detail := m.viewDetailPane(dims.detailWidth)
-		body = lipgloss.JoinHorizontal(lipgloss.Top, list, detail, right)
 	default:
 		body = lipgloss.JoinHorizontal(lipgloss.Top, list, right)
 	}
 	status := m.viewStatusBar()
 	keybar := m.st.keybar.Render(keybarHintWidth(m.width))
-	regions := []string{title, tabs, body}
+	regions := []string{title, body}
 	if m.panel.open {
 		regions = append(regions, m.viewActionPanel(m.width))
 	}
@@ -40,7 +36,7 @@ func (m Model) viewMain() string {
 		regions = append(regions, log)
 	}
 	regions = append(regions, keybar)
-	// Hard-clamp every region to the terminal width. The chrome rows (title, tabs,
+	// Hard-clamp every region to the terminal width. The chrome rows (title,
 	// status, keybar) are single strings whose natural width can exceed a narrow
 	// terminal; without this, JoinVertical pads the whole frame out to the widest
 	// row and the UI overflows horizontally. MaxWidth truncates ANSI-aware, per line.
