@@ -70,10 +70,10 @@ type featureBinding struct {
 
 // featureBindings maps a capability command Name to its interactive presentation.
 // A registry command with no entry here has no menu presence (e.g. "undo", which
-// is a global key, not a menu row). "redate" binds to a nil Run because the Dates
-// workspace is the calendar/strategy widget, not a menu — it is listed so the
-// Dates tab still reports its one feature. Each Run re-invokes an existing action
-// method, so this introduces no new mutation path (the safety contract is unchanged).
+// is a global key, not a menu row). "redate" currently binds a stand-in Run that
+// jumps to the Dates workspace; the real redate flow replaces it when it lands
+// (Task 3). Each Run re-invokes an existing action method, so this introduces no
+// new mutation path (the safety contract is unchanged).
 var featureBindings = map[string]featureBinding{
 	"redate": {Title: "Date/time spread", Run: func(m Model) (tea.Model, tea.Cmd) {
 		// Stand-in until the redate flow lands (Task 3): jump to the Dates tab.
