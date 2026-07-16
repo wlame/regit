@@ -70,12 +70,14 @@ type panelState struct {
 	cursor int
 }
 
-// panelMaxRows caps BOTH the row budget listHeight reserves (panelHeightFor,
-// layout.go) AND the number of rows viewActionPanel actually renders
-// (panelShownRows, layout.go) — the two must agree, or the panel can render
-// more than the space reserved for it and overlap the commit list beneath it.
-// Past the cap, the panel shows a cursor-following window instead of every
-// row. With 8 registry verbs today this is headroom, not a limit.
+// panelMaxRows is the ceiling on how many action rows the panel ever shows,
+// even on a very tall terminal — panelWindowRows (layout.go) is what actually
+// decides the row count on any given render (it also shrinks the window
+// further on a short terminal), and panelHeightFor (layout.go) turns that
+// same count into the row budget listHeight reserves, so the budget and the
+// render can never disagree. Past the cap, the panel shows a cursor-following
+// window instead of every row. With 8 registry verbs today this is headroom,
+// not a limit.
 const panelMaxRows = 10
 
 // panelDetail computes a row's context detail and enablement beyond the
@@ -173,12 +175,25 @@ func panelWindowStart(cursor, total, shown int) int {
 
 // viewActionPanel renders the bottom panel at the given full terminal width.
 // The body above stays visible — the panel is a region, not an overlay. Rows
-// are windowed to panelShownRows so the rendered height never exceeds the
-// budget listHeight reserved via panelHeightFor (panelMaxRows bounds both).
+// are windowed to m.panelWindowRows so the rendered height never exceeds the
+// budget listHeight reserved via panelHeightFor (panelMaxRows bounds both;
+// panelWindowRows further shrinks the window on a short terminal).
+//
+// When rows are elided, one row of the window is spent on a "… +N more"
+// indicator instead of a row line, so the total line count stays exactly
+// panelWindowRows(total)+panelHeightOverhead regardless of whether elision
+// happens — the budget and the render can never disagree. At a window of
+// exactly 1 there is no room to spare for the indicator, so it is dropped and
+// the single visible row is whichever one the cursor is on.
 func (m Model) viewActionPanel(width int) string {
 	rows := m.panelRows()
-	shown := panelShownRows(len(rows))
-	start := panelWindowStart(m.panel.cursor, len(rows), shown)
+	window := m.panelWindowRows(len(rows))
+	elided := window < len(rows)
+	displayRows, showIndicator := window, false
+	if elided && window >= 2 {
+		displayRows, showIndicator = window-1, true
+	}
+	start := panelWindowStart(m.panel.cursor, len(rows), displayRows)
 	kind := selectionKind(m.sel)
 	scope := "cursor commit"
 	if kind != selKindCursor {
@@ -186,7 +201,7 @@ func (m Model) viewActionPanel(width int) string {
 	}
 	var b strings.Builder
 	b.WriteString(m.st.modalTitle.Render("ACTIONS · "+scope) + "\n")
-	for i := start; i < start+shown && i < len(rows); i++ {
+	for i := start; i < start+displayRows && i < len(rows); i++ {
 		r := rows[i]
 		marker, title := "  ", r.Title
 		if i == m.panel.cursor {
@@ -198,6 +213,10 @@ func (m Model) viewActionPanel(width int) string {
 		line := fmt.Sprintf("%s%-22s %-34s %s",
 			marker, title, m.st.dim.Render(r.Detail), m.st.help.Render(r.Verb))
 		b.WriteString(line + "\n")
+	}
+	if showIndicator {
+		hidden := len(rows) - displayRows
+		b.WriteString(m.st.dim.Render(fmt.Sprintf("… +%d more", hidden)) + "\n")
 	}
 	b.WriteString(m.st.help.Render("↑/↓ move · enter run · esc close"))
 	frame := m.st.paneActive.Width(max(20, width-2))

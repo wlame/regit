@@ -71,10 +71,15 @@ func (m *Model) cycleWorkspace(delta int) {
 // shared feature menu; the v1-stub tabs show a "coming soon" panel. The commit
 // backbone (list + detail) stays put across tabs; only this column swaps.
 //
-// The widget gets priority; the panel takes whatever rows remain (and is
-// omitted entirely when too few remain), so the panel never pushes the
-// workspace widget or the frame off-screen. The body budget is height-4 (title
-// + tabs + status + keybar).
+// The widget gets priority; the AUTHORS panel takes whatever rows remain (and
+// is omitted entirely when too few remain), so it never pushes the workspace
+// widget or the frame off-screen. The body budget starts at height-4 (title +
+// tabs + status + keybar) and, like listHeight (list.go), is further reduced
+// when the log footer or the bottom action panel is open — those are new
+// regions stacked BELOW this one, so without this deduction this column would
+// keep claiming its full un-shrunk share while the frame grew underneath it,
+// pushing the whole UI past the terminal instead of the two columns (this one
+// and the commit list) shrinking together to make room.
 func (m Model) viewRightColumn() string {
 	var widget string
 	switch m.workspace {
@@ -90,17 +95,32 @@ func (m Model) viewRightColumn() string {
 	}
 
 	budget := m.height - 4
+	if m.logVisible {
+		budget -= logPanelHeight
+	}
+	if m.panel.open {
+		budget -= panelHeightFor(m.panelWindowRows(len(m.panelRows())))
+	}
+	if budget < minListRows {
+		budget = minListRows
+	}
 	widgetH := lipgloss.Height(widget)
 	if widgetH >= budget {
-		// No room for the panel: clamp the widget alone, exactly as before.
-		return lipgloss.NewStyle().MaxHeight(max(8, budget)).Render(widget)
+		// No room for the AUTHORS panel: clamp the widget alone, exactly as
+		// before. budget is already floored at minListRows above, so clamping
+		// to it directly (no separate 8-row floor) lets this column actually
+		// shrink when the log/action panel below it needs the room — an extra
+		// floor here would silently re-inflate this column past what was
+		// deducted for them and reopen the overflow this budget exists to
+		// prevent.
+		return lipgloss.NewStyle().MaxHeight(budget).Render(widget)
 	}
 	pane := m.viewAuthorsPane(budget - widgetH)
 	col := widget
 	if pane != "" {
 		col = lipgloss.JoinVertical(lipgloss.Left, widget, pane)
 	}
-	return lipgloss.NewStyle().MaxHeight(max(8, budget)).Render(col)
+	return lipgloss.NewStyle().MaxHeight(budget).Render(col)
 }
 
 // viewStubWorkspace renders a disabled (not-yet-built) workspace: its name and a

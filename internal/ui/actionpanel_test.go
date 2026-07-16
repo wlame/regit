@@ -120,39 +120,22 @@ func TestPanelEnterOnDisabledRowReportsReason(t *testing.T) {
 
 // TestPanelOpenAtMinTerminalKeepsListFloor: at the app's minimum supported
 // terminal size the open panel must never drive the list budget negative, and
-// its contribution to the rendered frame must never exceed the row budget it
-// declared (panelHeightFor of its own shown-row count) — the list floor
-// absorbs the rest.
-//
-// A stricter "the whole frame fits inside the terminal" assertion is NOT used
-// here: at minTermHeight (16) the panel-closed frame already renders exactly
-// 16 rows (title+tabs+body+status+keybar all fit with no slack), and the
-// panel's fixed overhead — a title line, a footer hint, and its RoundedBorder
-// frame's top+bottom rows (panelHeightOverhead, layout.go) — plus this
-// fixture's 8 registry rows costs 12 more rows on top of that regardless of
-// how tight the terminal is (registryrows(8) < panelMaxRows(10), so the
-// panelMaxRows row-window cap never engages). Shrinking the panel further
-// under a tight terminal would need it to drop below its own fixed chrome
-// (title/footer/border), which is a materially bigger change than this
-// fix-round's scope (floor the list, make panelHeightFor's budget match what
-// viewActionPanel actually renders, cap rendered rows the same way the
-// budget is capped). The invariant this test actually enforces — the panel
-// never silently renders MORE than it told listHeight it would — is what
-// keeps the commit list's floor meaningful.
+// the whole rendered frame must never exceed the terminal height. Reaching
+// the strict bound (not just "the panel keeps its own declared promise")
+// required panelWindowRows (layout.go) to shrink the panel's row window on a
+// short terminal AND viewRightColumn (workspace.go) to deduct the same
+// panel/log budget listHeight already deducts — see those two for why both
+// were necessary; earlier fix rounds only had the first and still overflowed.
 func TestPanelOpenAtMinTerminalKeepsListFloor(t *testing.T) {
 	m := newTestModel(t)
 	for h := minTermHeight; h <= minTermHeight+3; h++ {
 		m.width, m.height = 120, h
-		m.panel.open = false
-		closedHeight := lipgloss.Height(m.View())
 		m.panel.open = true
 		if lh := m.listHeight(); lh < minListRows {
 			t.Fatalf("height %d: listHeight = %d < floor %d", h, lh, minListRows)
 		}
-		budget := panelHeightFor(panelShownRows(len(m.panelRows())))
-		if openHeight := lipgloss.Height(m.View()); openHeight > closedHeight+budget {
-			t.Fatalf("height %d: open frame %d rows > closed %d + declared panel budget %d",
-				h, openHeight, closedHeight, budget)
+		if vh := lipgloss.Height(m.View()); vh > h {
+			t.Fatalf("height %d: rendered frame %d rows overflows terminal", h, vh)
 		}
 	}
 }

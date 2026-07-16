@@ -191,9 +191,10 @@ const panelHeightOverhead = 4
 
 // panelHeightFor is the terminal rows an open action panel consumes: its rows
 // plus panelHeightOverhead, capped so the panel can never starve the commit
-// list of space. Callers should pass an already-windowed row count (see
-// panelShownRows) so this cap and viewActionPanel's rendered row count always
-// agree — panelMaxRows bounds both, not just this budget math.
+// list of space. Callers should pass the exact row count they intend to
+// render (see panelWindowRows) so this budget and viewActionPanel's actual
+// rendered height always agree — panelMaxRows bounds both, not just this
+// budget math.
 func panelHeightFor(rows int) int {
 	h := rows + panelHeightOverhead
 	if h > panelMaxRows+panelHeightOverhead {
@@ -202,11 +203,34 @@ func panelHeightFor(rows int) int {
 	return h
 }
 
-// panelShownRows caps how many of the panel's rows are actually rendered,
-// mirroring the cap panelHeightFor already applies to the row budget it hands
-// listHeight. Without this, a registry that grows past panelMaxRows commands
-// would render every row regardless while listHeight only reserved space for
-// panelMaxRows of them, overlapping the panel into the commit list beneath it.
+// panelShownRows caps a row count at panelMaxRows alone, with no awareness of
+// the terminal height. It is panelWindowRows' building block and its
+// pre-WindowSizeMsg fallback (m.height <= 0, so no real budget exists yet).
 func panelShownRows(total int) int {
 	return min(total, panelMaxRows)
+}
+
+// panelWindowRows returns how many action rows the panel actually renders,
+// given it has `total` rows available: capped by panelMaxRows as always, and
+// further reduced on a short terminal so opening the panel costs fewer rows
+// the less room there is. avail mirrors listHeight's own budget exactly (see
+// mainChromeRows, list.go, and the matching deduction in viewRightColumn,
+// workspace.go) minus the list's floor, the log footer if it's also visible,
+// and the panel's own fixed overhead — so all three call sites agree on what
+// the terminal can hold, and the frame fits the terminal even with both the
+// log footer and the action panel open at once (verified by
+// TestPanelOpenAtMinTerminalKeepsListFloor).
+func (m Model) panelWindowRows(total int) int {
+	if m.height <= 0 {
+		return panelShownRows(total)
+	}
+	avail := m.height - minListRows - mainChromeRows - panelHeightOverhead
+	if m.logVisible {
+		avail -= logPanelHeight
+	}
+	if avail < 1 {
+		avail = 1
+	}
+	capacity := min(avail, panelMaxRows)
+	return min(total, capacity)
 }
