@@ -74,8 +74,9 @@ flow today — `enterRedateFlow` opens the calendar/strategy widget
 (`viewDatesWorkspace`, ws_dates.go) and moves focus onto the calendar; `esc`
 exits the flow and returns the zone to the detail pane (`exitFlow`); `tab`
 cycles focus list → calendar → params → list while a flow is open
-(`focusAfterList`, `updateParamsPane`), and just toggles list/flow focus
-otherwise.
+(`focusAfterList`, `updateParamsPane`). With no flow open `tab` is a no-op —
+`focusAfterList` returns `focusList` again, since the detail pane is not a
+focusable target.
 
 Every action is launched from the `m` action panel (actionpanel.go), a
 full-width bottom region that replaced the old per-tab feature menus. Its rows
@@ -96,8 +97,14 @@ to the terminal height (`panelWindowRows`, capped at `panelMaxRows` = 10)
 rather than growing the frame past the screen. The always-visible keybar is
 similarly context-filtered: `currentKeyCtx` maps focus state (panel open >
 flow open > commit list) to a `keyCtx`, and `keybarHintFor` renders only the
-keymap rows tagged for that context, so the hint line never advertises a key
-the current screen doesn't honor.
+keymap rows tagged for that context, so the hint line mostly tracks what the
+current screen honors — but it is a static filter on the keymap table, not a
+live audit, so it is not exact both ways: the global `tab` row shows in every
+context, including `ctxList`, where it is the no-op described above; and
+`currentKeyCtx` keys off the flow rather than focus, so once focus returns to
+the list mid-flow (`tab`/`esc` from the strategy pane) the list and selection
+keys work again even though the keybar still shows the redate context and
+hides them.
 
 The redate flow's widget holds per-strategy state (`m.strats`, selected by `m.stratIdx`):
 a `◀ Name ▶` carousel on the strategy pane's first focus row picks the strategy

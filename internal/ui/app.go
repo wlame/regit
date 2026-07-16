@@ -143,7 +143,8 @@ type Model struct {
 	showAuthor bool
 	// sel is the commit-list selection (mode + range/set state). Its zero value
 	// is Single mode, so the list renders like a plain cursor list until a
-	// selection key (Task 3) or workspace default changes the mode.
+	// selection key, or the redate flow's default Active scope (enterRedateFlow,
+	// flow.go), changes the mode.
 	sel selectionState
 
 	calCursor time.Time
@@ -239,7 +240,7 @@ func (m *Model) activeStrat() *strategyState { return &m.strats[m.stratIdx] }
 // unstageActive removes staged author dates from every active commit, keeping any
 // manual message edits (subject/body/drop), so the calendar falls back to plain tiles
 // when the strategy is not ready. By design it clears the author-date dimension across
-// the whole active range: in the Dates workspace the strategy owns dates, so an author
+// the whole active range: in the redate flow the strategy owns dates, so an author
 // date typed in the per-commit editor is subsumed here too — only message edits survive.
 func (m *Model) unstageActive() {
 	for _, c := range m.plan.Active() {
@@ -339,9 +340,9 @@ func (m Model) redateCommitSpec() string {
 }
 
 // hasExplicitSelection reports whether the user picked specific commits (Set or
-// Range) as opposed to the workspace-default whole-active-range selection. Used
-// wherever staging or a preview must describe its scope ("the selection" vs
-// "the editable range").
+// Range) as opposed to the redate flow's default whole-active-range selection.
+// Used wherever staging or a preview must describe its scope ("the selection"
+// vs "the editable range").
 func (m Model) hasExplicitSelection() bool {
 	return (m.sel.mode == SelSet && len(m.sel.set) > 0) || m.sel.mode == SelRange
 }
@@ -2009,10 +2010,11 @@ func (m Model) buildSplitChange(c model.Commit, st splitState) (splitChange, boo
 	}, true
 }
 
-// beginSplit is invoked from the Restructure feature menu (Split). It resolves the split inputs on
-// the UI thread, then fires Engine.Propose asynchronously (generateSplitCmd) and
-// enters modeSplitGen so the TUI stays responsive for the full LLM latency. The
-// result lands later as a splitResultMsg, handled in Update.
+// beginSplit is invoked from the action panel's Split row (featureBindings,
+// feature.go). It resolves the split inputs on the UI thread, then fires
+// Engine.Propose asynchronously (generateSplitCmd) and enters modeSplitGen so
+// the TUI stays responsive for the full LLM latency. The result lands later as
+// a splitResultMsg, handled in Update.
 func (m Model) beginSplit() (tea.Model, tea.Cmd, bool) {
 	if len(m.plan.Commits) == 0 {
 		m.setStatus("No commit selected", statusWarn)

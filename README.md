@@ -9,16 +9,20 @@ of strategies, edit messages, and apply the change with strong safety guarantees
 ```
 ┌ regit · myrepo · main · 24 commits ───────────────────────────────────────────┐
 ├────────────────────────────────┬──────────────────────────────────────────────┤
-│ COMMITS (24)                   │ 2026  ◀ March ▶                              │
-│ ▸ a1b2c3  Fix login bug        │   Mon ░░▓░░ ░░░░░ ▓▓░░░ ░░░░░                │
-│    06-05 14:22 → 03-02 10:14   │   Wed ░▓░░░ ░░░░░ ░░▓▓▓ ▓░░░░                │
-│   d4e5f6  Add user model       │   Fri ░░░░░ ░▓▓▓░ ░░░░░ ░░░░░                │
-│    06-05 14:25 → 03-02 11:40   │   Less ·▇▇▇▇ More                            │
-│   7890ab  Refactor API         │   ◀ Even Spread ▶ · 24 commits · ✓ sequential│
+│ COMMITS (24)                   │ DETAIL a1b2c3                                │
+│ ▸ a1b2c3  Fix login bug        │ alice <alice@example.com>                    │
+│    06-05 14:22 → 03-02 10:14   │ authored 06-05 14:22                         │
+│   d4e5f6  Add user model       │       → 03-02 10:14                          │
+│    06-05 14:25 → 03-02 11:40   │ 3 files · +42 −7                             │
+│   7890ab  Refactor API         │ Fix login bug                                │
 ├────────────────────────────────┴──────────────────────────────────────────────┤
 │ [?]help [q]uit [tab]focus [e]dit [.]detail [p]review [A]pply [m]actions …     │
 └───────────────────────────────────────────────────────────────────────────────┘
 ```
+
+The commit detail fills the right column by default; launching Date/time spread
+(the redate flow) swaps in the calendar and strategy panes for the duration of
+that flow (see Keys below).
 
 ## Core guarantees
 
