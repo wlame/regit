@@ -123,7 +123,7 @@ func TestPanelEnterOnDisabledRowReportsReason(t *testing.T) {
 // the whole rendered frame must never exceed the terminal height. Reaching
 // the strict bound (not just "the panel keeps its own declared promise")
 // required panelWindowRows (layout.go) to shrink the panel's row window on a
-// short terminal AND viewRightColumn (workspace.go) to deduct the same
+// short terminal AND viewFlowZone (workspace.go) to deduct the same
 // panel/log budget listHeight already deducts — see those two for why both
 // were necessary; earlier fix rounds only had the first and still overflowed.
 func TestPanelOpenAtMinTerminalKeepsListFloor(t *testing.T) {

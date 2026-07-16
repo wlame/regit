@@ -2,8 +2,8 @@ package ui
 
 // flow.go models the flow zone's occupant. The right column shows the commit
 // detail by default (flowNone); launching a feature that needs an interactive
-// stage swaps its widget in for the duration of the flow. Phase 2a has one
-// flow (redate); Phase 2b moves the remaining wizards here.
+// stage swaps its widget in for the duration of the flow. Redate is currently
+// the only flow; the remaining wizards migrate here over time.
 type flowID int
 
 const (

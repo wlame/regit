@@ -81,3 +81,90 @@ func TestExitFlowRestoresDetailAndKeepsEdits(t *testing.T) {
 		t.Fatal("staged edit lost on flow exit")
 	}
 }
+
+// TestExitFlow_keepsExplicitSetSelection: an explicit Set selection is left
+// untouched by exitFlow — only the flow's own implicit Active scope reverts
+// (the invariant: navigation never drops an explicit selection). Complements
+// TestExitFlowRestoresDetailAndKeepsEdits, which only exercises the implicit
+// (no-selection) case.
+func TestExitFlow_keepsExplicitSetSelection(t *testing.T) {
+	m := newTestModel(t)
+	h := m.plan.Commits[0].Hash
+	m.sel.toggle(h, false)
+	m.enterRedateFlow()
+
+	m.exitFlow()
+
+	if m.sel.mode != SelSet || !m.sel.isSet(h) {
+		t.Fatalf("explicit Set selection lost on flow exit: mode=%v", m.sel.mode)
+	}
+	if m.flow != flowNone || m.focus != focusList {
+		t.Fatalf("flow=%v focus=%v", m.flow, m.focus)
+	}
+}
+
+// TestFlowExit_viaEscFromCalendarFocus drives the real key path (Update ->
+// updateMain) instead of calling exitFlow directly, proving the esc-exits-flow
+// case in updateMain's switch actually fires when the calendar is focused.
+func TestFlowExit_viaEscFromCalendarFocus(t *testing.T) {
+	m := newTestModel(t)
+	m.enterRedateFlow()
+	if m.focus != focusCalendar {
+		t.Fatalf("setup: expected calendar focus, got %v", m.focus)
+	}
+
+	m = send(m, "esc")
+
+	if m.flow != flowNone || m.focus != focusList {
+		t.Fatalf("esc from calendar should exit the flow: flow=%v focus=%v", m.flow, m.focus)
+	}
+}
+
+// TestFlowExit_viaEscTwiceFromListWithExplicitSet: with the list focused and
+// an explicit Set selection, the layering documented in updateMain applies —
+// the FIRST esc is consumed by listSelectionKey (cancels the selection, back
+// to the flow's Active default); only the SECOND esc, once no explicit
+// selection remains, reaches updateMain's own esc case and exits the flow.
+func TestFlowExit_viaEscTwiceFromListWithExplicitSet(t *testing.T) {
+	m := newTestModel(t)
+	h := m.plan.Commits[0].Hash
+	m.sel.toggle(h, false) // explicit Set, before entering the flow
+	m.enterRedateFlow()
+	m.focus = focusList // tab back to the list without leaving the flow
+
+	m = send(m, "esc")
+	if m.flow != flowRedate {
+		t.Fatalf("first esc should not exit the flow yet, got flow=%v", m.flow)
+	}
+	if m.sel.mode != SelActive {
+		t.Fatalf("first esc should cancel the Set back to the flow's Active default, got %v", m.sel.mode)
+	}
+
+	m = send(m, "esc")
+	if m.flow != flowNone || m.focus != focusList {
+		t.Fatalf("second esc should exit the flow: flow=%v focus=%v", m.flow, m.focus)
+	}
+}
+
+// TestReload_keepsOpenFlowsActiveScope: reload() must not silently drop the
+// redate flow's implicit Active scope back to Single underneath an open flow —
+// restoreFlowSelectionScope (not the deleted applyDefaultSelectionMode) is what
+// keeps it alive across a reload.
+func TestReload_keepsOpenFlowsActiveScope(t *testing.T) {
+	m := newTestModelN(t, 3)
+	m.enterRedateFlow() // no explicit selection -> Active
+	if m.sel.mode != SelActive {
+		t.Fatalf("setup: expected Active scope, got %v", m.sel.mode)
+	}
+
+	if err := m.reload(); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+
+	if m.flow != flowRedate {
+		t.Errorf("reload should not close the open flow, got flow=%v", m.flow)
+	}
+	if m.sel.mode != SelActive {
+		t.Errorf("reload should keep the flow's Active scope, got %v", m.sel.mode)
+	}
+}

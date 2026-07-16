@@ -193,7 +193,7 @@ func panelShownRows(total int) int {
 // given it has `total` rows available: capped by panelMaxRows as always, and
 // further reduced on a short terminal so opening the panel costs fewer rows
 // the less room there is. avail mirrors listHeight's own budget exactly (see
-// mainChromeRows, list.go, and the matching deduction in viewRightColumn,
+// mainChromeRows, list.go, and the matching deduction in viewFlowZone,
 // workspace.go) minus the list's floor, the log footer if it's also visible,
 // and the panel's own fixed overhead — so all three call sites agree on what
 // the terminal can hold, and the frame fits the terminal even with both the
