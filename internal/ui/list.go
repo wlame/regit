@@ -107,11 +107,11 @@ func (m *Model) syncListViewport() {
 }
 
 // mainChromeRows is the fixed rows listHeight always reserves for the title
-// bar, tab bar, status line, keybar, and pane borders. Named (rather than an
-// inline literal) so panelWindowRows (layout.go) can share the exact same
-// budget when deciding how many action rows fit, instead of duplicating the
-// number and risking the two drifting apart.
-const mainChromeRows = 9
+// bar, status line, keybar, and pane borders. Named (rather than an inline
+// literal) so panelWindowRows (layout.go) can share the exact same budget when
+// deciding how many action rows fit, instead of duplicating the number and
+// risking the two drifting apart.
+const mainChromeRows = 8
 
 // minListRows is the smallest the commit list may ever be budgeted, regardless
 // of how much the log footer and action panel subtract. The list must keep its
@@ -123,8 +123,8 @@ const mainChromeRows = 9
 const minListRows = 3
 
 // listHeight is the commit list's inner height in rows. It reserves a fixed
-// chrome budget for the title bar, tab bar, status line, keybar, and the pane
-// borders, and otherwise fills the terminal height so the panes span the screen
+// chrome budget for the title bar, status line, keybar, and the pane borders,
+// and otherwise fills the terminal height so the panes span the screen
 // even on a repo with only a few commits. When the command-log footer is
 // visible, logPanelHeight additional rows are subtracted from the budget; when
 // the action panel is open, its own row budget — sized to the same terminal

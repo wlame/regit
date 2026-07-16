@@ -78,17 +78,20 @@ func (m Model) listWidth() int {
 }
 
 // viewDetailPane frames the commit-detail panel for the cursor commit at the
-// given width, matched to the list pane's height. The body comes from the pure
-// renderDetail; this method only supplies state (the cached stat) and the frame.
-func (m Model) viewDetailPane(width int) string {
+// given width and box content height (border excluded). Callers typically pass
+// m.listHeight()+1 to match the list pane's own height; the flow zone's default
+// arm instead sizes it via viewDetailPaneForZone so the AUTHORS pane can seat
+// below it. The body comes from the pure renderDetail; this method only
+// supplies state (the cached stat) and the frame.
+func (m Model) viewDetailPane(width, height int) string {
 	if len(m.plan.Commits) == 0 {
-		return m.st.pane.Width(width).Height(m.listHeight() + 1).Render("")
+		return m.st.pane.Width(width).Height(height).Render("")
 	}
 	c := m.commitAtCursor()
 	stat, have := m.statCache[c.Hash]
 	body := renderDetail(c, stat, have, m.statErr[c.Hash], m.plan, m.loc, width-2,
-		m.listHeight(), m.st, m.authorColorStyle(c))
-	return m.st.pane.Width(width).Height(m.listHeight() + 1).Render(body)
+		height-1, m.st, m.authorColorStyle(c))
+	return m.st.pane.Width(width).Height(height).Render(body)
 }
 
 // rightPaneWidth is the lipgloss width (border excluded) shared by the

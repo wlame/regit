@@ -138,9 +138,12 @@ func (m Model) hashStyleFor(c model.Commit) lipgloss.Style {
 }
 
 // minAuthorsPaneHeight is the smallest row budget (including the pane border) at
-// which the AUTHORS panel is worth rendering: border(2) + one title/author row.
-// Below this the panel yields its rows to the workspace widget.
-const minAuthorsPaneHeight = 3
+// which the AUTHORS panel actually renders something: border(2) + the title row
+// + one author (or "+N more") row. A budget of border(2)+title(1) alone still
+// has nowhere to put a contributor, so the panel would render only a bare
+// title — not useful — hence the extra row. Below this the panel yields its
+// rows to the flow zone's widget.
+const minAuthorsPaneHeight = 4
 
 // visibleContributors picks which contributors the panel shows for a row budget
 // of maxLines author lines, always including the lit (cursor) contributor. When
@@ -205,5 +208,12 @@ func (m Model) viewAuthorsPane(budget int) string {
 	if hidden > 0 {
 		lines = append(lines, m.st.dim.Render(fmt.Sprintf("… +%d more", hidden)))
 	}
-	return m.st.pane.Width(rightPaneWidth).Render(strings.Join(lines, "\n"))
+	// Match the calendar/strategy panes' width policy (ws_dates.go): natural
+	// width (rightPaneWidth) when the flow zone is wide enough, else clamped
+	// down to whatever computeLayout budgeted it — otherwise a narrow flow
+	// column (e.g. ~100-140 columns, where the calendar has already clamped)
+	// would still render this pane at the full rightPaneWidth and truncate its
+	// right border.
+	width := min(rightPaneWidth, computeLayout(m.width, m.height).flowWidth)
+	return m.st.pane.Width(width).Render(strings.Join(lines, "\n"))
 }

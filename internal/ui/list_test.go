@@ -186,7 +186,7 @@ func TestListHeight_fillsTerminalRegardlessOfCommitCount(t *testing.T) {
 	// 3 commits in a 40-row terminal: the pane must fill the height, not shrink
 	// to the commit count (the old clamp returned 8 here).
 	m := newTestModelN(t, 3)
-	if got, want := m.listHeight(), m.height-9; got != want {
+	if got, want := m.listHeight(), m.height-mainChromeRows; got != want {
 		t.Errorf("listHeight() = %d, want %d (full height, no clamp)", got, want)
 	}
 }
