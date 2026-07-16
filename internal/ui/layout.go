@@ -53,6 +53,12 @@ const (
 	detailOverlayMargin = 12
 	detailOverlayFloor  = 40
 	detailOverlayCeil   = 100
+
+	// previewFloor/Ceil bound the pipeline preview overlay at ~80% of the
+	// usable width: wide enough for before→after date pairs, capped for
+	// scannability on ultrawide terminals.
+	previewFloor = 56
+	previewCeil  = 160
 )
 
 // layoutDims is the computed column/row budget for the main screen, derived
@@ -70,6 +76,7 @@ type layoutDims struct {
 	bodyHeight         int  // rows available to the list/right body (reserved for future work; not yet wired)
 	inputWidth         int  // single-line text-input width for the editor and every modal field
 	detailOverlayWidth int  // width of the on-demand commit-detail overlay ('.')
+	previewWidth       int  // pipeline (stage→preview→apply) overlay width
 }
 
 // computeLayout turns a terminal size into the region budget for the main
@@ -153,6 +160,15 @@ func computeLayout(termW, termH int) layoutDims {
 	if !showRight {
 		rightW = 0
 	}
+
+	previewW := usable * 8 / 10
+	if previewW > previewCeil {
+		previewW = previewCeil
+	}
+	if previewW < previewFloor {
+		previewW = previewFloor
+	}
+
 	return layoutDims{
 		contentWidth:       usable,
 		listWidth:          listW,
@@ -162,5 +178,6 @@ func computeLayout(termW, termH int) layoutDims {
 		bodyHeight:         bodyH,
 		inputWidth:         inputW,
 		detailOverlayWidth: detailOverlayW,
+		previewWidth:       previewW,
 	}
 }

@@ -2188,7 +2188,8 @@ func (m Model) View() string {
 	case modeEditor:
 		overlay = m.editor.view(m.commitByHash(m.editor.hash), m.st)
 	case modePipeline:
-		overlay = viewPipeline(m.pending.preview(m.st), m.previewOffset, m.previewVisibleRows(), m.pipelineApply, m.st)
+		overlay = viewPipeline(m.pending.preview(m.st), m.previewOffset, m.previewVisibleRows(),
+			m.pipelineApply, computeLayout(m.width, m.height).previewWidth, m.st)
 	case modeConfirm:
 		overlay = m.viewConfirm()
 	case modeHelp:

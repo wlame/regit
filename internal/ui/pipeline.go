@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/wlame/regit/internal/gitio"
 	"github.com/wlame/regit/internal/model"
 	"github.com/wlame/regit/internal/safety"
@@ -274,9 +276,11 @@ func (c splitChange) apply(mgr *safety.Manager, state model.RepoState, opts safe
 }
 
 // viewPipeline renders the preview overlay for a pendingChange: title, the
-// scrollable body window, and a footer whose actions depend on the mode (apply
-// vs a read-only peek).
-func viewPipeline(p previewModel, offset, visible int, applyMode bool, st styles) string {
+// scrollable body window, and a footer whose actions depend on the mode
+// (apply vs a read-only peek). width is the modal's full column budget
+// (from layoutDims.previewWidth); body lines are clamped to the content
+// area so an adversarially long path or subject cannot break the frame.
+func viewPipeline(p previewModel, offset, visible int, applyMode bool, width int, st styles) string {
 	var b strings.Builder
 	b.WriteString(st.modalTitle.Render(p.title) + "\n\n")
 
@@ -287,8 +291,11 @@ func viewPipeline(p previewModel, offset, visible int, applyMode bool, st styles
 	if end > len(p.lines) {
 		end = len(p.lines)
 	}
+	// The modal style spends 4 columns on horizontal padding (2 each side);
+	// clamping per line keeps ANSI-styled content from wrapping the frame.
+	clamp := lipgloss.NewStyle().MaxWidth(width - 4)
 	for _, line := range p.lines[offset:end] {
-		b.WriteString(line + "\n")
+		b.WriteString(clamp.Render(line) + "\n")
 	}
 
 	footer := "↑/↓ scroll · esc close"
@@ -296,5 +303,5 @@ func viewPipeline(p previewModel, offset, visible int, applyMode bool, st styles
 		footer = "↑/↓ scroll · enter apply · esc cancel"
 	}
 	b.WriteString("\n" + st.help.Render(footer))
-	return st.modal.Render(b.String())
+	return st.modal.Width(width).Render(b.String())
 }

@@ -129,3 +129,24 @@ func TestComputeLayoutDetailOverlayWidth(t *testing.T) {
 		})
 	}
 }
+
+// TestComputeLayoutPreviewWidth: the pipeline preview takes ~80% of the
+// usable width inside a readable band, instead of hugging its content.
+func TestComputeLayoutPreviewWidth(t *testing.T) {
+	cases := []struct {
+		name  string
+		termW int
+		want  int
+	}{
+		{"narrow floor", 60, 56},   // 60*8/10=48 → floor 56
+		{"mid tracks", 120, 96},    // 120*8/10
+		{"wide ceiling", 240, 160}, // 240*8/10=192 → ceil 160
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := computeLayout(tc.termW, 40).previewWidth; got != tc.want {
+				t.Fatalf("previewWidth(%d) = %d, want %d", tc.termW, got, tc.want)
+			}
+		})
+	}
+}

@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/wlame/regit/internal/model"
 )
 
@@ -68,11 +70,11 @@ func TestPlanChange_guardCleanRepoNotBlocked(t *testing.T) {
 func TestViewPipeline_footerReflectsMode(t *testing.T) {
 	st := newStyles()
 	pv := previewModel{title: "Preview", lines: []string{"a", "b", "c"}}
-	apply := viewPipeline(pv, 0, 10, true, st)
+	apply := viewPipeline(pv, 0, 10, true, 96, st)
 	if !strings.Contains(apply, "enter apply") {
 		t.Error("apply-mode footer should offer enter apply")
 	}
-	peek := viewPipeline(pv, 0, 10, false, st)
+	peek := viewPipeline(pv, 0, 10, false, 96, st)
 	if strings.Contains(peek, "enter apply") {
 		t.Error("peek-mode footer should NOT offer enter apply")
 	}
@@ -164,5 +166,21 @@ func TestPlanChange_previewMarksConflictsWithWarning(t *testing.T) {
 	}
 	if !strings.Contains(pv.title, "2 conflicting") {
 		t.Errorf("title should report 2 conflicting, got %q", pv.title)
+	}
+}
+
+// TestViewPipelineRendersAtGivenWidth: the modal fills the given width (so a
+// short preview no longer renders as a tiny content-hugging box) and long
+// lines are clamped instead of overflowing the frame.
+func TestViewPipelineRendersAtGivenWidth(t *testing.T) {
+	p := previewModel{title: "Test", lines: []string{"short", strings.Repeat("x", 300)}}
+	out := viewPipeline(p, 0, 10, false, 96, newStyles())
+	for _, line := range strings.Split(out, "\n") {
+		if w := lipgloss.Width(line); w > 96+2 { // +2 for the border columns
+			t.Fatalf("line width %d exceeds modal width budget", w)
+		}
+	}
+	if w := lipgloss.Width(out); w < 90 {
+		t.Fatalf("modal width = %d, want ≈96 (must fill the given width)", w)
 	}
 }
