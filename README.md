@@ -471,6 +471,7 @@ The codebase is layered so the interesting logic is pure and testable:
 - `internal/split` — commit-splitting orchestrator (extract → group → build → validate → repair → apply)
 - `internal/squash` — commit-squash engine (chain summarization, cache, prompt)
 - `internal/reword` — commit-rewording engine (variants, cache, prompt building)
+- `internal/redact` — secret-redaction engine (pickaxe scan, line cascade, plan → spec)
 - `internal/llm` — LLM backend abstraction (OpenAI-compatible HTTP + agent CLI)
 - `internal/promptcache` — the shared LLM-result cache the split/reword/squash caches instantiate
 - `internal/config` — YAML + env configuration

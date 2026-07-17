@@ -125,6 +125,28 @@ const secretContextRadius = 2
 // output, which (combined with -z's NUL-delimited records here) would
 // corrupt the hash tokens this parses.
 func (r *Repo) SecretAdditions(match string, globs []string) ([]SecretHit, error) {
+	hashes, err := r.pickaxeCommitHashes(match, globs)
+	if err != nil {
+		return nil, err
+	}
+
+	var hits []SecretHit
+	for _, hash := range hashes {
+		commitHits, err := r.secretAdditionsInCommit(hash, match, globs)
+		if err != nil {
+			return nil, err
+		}
+		hits = append(hits, commitHits...)
+	}
+	return hits, nil
+}
+
+// pickaxeCommitHashes runs the `git log -S` search shared by SecretAdditions
+// and SecretAdditionsBinary: every commit on HEAD's history (globs, if
+// non-empty, narrow which commits count) whose diff changed how many times
+// match occurs. Factored out so the two callers can never drift onto
+// different commit sets for what is meant to be the same underlying scan.
+func (r *Repo) pickaxeCommitHashes(match string, globs []string) ([]string, error) {
 	args := []string{
 		"log", "-z", "--no-show-signature", "--format=%H", "--no-merges", "-S" + match, "HEAD",
 	}
@@ -136,16 +158,7 @@ func (r *Repo) SecretAdditions(match string, globs []string) ([]SecretHit, error
 	if err != nil {
 		return nil, fmt.Errorf("pickaxe search %q: %w", match, err)
 	}
-
-	var hits []SecretHit
-	for _, hash := range splitNUL(out) {
-		commitHits, err := r.secretAdditionsInCommit(hash, match, globs)
-		if err != nil {
-			return nil, err
-		}
-		hits = append(hits, commitHits...)
-	}
-	return hits, nil
+	return splitNUL(out), nil
 }
 
 // secretAdditionsInCommit extracts every '+' line containing match from one
@@ -215,6 +228,73 @@ func hunkContext(lines []hunkLine, i int) []string {
 		ctx = append(ctx, string(lines[j].op)+lines[j].text)
 	}
 	return ctx
+}
+
+// BinaryHit is one "commit touched a binary blob containing match" pairing —
+// SecretAdditionsBinary's counterpart to SecretHit, minus Line/Context: a
+// binary blob has no text line to extract.
+type BinaryHit struct {
+	Commit string
+	Path   string
+}
+
+// SecretAdditionsBinary complements SecretAdditions over the SAME pickaxe-hit
+// commit set (pickaxeCommitHashes): git renders a binary file's change as
+// "Binary files a/... and b/... differ" with no "@@ " hunks at all (verified
+// against real git), so secretAdditionsInCommit's hunk parser silently sees
+// ZERO added lines for such a commit — a secret hiding inside a binary blob
+// would otherwise vanish from the scan without a trace. This checks each hit
+// commit's own touched blobs directly (cat-file, not diff parsing) for match
+// as a raw byte sequence, reporting only blobs that also contain a NUL byte
+// (RedactBlobsInTree's own definition of "binary" — see its doc comment) so a
+// TEXT hit that also happens to be pickaxe-flagged is never double-reported
+// here.
+func (r *Repo) SecretAdditionsBinary(match string, globs []string) ([]BinaryHit, error) {
+	hashes, err := r.pickaxeCommitHashes(match, globs)
+	if err != nil {
+		return nil, err
+	}
+
+	var hits []BinaryHit
+	for _, hash := range hashes {
+		paths, err := r.binaryBlobsInCommit(hash, match, globs)
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range paths {
+			hits = append(hits, BinaryHit{Commit: hash, Path: p})
+		}
+	}
+	return hits, nil
+}
+
+// binaryBlobsInCommit lists hash's own touched paths (--root makes this work
+// for a root commit too, matching CommitTouchedFiles' convention; the same
+// globs pathspec as the enclosing pickaxe search narrows which paths are
+// even listed) and returns the ones whose blob AT hash both contains match
+// and a NUL byte.
+func (r *Repo) binaryBlobsInCommit(hash, match string, globs []string) ([]string, error) {
+	args := []string{"diff-tree", "-r", "-z", "--name-only", "--no-commit-id", "--root", hash}
+	if len(globs) > 0 {
+		args = append(args, "--")
+		args = append(args, globs...)
+	}
+	out, err := r.gitRaw(args...)
+	if err != nil {
+		return nil, fmt.Errorf("diff-tree name-only %s: %w", short(hash), err)
+	}
+
+	var paths []string
+	for _, path := range splitNUL(out) {
+		content, err := r.gitRaw("cat-file", "blob", hash+":"+path)
+		if err != nil {
+			continue // path deleted at hash (no blob to inspect): not a hit
+		}
+		if strings.Contains(content, match) && strings.ContainsRune(content, '\x00') {
+			paths = append(paths, path)
+		}
+	}
+	return paths, nil
 }
 
 // forwardFirstParentChain returns the commits from fromCommit to HEAD
@@ -327,6 +407,16 @@ func (r *Repo) isOnFirstParentChain(commit string) (bool, error) {
 	return false, nil
 }
 
+// ErrLineOffFirstParentChain is the sentinel wrapped into the error
+// LineDescendants returns when fromCommit is not on HEAD's first-parent
+// chain. A caller that may legitimately see such a commit — Task 5's Scan,
+// fed straight from SecretAdditions — checks this with errors.Is to tell
+// "this one occurrence cannot be cascaded" apart from every other failure
+// mode (a broken repo, a bad ref), which must still abort outright rather
+// than being swallowed alongside it.
+var ErrLineOffFirstParentChain = errors.New(
+	"commit is not on HEAD's first-parent chain")
+
 // LineDescendants walks path's tracked line FORWARD from fromCommit along the
 // current branch's first-parent chain to HEAD, returning every later state
 // the line took (oldest first) and a note explaining why the chain ended
@@ -338,7 +428,8 @@ func (r *Repo) isOnFirstParentChain(commit string) (bool, error) {
 // a SecretHit can legitimately name a side-branch commit that was merged in
 // — feeding that straight into the rev-list range below would silently
 // compute a nonsensical "forward chain", not an error, so it is checked
-// explicitly up front via isOnFirstParentChain.
+// explicitly up front via isOnFirstParentChain and reported via
+// ErrLineOffFirstParentChain (see its doc for why that's a sentinel).
 //
 // The chain is stepped one commit pair at a time. Each pair's diff uses -U0
 // (zero context: the cheapest way to see EXACTLY which lines were added or
@@ -362,7 +453,8 @@ func (r *Repo) LineDescendants(fromCommit, path, line string) (
 	if !onChain {
 		return nil, "", fmt.Errorf(
 			"commit %s is not on HEAD's first-parent chain: LineDescendants can only "+
-				"track a line forward along the primary branch line", short(fromCommit))
+				"track a line forward along the primary branch line: %w",
+			short(fromCommit), ErrLineOffFirstParentChain)
 	}
 
 	chain, err := r.forwardFirstParentChain(fromCommit)

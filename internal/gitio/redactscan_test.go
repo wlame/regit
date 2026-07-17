@@ -1,6 +1,7 @@
 package gitio
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -429,6 +430,76 @@ func TestLineDescendants_errorsWhenFromCommitOffFirstParentChain(t *testing.T) {
 	_, _, err := r.LineDescendants(sideHash, "cfg.yaml", "token: sk-OLD")
 	if err == nil {
 		t.Fatal("LineDescendants should error when fromCommit is not on HEAD's first-parent chain")
+	}
+	// The error must be recognizable via the sentinel, not just non-nil: Task
+	// 5's Scan distinguishes "this one occurrence cannot be cascaded" from
+	// every other failure mode by checking errors.Is against exactly this.
+	if !errors.Is(err, ErrLineOffFirstParentChain) {
+		t.Errorf("err = %v, want it to wrap ErrLineOffFirstParentChain", err)
+	}
+}
+
+// binarySecretRepo builds a fixture whose single commit adds a binary file
+// (a NUL byte inside it) whose content also contains the literal match, plus
+// an unrelated text file so glob-narrowing has something real to exclude.
+func binarySecretRepo(t *testing.T) (*Repo, []model.Commit) {
+	t.Helper()
+	r, dir := purgeTestRepoEmpty(t)
+	mustWriteFile(t, dir, "bin.dat", "before\x00sk-BINARY\x00after")
+	mustWriteFile(t, dir, "docs/readme.md", "unrelated docs text\n")
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "add binary secret")
+	commits, err := r.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) != 1 {
+		t.Fatalf("setup: want 1 commit, got %d", len(commits))
+	}
+	return r, commits
+}
+
+// TestSecretAdditionsBinary_findsBinaryBlobHit is the direct regression test
+// for the gap SecretAdditionsBinary closes: a pickaxe hit whose diff is
+// entirely a binary-file change produces ZERO SecretHits from
+// SecretAdditions (git's diff-tree renders it as "Binary files ... differ",
+// no hunks to parse) — without this primitive the secret would vanish from
+// the scan with no trace at all.
+func TestSecretAdditionsBinary_findsBinaryBlobHit(t *testing.T) {
+	r, commits := binarySecretRepo(t)
+
+	textHits, err := r.SecretAdditions("sk-BINARY", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(textHits) != 0 {
+		t.Errorf("SecretAdditions found %+v, want none (the only occurrence is inside a binary blob)",
+			textHits)
+	}
+
+	binHits, err := r.SecretAdditionsBinary("sk-BINARY", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(binHits) != 1 {
+		t.Fatalf("got %d binary hits, want 1: %+v", len(binHits), binHits)
+	}
+	if binHits[0].Commit != commits[0].Hash || binHits[0].Path != "bin.dat" {
+		t.Errorf("binHits[0] = %+v, want Commit=%s Path=bin.dat", binHits[0], short(commits[0].Hash))
+	}
+}
+
+// TestSecretAdditionsBinary_globNarrows is the binary-hit companion to
+// TestSecretAdditions_globNarrows: a glob that never covers the binary file's
+// path must suppress the hit.
+func TestSecretAdditionsBinary_globNarrows(t *testing.T) {
+	r, _ := binarySecretRepo(t)
+	hits, err := r.SecretAdditionsBinary("sk-BINARY", []string{"docs/**"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 0 {
+		t.Errorf("hits = %+v, want none (sk-BINARY never appears under docs/**)", hits)
 	}
 }
 
