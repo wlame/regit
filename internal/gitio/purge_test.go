@@ -364,7 +364,7 @@ func TestPurgeBase_extendsPastMergeThatCarriesPathForward(t *testing.T) {
 // guard — that lives in safety.Manager.ApplyPurge) fully removes junk.log
 // even through a merge-in-prefix history. That assertion only ever passed
 // because pulling the merge INTO the rewritten range (PurgeBase's fix) does
-// not, by itself, close the whole hole: purgeParents remaps ONLY a commit's
+// not, by itself, close the whole hole: replayParents remaps ONLY a commit's
 // FIRST parent (see its own doc comment) — a merge's SECOND parent is never
 // touched. So when the merge is REWRITTEN as a genuine merge object (as
 // opposed to DROPPED, which erases the whole commit — including its

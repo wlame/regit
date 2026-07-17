@@ -282,7 +282,7 @@ func (r *Repo) ApplyPurge(commits []model.Commit, spec model.PurgeSpec, affected
 		hash, err := r.gitWithEnvStdin(
 			buildCommitEnv(c, model.Edit{}),
 			buildMessage(c, model.Edit{}),
-			commitTreeArgs(tree, purgeParents(c.ParentHashes, prevNew), sign)...)
+			commitTreeArgs(tree, replayParents(c.ParentHashes, prevNew), sign)...)
 		if err != nil {
 			return "", remap, fmt.Errorf("replay %s: %w", short(c.Hash), err)
 		}
@@ -303,10 +303,12 @@ func (r *Repo) ApplyPurge(commits []model.Commit, spec model.PurgeSpec, affected
 	return newHead, remap, nil
 }
 
-// purgeParents remaps a commit's first parent to the last emitted commit. An
+// replayParents remaps a commit's first parent to the last emitted commit. An
 // empty prevNew means the entire ancestor chain was dropped, so the commit
-// loses its first parent and becomes the new root.
-func purgeParents(parents []string, prevNew string) []string {
+// loses its first parent and becomes the new root. Shared by ApplyPurge and
+// ApplyRedact: both walks replay a first-parent chain that can drop commits,
+// so both need the identical "reparent past whatever vanished" rule.
+func replayParents(parents []string, prevNew string) []string {
 	if len(parents) == 0 {
 		return nil
 	}
