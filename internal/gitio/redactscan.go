@@ -1,0 +1,390 @@
+package gitio
+
+import (
+	"errors"
+	"fmt"
+	"os/exec"
+	"strings"
+
+	"github.com/wlame/regit/internal/model"
+)
+
+// SecretHit is one added line found by the pickaxe scan, with hunk context.
+type SecretHit struct {
+	Commit  string   // full hash of the commit whose diff ADDED the line
+	Path    string   // path at that commit
+	Line    string   // the added line's content, EOL excluded
+	Context []string // up to 2 hunk lines either side, prefixed " ", "+", "-"
+}
+
+// hunkLine is one line inside a parsed unified-diff hunk body. op is git's
+// leading marker byte: ' ' (context, unchanged), '+' (added), or '-' (removed).
+type hunkLine struct {
+	op   byte
+	text string
+}
+
+// hunk is one "@@ -a,b +c,d @@" section of a SINGLE file's unified diff.
+// header is stored verbatim, including any trailing "function context" text
+// git appends after the second "@@" — callers never need to parse it, only
+// the added/removed/context lines that follow.
+type hunk struct {
+	header string
+	lines  []hunkLine
+}
+
+// parseHunks extracts the @@ hunks out of a unified-diff TEXT scoped to one
+// file (the whole per-file section, or just its hunk bodies — both work).
+// Everything before the first "@@ " line is skipped: the "diff --git"/mode/
+// index/"--- "/"+++ " file-header block, and (when the caller passes
+// `diff-tree`'s raw output before stripping it — see secretAdditionsInCommit)
+// its leading bare commit-hash line. A line that starts with none of ' ',
+// '+', '-' (git's "\ No newline at end of file" marker, or a NEXT file's
+// "diff --git" header if a multi-file patch is ever passed whole) ends
+// collection into the CURRENT hunk without discarding what was already
+// gathered; only a fresh "@@ " line starts a new one. This is the ONE parser
+// shared by SecretAdditions (-U2 output, added-line extraction with context)
+// and LineDescendants (-U0 output, removed→added mapping) — see
+// TestParseHunks for the exact shape it produces on a literal patch string.
+func parseHunks(patch string) []hunk {
+	var hunks []hunk
+	var cur *hunk
+	for _, line := range strings.Split(patch, "\n") {
+		if strings.HasPrefix(line, "@@ ") {
+			hunks = append(hunks, hunk{header: line})
+			cur = &hunks[len(hunks)-1]
+			continue
+		}
+		if cur == nil || line == "" {
+			continue
+		}
+		switch line[0] {
+		case ' ', '+', '-':
+			cur.lines = append(cur.lines, hunkLine{op: line[0], text: line[1:]})
+		default:
+			cur = nil
+		}
+	}
+	return hunks
+}
+
+// splitNUL splits the output of a `git ... -z` invocation into its tokens.
+// -z NUL-terminates EVERY record (including the last), so a naive
+// strings.Split leaves one trailing empty element; that (and the "no records
+// at all" empty-string case) are the only two things this trims away.
+func splitNUL(out string) []string {
+	if out == "" {
+		return nil
+	}
+	parts := strings.Split(out, "\x00")
+	if len(parts) > 0 && parts[len(parts)-1] == "" {
+		parts = parts[:len(parts)-1]
+	}
+	return parts
+}
+
+// scanDiffFlags pins the diff output shape against a user's ambient git
+// config, exactly like diffFlags in diff.go: --no-color/--no-ext-diff stop
+// injected ANSI escapes or a configured third-party diff tool's own format
+// from corrupting the patch text parseHunks/parsePaths below rely on, and the
+// explicit src/dst prefixes stop a repo-level diff.noprefix=true from
+// stripping the "a/"/"b/" markers parsePaths expects. Tests don't exercise
+// this (gittest.Env pins config away from such settings), but a real user
+// repository can have any of the three configured.
+var scanDiffFlags = []string{"--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/"}
+
+// secretContextRadius bounds how many hunk lines either side of a matched
+// '+' line become that hit's Context. It happens to equal the -U2 width
+// SecretAdditions requests from git, which is intentional: a match sitting
+// right at a hunk's edge should still get the full radius the -U2 diff
+// already captured, not be clipped further by a smaller radius here.
+const secretContextRadius = 2
+
+// SecretAdditions finds every commit that ever ADDED a line containing the
+// literal match, on the current branch's history (globs, if non-empty,
+// narrow both which commits count as hits and which files are inspected for
+// them). -S is git's "pickaxe" search: it flags commits where the NUMBER of
+// occurrences of match changed, in EITHER direction — so a hit commit's diff
+// may only have REMOVED match (e.g. a later rotation); such commits
+// naturally contribute zero SecretHits below, since only '+' lines are
+// extracted. -S is deliberately never combined with --pickaxe-regex: match is
+// a literal secret value, and a regex-special byte inside it (a literal "."
+// in an API key, say) must never be reinterpreted as a wildcard. --no-merges
+// on the log skips merge commits entirely — their redaction is guard-blocked
+// one layer up regardless, so there is nothing useful to extract from them
+// here.
+func (r *Repo) SecretAdditions(match string, globs []string) ([]SecretHit, error) {
+	args := []string{"log", "-z", "--format=%H", "--no-merges", "-S" + match, "HEAD"}
+	if len(globs) > 0 {
+		args = append(args, "--")
+		args = append(args, globs...)
+	}
+	out, err := r.gitRaw(args...)
+	if err != nil {
+		return nil, fmt.Errorf("pickaxe search %q: %w", match, err)
+	}
+
+	var hits []SecretHit
+	for _, hash := range splitNUL(out) {
+		commitHits, err := r.secretAdditionsInCommit(hash, match, globs)
+		if err != nil {
+			return nil, err
+		}
+		hits = append(hits, commitHits...)
+	}
+	return hits, nil
+}
+
+// secretAdditionsInCommit extracts every '+' line containing match from one
+// pickaxe-hit commit's own diff. --root makes diff-tree show a ROOT commit's
+// diff as a full addition against the empty tree (without it, diff-tree
+// prints nothing at all for a parentless commit). --no-commit-id suppresses
+// diff-tree's leading bare-hash line — parseHunks tolerates it either way
+// (see its doc comment), but omitting it keeps splitSections' file-section
+// split (reused from diff.go) from ever seeing a phantom hash-only "section"
+// in the first place. The same globs used to narrow the pickaxe search are
+// applied here too, so a hit commit that ALSO touches files outside globs in
+// this same commit never contributes an out-of-scope hit.
+func (r *Repo) secretAdditionsInCommit(hash, match string, globs []string) ([]SecretHit, error) {
+	args := []string{"diff-tree", "--no-commit-id", "-p", "-U2", "--root"}
+	args = append(args, scanDiffFlags...)
+	args = append(args, hash)
+	if len(globs) > 0 {
+		args = append(args, "--")
+		args = append(args, globs...)
+	}
+	patch, err := r.gitRaw(args...)
+	if err != nil {
+		return nil, fmt.Errorf("diff-tree %s: %w", short(hash), err)
+	}
+
+	var hits []SecretHit
+	for _, sec := range splitSections(patch) {
+		path, _ := parsePaths(sec)
+		if path == "" {
+			continue
+		}
+		for _, h := range parseHunks(sec) {
+			for i, ln := range h.lines {
+				if ln.op != '+' || !strings.Contains(ln.text, match) {
+					continue
+				}
+				hits = append(hits, SecretHit{
+					Commit:  hash,
+					Path:    path,
+					Line:    ln.text,
+					Context: hunkContext(h.lines, i),
+				})
+			}
+		}
+	}
+	return hits, nil
+}
+
+// hunkContext renders up to secretContextRadius hunkLines on EACH side of
+// index i (clamped to the hunk's bounds, and never including line i itself —
+// that line is already captured separately as the SecretHit's Line) back
+// into their original "<op><text>" diff-line form, e.g. " context", "+added".
+func hunkContext(lines []hunkLine, i int) []string {
+	start := i - secretContextRadius
+	if start < 0 {
+		start = 0
+	}
+	end := i + secretContextRadius + 1
+	if end > len(lines) {
+		end = len(lines)
+	}
+	ctx := make([]string, 0, end-start)
+	for j := start; j < end; j++ {
+		if j == i {
+			continue
+		}
+		ctx = append(ctx, string(lines[j].op)+lines[j].text)
+	}
+	return ctx
+}
+
+// forwardFirstParentChain returns the commits from fromCommit to HEAD
+// (inclusive of both ends) along the current branch's FIRST-PARENT lineage,
+// oldest first. git has no native "children" pointer (only parent links), so
+// this is computed as a REVERSE rev-list walk from HEAD, excluding everything
+// reachable from fromCommit: `rev-list --first-parent --reverse
+// fromCommit..HEAD` — valid precisely because LineDescendants only ever
+// starts from a commit that IS on HEAD's first-parent ancestry (where the
+// secret was introduced on the branch being scanned).
+func (r *Repo) forwardFirstParentChain(fromCommit string) ([]string, error) {
+	out, err := r.gitRaw("rev-list", "--first-parent", "--reverse", "-z", fromCommit+"..HEAD")
+	if err != nil {
+		return nil, fmt.Errorf("forward chain from %s: %w", short(fromCommit), err)
+	}
+	return append([]string{fromCommit}, splitNUL(out)...), nil
+}
+
+// findPathSection scans a multi-file diff's per-file sections (as split by
+// splitSections in diff.go) for the one currently tracking trackPath — either
+// an ordinary edit at that exact path, or a rename whose OLD side is
+// trackPath. Returns the matching section's raw text, the path to track
+// going forward (the renamed target, or trackPath unchanged), and whether a
+// section was found at all: a commit pair that never touched trackPath has
+// no match, and the caller keeps tracking the same path/line untouched.
+func findPathSection(patch, trackPath string) (section, newPath string, found bool) {
+	for _, sec := range splitSections(patch) {
+		file, oldPath := parsePaths(sec)
+		if oldPath == trackPath || (oldPath == "" && file == trackPath) {
+			return sec, file, true
+		}
+	}
+	return "", "", false
+}
+
+// findRemovedLine searches hunks for one whose removed ('-') lines include
+// trackLine, returning that hunk (by value — hunk is small) and true.
+func findRemovedLine(hunks []hunk, trackLine string) (hunk, bool) {
+	for _, h := range hunks {
+		for _, ln := range h.lines {
+			if ln.op == '-' && ln.text == trackLine {
+				return h, true
+			}
+		}
+	}
+	return hunk{}, false
+}
+
+// countOp counts how many lines in a hunk carry the given op byte.
+func countOp(lines []hunkLine, op byte) int {
+	n := 0
+	for _, ln := range lines {
+		if ln.op == op {
+			n++
+		}
+	}
+	return n
+}
+
+// firstOp returns the text of the first line in a hunk carrying the given op
+// byte, or "" if none do.
+func firstOp(lines []hunkLine, op byte) string {
+	for _, ln := range lines {
+		if ln.op == op {
+			return ln.text
+		}
+	}
+	return ""
+}
+
+// LineDescendants walks path's tracked line FORWARD from fromCommit along the
+// current branch's first-parent chain to HEAD, returning every later state
+// the line took (oldest first) and a note explaining why the chain ended
+// early (empty when it simply ran a rotation-free course to a deletion or to
+// HEAD unedited).
+//
+// The chain is stepped one commit pair at a time. Each pair's diff uses -U0
+// (zero context: the cheapest way to see EXACTLY which lines were added or
+// removed, with no risk of an unrelated context line being mistaken for a
+// match) and -M (rename detection). Crucially the diff is NOT restricted with
+// a `-- path` pathspec: verified against real git that limiting the diff to
+// the OLD path alone defeats -M's rename pairing entirely — git has nothing
+// on the "new" side of the pathspec-filtered diff to compare against, so it
+// reports a plain file deletion instead of a rename (see
+// TestLineDescendants_followsRotationRenameAndDeletion for the concrete
+// repro). So every pair diffs the WHOLE tree, and findPathSection below
+// searches its per-file sections for the one currently tracking our path.
+func (r *Repo) LineDescendants(fromCommit, path, line string) (
+	[]model.RedactVersion, string, error) {
+	chain, err := r.forwardFirstParentChain(fromCommit)
+	if err != nil {
+		return nil, "", err
+	}
+
+	var descendants []model.RedactVersion
+	trackPath, trackLine := path, line
+	for i := 0; i+1 < len(chain); i++ {
+		a, b := chain[i], chain[i+1]
+		args := append([]string{"diff", "-U0", "-M"}, scanDiffFlags...)
+		args = append(args, a, b)
+		patch, err := r.gitRaw(args...)
+		if err != nil {
+			return nil, "", fmt.Errorf("diff %s..%s: %w", short(a), short(b), err)
+		}
+
+		sec, newPath, found := findPathSection(patch, trackPath)
+		if !found {
+			continue // trackPath untouched by this step: keep tracking as-is
+		}
+		trackPath = newPath
+
+		h, hit := findRemovedLine(parseHunks(sec), trackLine)
+		if !hit {
+			// The path changed (a rename, or unrelated lines in it) but our
+			// tracked line itself was never removed: it survives unchanged.
+			continue
+		}
+
+		switch added := countOp(h.lines, '+'); added {
+		case 0:
+			return descendants, "", nil // deleted: chain ends, no note
+		case 1:
+			trackLine = firstOp(h.lines, '+')
+			descendants = append(descendants, model.RedactVersion{
+				Commit: b, Path: trackPath, Line: trackLine,
+			})
+		default:
+			note := fmt.Sprintf(
+				"line rewritten as a multi-line change in %s; review that commit manually", short(b))
+			return descendants, note, nil
+		}
+	}
+	return descendants, "", nil
+}
+
+// GrepTree reports whether literal occurs anywhere in tree (a tree-ish: a
+// commit, branch, or raw tree object all work), via git's own fixed-string
+// search rather than us reading and scanning every blob ourselves.
+//
+// -F makes the search a literal substring match, never a regex — literal is
+// a secret value and may contain regex-special bytes. -e (rather than a bare
+// trailing positional argument) is required: verified against real git that
+// a literal starting with '-' (plausible for a token/API-key alphabet) is
+// otherwise parsed as an unknown git-grep FLAG and fails with a usage error
+// (exit 129), not the "absent" exit code 1 an unlucky caller might assume —
+// see TestGrepTree_dashPrefixedLiteralDoesNotBreakParsing.
+//
+// --quiet suppresses all match output; only the exit code matters: 0 = found,
+// 1 = absent (both success outcomes, NOT an error). Anything else (an
+// unresolvable tree, a real git failure) is a genuine error and must
+// propagate, so the absence check this backs degrades CLOSED rather than
+// silently reporting "absent" for what was actually a broken invocation.
+func (r *Repo) GrepTree(tree, literal string) (bool, error) {
+	_, err := r.git("grep", "-F", "--quiet", "-e", literal, tree)
+	if err == nil {
+		return true, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return false, nil
+	}
+	return false, fmt.Errorf("grep tree %s: %w", short(tree), err)
+}
+
+// SecretAddedFrom returns every commit hash reachable from rev that ever
+// changed the occurrence count of match — the backbone of the absence check:
+// an EMPTY result means the literal was never added anywhere in rev's
+// history, so there is nothing left to guard against. --full-history turns
+// off git's default history simplification (which would otherwise skip
+// commits whose change to match's occurrence count gets "simplified away" on
+// a merged-in side branch — the same blind spot PurgeBase/PathsReachableFrom
+// close for path-based purge; see purge_test.go's purgeMergeInPrefixRepo).
+// Output is a plain %H-per-line list (no paths, no message body), so unlike
+// the -z-delimited commands elsewhere in this file, ordinary whitespace
+// splitting is safe here — the same choice FirstParents makes for the same
+// reason.
+func (r *Repo) SecretAddedFrom(rev, match string) ([]string, error) {
+	out, err := r.git("log", "--format=%H", "--full-history", "-S"+match, rev)
+	if err != nil {
+		return nil, fmt.Errorf("secret history search %q: %w", match, err)
+	}
+	if out == "" {
+		return nil, nil
+	}
+	return strings.Fields(out), nil
+}
