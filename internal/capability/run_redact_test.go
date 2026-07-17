@@ -77,11 +77,11 @@ func TestRegistry_redactRowPresent(t *testing.T) {
 	if !ok {
 		t.Fatal("redact row missing from the registry")
 	}
-	// redact carries no Workspace tag until its featureBinding + panel entry
-	// land, so the panel-binding guard test stays green — see the registry
-	// row's own doc comment.
-	if c.Workspace != WSNone {
-		t.Errorf("Workspace = %v, want WSNone (headless-only pending the TUI flow)", c.Workspace)
+	// redact is grouped with purge (WSRestructure): both are branch-scoped,
+	// preview-first rewrites over repo-wide content — see the registry row's
+	// own doc comment.
+	if c.Workspace != WSRestructure {
+		t.Errorf("Workspace = %v, want WSRestructure (grouped with purge)", c.Workspace)
 	}
 	if c.Selection != SelGlobal {
 		t.Errorf("Selection = %v, want SelGlobal", c.Selection)
@@ -180,7 +180,7 @@ func TestRunRedact_dryRunPrintsPreviewAndDroppedPrediction(t *testing.T) {
 	if !strings.Contains(s, "dry run") {
 		t.Errorf("expected the dry-run marker:\n%s", s)
 	}
-	if strings.Contains(s, hygieneWarning) {
+	if strings.Contains(s, HygieneWarning) {
 		t.Errorf("a dry run must not print the hygiene warning:\n%s", s)
 	}
 	after, _ := repo.ReadState()
@@ -229,7 +229,7 @@ func TestRunRedact_executeHappyPath(t *testing.T) {
 	if !strings.Contains(s, "git gc") {
 		t.Errorf("expected the gc hint line:\n%s", s)
 	}
-	if !strings.Contains(s, hygieneWarning) {
+	if !strings.Contains(s, HygieneWarning) {
 		t.Errorf("expected the hygiene warning on a successful execute:\n%s", s)
 	}
 	if !strings.Contains(s, "verified") {
@@ -515,7 +515,7 @@ func TestRunRedact_sideHistoryAdvisoryPrintedNotGuardBlocked(t *testing.T) {
 	err = runRedact(ctx, a)
 
 	s := out.String()
-	if !strings.Contains(s, sideHistoryAdvisory) {
+	if !strings.Contains(s, SideHistoryAdvisory) {
 		t.Errorf("expected the side-history advisory note, got:\n%s", s)
 	}
 	if got := ExitCode(err); got == 2 {
@@ -545,7 +545,7 @@ func TestRunRedact_sideHistoryAdvisoryAbsentWhenNoSideHistory(t *testing.T) {
 	if err := runRedact(ctx, a); err != nil {
 		t.Fatalf("runRedact execute: %v", err)
 	}
-	if strings.Contains(out.String(), sideHistoryAdvisory) {
+	if strings.Contains(out.String(), SideHistoryAdvisory) {
 		t.Errorf("no side-branch history exists; the advisory must not print:\n%s", out.String())
 	}
 }

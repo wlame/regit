@@ -285,14 +285,12 @@ var registry = []Command{
 		Name:     "redact",
 		Summary:  "Remove or replace a literal secret across branch history.",
 		Mutating: true,
-		// WSNone (headless-only) is deliberate and TEMPORARY: this row's
-		// Selection (SelGlobal) already matches purge's, but tagging it with a
-		// real Workspace before its TUI flow (picker, preview, confirmation)
-		// exists would make it an invisible panel entry — internal/ui's own
-		// TestPanelRows_everyWorkspaceCarryingCommandHasABinding guards exactly
-		// that. Flip this to WSRestructure (matching purge) in the same change
-		// that adds redact's featureBinding + panelRows entry.
-		Workspace: WSNone,
+		// Grouped with purge: both are branch-scoped, preview-first history
+		// rewrites keyed on repo-wide content (a path; a literal secret) rather
+		// than an explicit commit selection, so the same Workspace/Selection
+		// pairing fits. internal/ui's redact flow (flow.go's flowRedact) is
+		// this row's featureBinding + panelRows entry.
+		Workspace: WSRestructure,
 		Selection: SelGlobal,
 		Run:       runRedact,
 		Params: []Param{

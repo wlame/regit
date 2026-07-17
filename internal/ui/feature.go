@@ -81,4 +81,8 @@ var featureBindings = map[string]featureBinding{
 		model, cmd, _ := m.beginPurge()
 		return model, cmd
 	}},
+	"redact": {Title: "Redact secret", Run: func(m Model) (tea.Model, tea.Cmd) {
+		m.enterRedactFlow()
+		return m, nil
+	}},
 }

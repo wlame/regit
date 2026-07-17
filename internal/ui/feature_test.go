@@ -16,11 +16,20 @@ func TestFeatureBindings_keysAreRegistryCommands(t *testing.T) {
 	}
 }
 
-// TestPanelRows_everyWorkspaceCarryingCommandHasABinding guards the other
-// direction: every registry command that still carries a (legacy) Workspace
-// tag must have a TUI binding and show up in the action panel — the panel is
-// now the sole menu surface, so a command tagged for a workspace but missing
-// its binding would be invisible to the user entirely.
+// TestPanelRows_everyWorkspaceCarryingCommandHasABinding guards both
+// directions of the (Workspace tag) <=> (TUI binding) correspondence — the
+// panel is the sole menu surface, so the two can never legitimately diverge:
+//
+//   - Workspace present => binding present (the original guard): a command
+//     tagged for a workspace but missing its binding would be invisible to
+//     the user entirely.
+//   - Binding present => Workspace present (the strengthened, reverse
+//     direction): a command with a panel presence but a stale WSNone would
+//     mean the panel shows an action whose registry row still claims to be
+//     headless-only — exactly the gap a future task could leave behind by
+//     adding a featureBinding without also flipping its registry row (redact
+//     itself carried WSNone for exactly one task's duration; see
+//     registry.go's redact row history).
 func TestPanelRows_everyWorkspaceCarryingCommandHasABinding(t *testing.T) {
 	m := newTestModel(t)
 	panelVerbs := map[string]bool{}
@@ -36,6 +45,15 @@ func TestPanelRows_everyWorkspaceCarryingCommandHasABinding(t *testing.T) {
 		}
 		if !panelVerbs[c.Name] {
 			t.Errorf("registry command %q carries a workspace but is missing from panelRows", c.Name)
+		}
+	}
+	for name := range featureBindings {
+		c, ok := capability.Lookup(name)
+		if !ok {
+			continue // already reported by TestFeatureBindings_keysAreRegistryCommands
+		}
+		if c.Workspace == capability.WSNone {
+			t.Errorf("featureBindings has %q, which has a panel presence but registry Workspace=WSNone", name)
 		}
 	}
 }

@@ -2,13 +2,14 @@ package ui
 
 // flow.go models the flow zone's occupant. The right column shows the commit
 // detail by default (flowNone); launching a feature that needs an interactive
-// stage swaps its widget in for the duration of the flow. Redate is currently
-// the only flow; the remaining wizards migrate here over time.
+// stage swaps its widget in for the duration of the flow. Redate and redact
+// are today's two flows; the remaining wizards migrate here over time.
 type flowID int
 
 const (
 	flowNone   flowID = iota // flow zone shows the commit detail
 	flowRedate               // calendar + strategy form (was the Dates tab)
+	flowRedact               // match/glob → occurrence picker → mode wizard (redact.go)
 )
 
 // enterRedateFlow opens the redate flow: focus lands on the calendar, and
@@ -33,6 +34,26 @@ func (m *Model) exitFlow() {
 	if m.sel.mode == SelActive {
 		m.sel.reset()
 	}
+}
+
+// enterRedactFlow opens the redact flow at step 1 (match/glob input). Unlike
+// enterRedateFlow, this never touches m.sel: redact is SelGlobal/repo-level
+// (see the registry row), so it has no notion of "scope to the selection" to
+// preserve or default — the commit-list selection is simply left exactly as
+// the operator had it, and stays untouched for the whole flow (including
+// exitFlow on esc/apply, which only resets the SelActive case redate uses).
+//
+// m.redactScanSeq is a Model-level field, deliberately NOT reset by the fresh
+// redactState this builds: unlike purge (whose scan starts the instant the
+// wizard opens), redact's scan only launches once step 1 is submitted (see
+// beginRedactScan) — so the generation token has to survive an open step-1
+// screen, and re-entering the flow before ever submitting must not let a
+// still-in-flight scan from an abandoned EARLIER session collide with a scan
+// the new session goes on to start.
+func (m *Model) enterRedactFlow() {
+	m.redactSt = newRedactState(computeLayout(m.width, m.height).inputWidth)
+	m.flow = flowRedact
+	m.focus = focusRedact
 }
 
 // restoreFlowSelectionScope reapplies the redate flow's implicit selection

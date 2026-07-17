@@ -16,8 +16,11 @@ func (m Model) viewFlowZone() string {
 		// No size yet (pre-first-WindowSizeMsg): there is no real budget to
 		// size the AUTHORS pane against, so just render the widget at its
 		// usual (unshrunk) size, matching every other pane pre-size.
-		if m.flow == flowRedate {
+		switch m.flow {
+		case flowRedate:
 			return m.viewDatesWorkspace()
+		case flowRedact:
+			return m.viewRedactFlow()
 		}
 		return m.viewDetailPane(computeLayout(m.width, m.height).flowWidth, m.listHeight()+1)
 	}
@@ -37,6 +40,8 @@ func (m Model) viewFlowZone() string {
 	switch m.flow {
 	case flowRedate:
 		widget = m.viewDatesWorkspace()
+	case flowRedact:
+		widget = m.viewRedactFlow()
 	default:
 		widget = m.viewDetailPaneForZone(computeLayout(m.width, m.height).flowWidth, budget)
 	}

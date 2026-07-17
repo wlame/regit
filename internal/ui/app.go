@@ -53,6 +53,7 @@ const (
 	focusList focusArea = iota
 	focusCalendar
 	focusParams // the strategy/params pane below the calendar
+	focusRedact // the redact flow's wizard owns every key (redact.go)
 )
 
 type statusKind int
@@ -182,6 +183,16 @@ type Model struct {
 	squashSt   squashState
 	reauthorSt reauthorState
 	purgeSt    purgeState
+	redactSt   redactState
+	// redactScanSeq is a per-invocation generation token for the redact flow's
+	// async history scan, bumped by beginRedactScan each time a scan actually
+	// launches. Unlike purgeSt.scanSeq (which lives inside purgeState because
+	// purge's scan starts the instant the wizard opens), this is a Model-level
+	// field: redact's scan does not start until step 1 is submitted, so the
+	// token must survive a fresh redactState being built at flow-open time
+	// (see enterRedactFlow) without losing track of a still-in-flight scan
+	// from an abandoned earlier session.
+	redactScanSeq int
 
 	// spinner is the single shared throbber rendered by every async-generating
 	// overlay (split proposal, reword variants, squash summaries) so there is one
@@ -572,6 +583,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.purgeSt = m.purgeSt.refreshMatches()
 		}
 		return m, nil
+	case redactScanMsg:
+		// Ignore a result for an abandoned scan: the flow was closed (flow !=
+		// flowRedact) or a newer scan has since started (seq mismatch) — mirrors
+		// purgeScanMsg's identical guard, gated on m.flow rather than m.mode
+		// since the redact flow lives in the flow zone, not a dedicated mode.
+		if m.flow != flowRedact || msg.seq != m.redactScanSeq {
+			return m, nil
+		}
+		m.redactSt.scanning = false
+		if msg.err != nil {
+			m.redactSt.scanErr = msg.err.Error()
+		} else {
+			m.redactSt.scanRes = msg.res
+			m.redactSt.rows = buildRedactRows(msg.res)
+			m.redactSt.sel = capability.AllOccurrencesSelected(msg.res)
+		}
+		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -666,6 +694,14 @@ func (m Model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.focus == focusParams {
 		return m.updateParamsPane(msg)
+	}
+	if m.focus == focusRedact {
+		// Full ownership, same reasoning as focusParams above: the redact
+		// wizard's steps include free-text fields (match, glob, replace
+		// pattern), so every key — including ones globalAction would otherwise
+		// treat as a command (q, a, ...) — must reach the wizard verbatim
+		// rather than being intercepted as a global action first.
+		return m.updateRedactFlow(msg)
 	}
 	if m.focus == focusList && m.listNavKey(msg.String()) {
 		m.syncListViewport()
@@ -1272,6 +1308,9 @@ func (m Model) spinnerBusy() bool {
 	if m.mode == modePurge && m.purgeSt.scanning {
 		return true
 	}
+	if m.flow == flowRedact && m.redactSt.scanning {
+		return true
+	}
 	for _, loading := range m.squashSt.loading {
 		if loading {
 			return true
@@ -1675,6 +1714,15 @@ func (m Model) commitPending(confirmed bool) (tea.Model, tea.Cmd) {
 	}
 	title := m.pending.title()
 	lines := m.pending.commandLines()
+	// A redactChange needs two things no other pendingChange does: the
+	// wizard's scanned occurrences reference commit hashes the rewrite just
+	// replaced, so the flow MUST close rather than linger showing now-stale
+	// data (see exitFlow below); and the hygiene warning must ride the status
+	// line since redact is the one action that burns a credential regardless
+	// of how clean the rewrite looks. A type assertion here (rather than a
+	// new pendingChange method every other change would have to implement as
+	// a no-op) keeps this special case local to its one actual use.
+	_, isRedact := m.pending.(redactChange)
 	// Flush the applied change's own lines BEFORE reload: an applied-but-then
 	// reload-failed action still really happened (the git rewrite committed), so
 	// it must not be silently dropped from the audit trail just because the
@@ -1702,11 +1750,32 @@ func (m Model) commitPending(confirmed bool) (tea.Model, tea.Cmd) {
 	m.planCmds = nil
 	if err := m.reload(); err != nil {
 		m.mode = modeMain
-		m.setStatus("Applied, but reload failed: "+err.Error(), statusWarn)
+		msg := "Applied, but reload failed: " + err.Error()
+		if isRedact {
+			// The rewrite already committed (reload failing is a read-side
+			// problem, not an undo) — the secret is just as burned as it is on
+			// the success path below, so the hygiene warning must still reach
+			// the operator here rather than being silently dropped.
+			m.exitFlow()
+			msg += " " + capability.HygieneWarning
+		}
+		m.setStatus(msg, statusWarn)
 		return m, nil
 	}
 	m.mode = modeMain
-	m.setStatus(fmt.Sprintf("%s ✓ backup at %s — press U to undo", title, short(res.BackupRef)), statusOK)
+	if isRedact {
+		// The redact flow is one-shot: its scanned occurrences are now stale
+		// (every hash they name was just rewritten away), so the wizard must
+		// close rather than keep showing dead data — see the isRedact comment
+		// above. The hygiene warning rides the SAME status line the ordinary
+		// success message uses, verbatim to the headless wording (capability.
+		// HygieneWarning), so the two surfaces never say this two ways.
+		m.exitFlow()
+		m.setStatus(fmt.Sprintf("%s ✓ backup at %s — press U to undo. %s",
+			title, short(res.BackupRef), capability.HygieneWarning), statusWarn)
+	} else {
+		m.setStatus(fmt.Sprintf("%s ✓ backup at %s — press U to undo", title, short(res.BackupRef)), statusOK)
+	}
 	// Surface the same push-hint wording as the headless CLI's pushHint
 	// (internal/capability/pipeline.go) in the command-log footer, using the
 	// just-reloaded m.state — a history rewrite never changes the upstream

@@ -2,6 +2,7 @@
 package capability
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"strings"
@@ -13,17 +14,20 @@ import (
 	"github.com/wlame/regit/internal/termsafe"
 )
 
-// hygieneWarning is printed after every --execute redact: the secret value
+// HygieneWarning is printed after every --execute redact: the secret value
 // was just written, verbatim, into .git/regit/command.log (the transparency
 // log every mutating verb appends to — see cli-tools.md's command-log
 // convention) and into the operator's shell history (the invocation itself
 // carries --match=<secret>). Redacting history does not retroactively scrub
 // either of those, so the credential must be treated as burned regardless of
-// how clean the rewritten history looks.
-const hygieneWarning = "⚠ the secret now appears in .git/regit/command.log and your shell history — " +
+// how clean the rewritten history looks. Exported so the TUI's redactChange
+// (internal/ui/redact.go) can surface the SAME wording on its post-apply
+// status line — the headless and TUI surfaces must never say this two
+// different ways.
+const HygieneWarning = "⚠ the secret now appears in .git/regit/command.log and your shell history — " +
 	"clear both and rotate the credential."
 
-// sideHistoryAdvisory is printed BEFORE staging the apply when the redacted
+// SideHistoryAdvisory is printed BEFORE staging the apply when the redacted
 // literal also has add/remove history on a merged side branch (see
 // gitio.SecretInSideHistory). regit only ever rewrites the first-parent
 // chain, so that side branch's own commits can never be scrubbed no matter
@@ -36,8 +40,11 @@ const hygieneWarning = "⚠ the secret now appears in .git/regit/command.log and
 // rewritten head's history" failure read as one story instead of two
 // unrelated problems. run_redact still does not add its own guard for this
 // (no exit-2 block): the attempt proceeds and safety's own verification is
-// what refuses it, late but safely (ref never moves).
-const sideHistoryAdvisory = "note: the secret also lives in merged side-branch history, which regit " +
+// what refuses it, late but safely (ref never moves). Exported so the TUI's
+// redactChange can surface this same note in its PREVIEW (a warning, not a
+// guard block — see redactChange.guard's doc comment) before the operator
+// ever stages the apply.
+const SideHistoryAdvisory = "note: the secret also lives in merged side-branch history, which regit " +
 	"cannot rewrite (it only rewrites the first-parent chain). This run will abort rather than " +
 	"report a partial removal — remove that branch from history or use git filter-repo to reach it."
 
@@ -112,12 +119,15 @@ func BuildRedactPreview(repo *gitio.Repo, commits []model.Commit, spec model.Red
 	return pv, nil
 }
 
-// allOccurrencesSelected builds a redact.Selection that checks every scanned
+// AllOccurrencesSelected builds a redact.Selection that checks every scanned
 // occurrence AND every one of its cascade descendants. The headless CLI has
 // no picker: --execute always redacts everything Scan found, cascading
 // forward through rotations/renames unless --no-cascade suppressed that
 // during the scan itself (in which case Descendants is already empty).
-func allOccurrencesSelected(res redact.ScanResult) []redact.Selection {
+// Exported so the TUI's occurrence picker (internal/ui/redact.go) can seed
+// its default "everything checked" selection state from the SAME logic,
+// rather than re-deriving the "all true" shape by hand.
+func AllOccurrencesSelected(res redact.ScanResult) []redact.Selection {
 	sel := make([]redact.Selection, len(res.Occurrences))
 	for i, occ := range res.Occurrences {
 		descendants := make([]bool, len(occ.Descendants))
@@ -180,7 +190,7 @@ func runRedact(ctx *RunContext, a ParsedArgs) error {
 		return usageErr("no occurrences of %q found in history", match)
 	}
 
-	spec, err := eng.Plan(scanRes, allOccurrencesSelected(scanRes), mode, rule, match)
+	spec, err := eng.Plan(scanRes, AllOccurrencesSelected(scanRes), mode, rule, match)
 	if err != nil {
 		return usageErr("%v", err)
 	}
@@ -252,7 +262,7 @@ func runRedact(ctx *RunContext, a ParsedArgs) error {
 	// is always true headless) independently rediscovers this exact same
 	// content reachable from newHead once the rewrite has actually run, and
 	// — per that function's doc comment — reliably ABORTS rather than report
-	// a partial removal. So sideHistoryAdvisory is worded to predict that
+	// a partial removal. So SideHistoryAdvisory is worded to predict that
 	// abort, printed here so the operator reads it BEFORE the (safe, late)
 	// failure rather than being surprised by a bare verification error. This
 	// is deliberately NOT a guardErr: run_redact adds no exit-2 block of its
@@ -265,7 +275,7 @@ func runRedact(ctx *RunContext, a ParsedArgs) error {
 		return runtimeErr("check side-branch history: %v", err)
 	}
 	if sideHistory {
-		fmt.Fprintln(ctx.Stdout, sideHistoryAdvisory)
+		fmt.Fprintln(ctx.Stdout, SideHistoryAdvisory)
 	}
 
 	sm, err := signMode(ctx, a)
@@ -287,8 +297,21 @@ func runRedact(ctx *RunContext, a ParsedArgs) error {
 	fmt.Fprintln(ctx.Stdout, res.Verification.String())
 	fmt.Fprintln(ctx.Stdout, "note: old objects remain reachable via the backup ref and reflog until 'git gc' prunes them")
 	pushHint(ctx.Stdout, state)
-	fmt.Fprintln(ctx.Stdout, hygieneWarning)
+	fmt.Fprintln(ctx.Stdout, HygieneWarning)
 	return nil
+}
+
+// RedactPreviewLines renders the same preview printRedactPreview writes to
+// the headless dry-run's stdout, as plain text lines instead of an io.Writer
+// stream. The TUI's redactChange (internal/ui/redact.go) renders exactly
+// this content in its own pipeline preview overlay, so the headless dry-run
+// and the TUI preview can never drift into describing the same scan/spec
+// two different ways — this is a formatting-target change only, not a
+// second implementation of the preview's content.
+func RedactPreviewLines(res redact.ScanResult, spec model.RedactSpec, pv RedactPreview) []string {
+	var buf bytes.Buffer
+	printRedactPreview(&buf, res, spec, pv)
+	return strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
 }
 
 // printRedactPreview renders the match/mode header, then each scanned

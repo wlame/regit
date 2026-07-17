@@ -27,6 +27,7 @@ const (
 	scopeBranch
 	scopeCalendar
 	scopeStrategy
+	scopeRedact
 )
 
 // keyCtx identifies which part of the UI currently owns the keybar, so the
@@ -41,6 +42,7 @@ const (
 	ctxAlways keyCtx = iota // zero value: global rows, shown in every context
 	ctxList                 // the commit list owns focus (the default screen)
 	ctxRedate               // the redate flow (calendar/strategy) is open
+	ctxRedact               // the redact flow (match/pick/mode wizard) is open
 	ctxPanel                // the action panel owns the keybar
 )
 
@@ -49,11 +51,16 @@ const (
 // context does. The action panel swallows every keystroke while open
 // (updateActionPanel runs before any list/global handling — see app.go), so
 // advertising the global row set ('m' reopen, 'A' apply, ...) underneath it
-// would promise keys the panel doesn't actually honor. Kept as a data table
+// would promise keys the panel doesn't actually honor. The redact flow is the
+// same story for the same reason (updateMain routes focusRedact to
+// updateRedactFlow BEFORE globalAction — see app.go's updateMain), plus its
+// text-entry steps need letters like 'a'/'q' to type literally rather than
+// fire the global toggle/quit they'd otherwise trigger. Kept as a data table
 // rather than a special case in keybarRowVisible so a future exclusive
 // context is a table entry, not a new branch.
 var exclusiveKeyCtx = map[keyCtx]bool{
-	ctxPanel: true,
+	ctxPanel:  true,
+	ctxRedact: true,
 }
 
 // keybarRowVisible reports whether row belongs on the keybar for ctx: its own
@@ -129,11 +136,24 @@ var keymap = []keyBinding{
 	{Key: "←/→", Scope: scopeStrategy, Ctx: ctxRedate, Desc: "change strategy (on the top row) / time model"},
 	{Key: "enter", Scope: scopeStrategy, Ctx: ctxRedate, Desc: "apply the strategy with the current parameters"},
 	{Key: "tab / esc", Scope: scopeStrategy, Ctx: ctxRedate, Desc: "back to the commit list"},
+
+	// Redact flow (match/glob → occurrence picker → mode wizard)
+	{Key: "tab / shift+tab", Scope: scopeRedact, Ctx: ctxRedact,
+		Desc: "step 1: next/previous field · step 2: continue to the mode step · step 3: next/previous field"},
+	{Key: "enter", Scope: scopeRedact, Ctx: ctxRedact,
+		Desc: "step 1: scan history · step 2: expand ±2 lines of context · step 3: stage the redact", Bar: "[enter]next"},
+	{Key: ".", Scope: scopeRedact, Ctx: ctxRedact, Desc: "step 2: expand ±2 lines of context (same as enter)"},
+	{Key: "↑/↓", Scope: scopeRedact, Ctx: ctxRedact, Desc: "step 2: move the row cursor"},
+	{Key: "space", Scope: scopeRedact, Ctx: ctxRedact, Desc: "step 2: toggle the row under the cursor", Bar: "[space]toggle"},
+	{Key: "a / n", Scope: scopeRedact, Ctx: ctxRedact, Desc: "step 2: check all / none"},
+	{Key: "←/→ or [ / ]", Scope: scopeRedact, Ctx: ctxRedact, Desc: "step 3: toggle remove/replace mode"},
+	{Key: "esc", Scope: scopeRedact, Ctx: ctxRedact, Desc: "exit the redact flow from any step", Bar: "[esc]cancel"},
 }
 
 // scopeOrder and scopeTitles drive the help overlay's sectioning.
 var scopeOrder = []keyScope{
-	scopeGlobal, scopeFlow, scopeAction, scopeList, scopeSelection, scopeBranch, scopeCalendar, scopeStrategy,
+	scopeGlobal, scopeFlow, scopeAction, scopeList, scopeSelection, scopeBranch,
+	scopeCalendar, scopeStrategy, scopeRedact,
 }
 
 var scopeTitles = map[keyScope]string{
@@ -145,6 +165,7 @@ var scopeTitles = map[keyScope]string{
 	scopeBranch:    "BRANCH & BASE",
 	scopeCalendar:  "CALENDAR (redate flow)",
 	scopeStrategy:  "STRATEGY PANE (redate flow)",
+	scopeRedact:    "REDACT FLOW",
 }
 
 // helpText renders the '?' overlay body from the keymap, grouped by scope. The
@@ -269,6 +290,8 @@ func (m Model) currentKeyCtx() keyCtx {
 		return ctxPanel
 	case m.flow == flowRedate:
 		return ctxRedate
+	case m.flow == flowRedact:
+		return ctxRedact
 	default:
 		return ctxList
 	}

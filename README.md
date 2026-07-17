@@ -134,6 +134,19 @@ The full keymap, grouped the same way as the in-app `?` help overlay
 | `←/→` | change strategy (on the top row) / time model |
 | `enter` | apply the strategy with the current parameters |
 | `tab / esc` | back to the commit list |
+
+**REDACT FLOW**
+
+| Key | Action |
+|-----|--------|
+| `tab / shift+tab` | step 1: next/previous field · step 2: continue to the mode step · step 3: next/previous field |
+| `enter` | step 1: scan history · step 2: expand ±2 lines of context · step 3: stage the redact |
+| `.` | step 2: expand ±2 lines of context (same as enter) |
+| `↑/↓` | step 2: move the row cursor |
+| `space` | step 2: toggle the row under the cursor |
+| `a / n` | step 2: check all / none |
+| `←/→ or [ / ]` | step 3: toggle remove/replace mode |
+| `esc` | exit the redact flow from any step |
 <!-- regit:end keys -->
 
 ## Commands (headless)
