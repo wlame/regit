@@ -212,14 +212,14 @@ func gitLogSubjects(t *testing.T, repo *gitio.Repo, newHead string) (string, err
 // secret-bearing target line ("token: sk-SURVIVOR"), so that line survives
 // byte-for-byte — but a SEPARATE target line in another path DOES match the
 // pattern and genuinely changes, which is enough to make gitio.ApplyRedact
-// rewrite the commit at all. The precise, per-target-path check (tier 1)
-// only ever inspects paths a commit's own Expected set names as changed —
-// cfg.yaml (whose content never actually changes anywhere) is never in that
-// set, so tier 1 passes cleanly. Only the GLOBAL sweep (tier 2, armed by
-// allSelected=true) — which searches the literal across the WHOLE new head,
-// not just target paths — can catch the survivor. The branch ref must come
-// back byte-for-byte unmoved: verifyRedactAbsence runs inside the Rewrite
-// closure, strictly before runApply's UpdateRef call.
+// rewrite the commit at all. Both cfg.yaml and other.txt are in spec.Targets,
+// so the PRECISE tier (tier 1) — which inspects every path in spec.Targets
+// for every surviving commit, not just the paths a commit's own change-set
+// happens to name — catches the survivor on its own; allSelected=true here
+// additionally confirms the GLOBAL sweep (tier 2) remains available too, had
+// tier 1 somehow missed it. The branch ref must come back byte-for-byte
+// unmoved: verifyRedactAbsence runs inside the Rewrite closure, strictly
+// before runApply's UpdateRef call.
 func TestApplyRedact_absenceCheckAbortsOnSurvivingSecret(t *testing.T) {
 	repo := newRedactRepo(t, []map[string]string{
 		{
@@ -252,9 +252,68 @@ func TestApplyRedact_absenceCheckAbortsOnSurvivingSecret(t *testing.T) {
 	if err == nil {
 		t.Fatal("a replace rule that leaves the literal in place must abort, not silently succeed")
 	}
-	if !strings.Contains(err.Error(), "reachable") {
-		t.Errorf("error should come from the GLOBAL absence sweep (mentioning reachability), "+
-			"got: %v", err)
+	if !strings.Contains(err.Error(), "still present in") {
+		t.Errorf("error should come from the PRECISE absence sweep (mentioning the surviving "+
+			"line), got: %v", err)
+	}
+
+	newHead, err := repo.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newHead != oldHead {
+		t.Errorf("an aborted redact must not move the branch: %s -> %s",
+			shortHash(oldHead), shortHash(newHead))
+	}
+}
+
+// TestApplyRedact_partialSelectionPreciseTierAbortsOnSurvivor is the
+// regression test for the CRITICAL missed-secret finding: with
+// allSelected=false the GLOBAL sweep never runs at all, so the PRECISE tier
+// is the ONLY safety net standing between a broken replace rule and a
+// successful apply. Same sabotage shape as the sibling test above (a rule
+// pattern that never matches the secret-bearing target line, but a SEPARATE
+// target line in another path genuinely changes so the commit is rewritten
+// at all) — but this time nothing arms the global sweep, so the fix must
+// come from the precise tier alone: it must inspect EVERY path in
+// spec.Targets for every surviving (non-dropped) commit, not just the paths
+// a given commit's own change-set happens to name.
+func TestApplyRedact_partialSelectionPreciseTierAbortsOnSurvivor(t *testing.T) {
+	repo := newRedactRepo(t, []map[string]string{
+		{
+			"cfg.yaml":  "token: sk-SURVIVOR\n",
+			"other.txt": "junk: remove-me\n",
+		},
+	})
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := repo.ReadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldHead := state.HeadHash
+	spec := model.RedactSpec{
+		Match: "sk-SURVIVOR",
+		Mode:  model.RedactReplace,
+		Rule:  model.RedactRule{Pattern: "remove-me", Replacement: "GONE"},
+		Targets: map[string][]string{
+			"cfg.yaml":  {"token: sk-SURVIVOR"},
+			"other.txt": {"junk: remove-me"},
+		},
+	}
+
+	mgr := NewManager(repo)
+	_, err = mgr.ApplyRedact(commits, spec, false, state,
+		ApplyOptions{Sign: gitio.DropSignatures, UnixTimestamp: 1, ExpectedHead: oldHead})
+	if err == nil {
+		t.Fatal("a selected target line the replace rule fails to strip must abort the apply " +
+			"even with allSelected=false (the global sweep never runs in that case — the " +
+			"precise tier is the only net)")
+	}
+	if !strings.Contains(err.Error(), "still present in") {
+		t.Errorf("error should come from the PRECISE tier (mentioning the surviving line), got: %v", err)
 	}
 
 	newHead, err := repo.ResolveRef("HEAD")
@@ -341,12 +400,14 @@ func TestVerifyRedactAbsence_preciseDetectsLineSurvival(t *testing.T) {
 }
 
 // TestVerifyRedactAbsence_preciseDetectsIncompleteReplaceLiteral isolates
-// sub-check (b): cfg.yaml's line no longer matches its ORIGINAL target text
-// verbatim (so sub-check (a) alone passes cleanly), but the literal
-// spec.Match is still sitting inside the line — the shape a replace rule
-// that edits SOME bytes without actually stripping the secret would leave
-// behind. Without this second sub-check, sub-check (a) alone would wrongly
-// pass such a rewrite.
+// sub-check (b): cfg.yaml's actual tree content no longer matches the
+// ORIGINAL target text verbatim (so sub-check (a) alone passes cleanly), but
+// applying the spec's OWN rule to that original target text still leaves the
+// literal spec.Match embedded — the shape a rule that edits SOME bytes
+// without actually stripping the secret produces. Sub-check (b) is a pure,
+// commit-independent recomputation (see redactReplacedLineStillHasMatch), so
+// this also proves it runs even when the tree happens to already look
+// "changed" for an unrelated reason.
 func TestVerifyRedactAbsence_preciseDetectsIncompleteReplaceLiteral(t *testing.T) {
 	repo := newRedactRepo(t, []map[string]string{
 		{"cfg.yaml": "PREFIX sk-OLD suffix\n"},
@@ -372,8 +433,112 @@ func TestVerifyRedactAbsence_preciseDetectsIncompleteReplaceLiteral(t *testing.T
 		t.Fatal("verifyRedactAbsence should catch the literal surviving inside an incompletely " +
 			"replaced line")
 	}
-	if !strings.Contains(err.Error(), "after replace") {
+	if !strings.Contains(err.Error(), "after replacing") {
 		t.Errorf("error should mention the replace-mode literal check, got: %v", err)
+	}
+}
+
+// TestVerifyRedactAbsence_replaceLiteralCheckIgnoresUnselectedLineOnSamePath
+// is the direct regression test for the false-abort finding: Targets selects
+// ONLY "junk: remove-me" on cfg.yaml, and the tree already reflects that
+// line's correct replacement ("junk: GONE") — but a SEPARATE, unselected
+// line on that SAME path ("token: sk-OLD", never in Targets) still legally
+// carries the literal (the operator vetoed that occurrence). A whole-blob
+// grep for spec.Match would find it there and abort every time, making this
+// kind of same-path veto permanently un-appliable; scoping the check to the
+// RECOMPUTED replaced text of only the selected line must pass cleanly.
+func TestVerifyRedactAbsence_replaceLiteralCheckIgnoresUnselectedLineOnSamePath(t *testing.T) {
+	repo := newRedactRepo(t, []map[string]string{
+		{"cfg.yaml": "token: sk-OLD\njunk: GONE\n"},
+	})
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	head := commits[0].Hash
+	spec := model.RedactSpec{
+		Match: "sk-OLD", Mode: model.RedactReplace,
+		Rule:    model.RedactRule{Pattern: "remove-me", Replacement: "GONE"},
+		Targets: map[string][]string{"cfg.yaml": {"junk: remove-me"}},
+	}
+	expectations := []model.Expectation{
+		{OldCommit: head, NewCommit: head, Expected: model.NewChangeSet(
+			[]model.PathChange{{Path: "cfg.yaml", Status: model.Modified}})},
+	}
+
+	mgr := NewManager(repo)
+	if err := mgr.verifyRedactAbsence(head, spec, false, expectations); err != nil {
+		t.Errorf("a literal on an unselected line of the same path must not trip the replace-mode "+
+			"check, got: %v", err)
+	}
+}
+
+// TestApplyRedact_verifyStageAbortsOnWrongExpectationRefUnmoved pins the
+// keystone property directly rather than by composition: it does not rely on
+// redactExpectations/redactModifiedPaths ever being correct (they are, by
+// construction — see redact.go's doc comments — so a real ApplyRedact call
+// can never actually produce a wrong expectation to exercise this with). It
+// drives runApply directly with a Rewrite closure that performs a REAL,
+// correct gitio.ApplyRedact rewrite but then hands back a DELIBERATELY WRONG
+// expectation — claiming other.txt changed in c1's pair, though c1 (the
+// first commit in redactRotationRepo) never contained other.txt at all. If
+// the generic verify() stage every stopped catching a wrong expectation for
+// ANY reason (a future refactor bug, say), this is what would catch it: the
+// apply must error, and the branch ref must be byte-for-byte unmoved.
+func TestApplyRedact_verifyStageAbortsOnWrongExpectationRefUnmoved(t *testing.T) {
+	repo := redactRotationRepo(t)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := repo.ReadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldHead := state.HeadHash
+	spec := model.RedactSpec{
+		Match: "sk-OLD", Mode: model.RedactRemove,
+		Targets: map[string][]string{"cfg.yaml": {"token: sk-OLD"}},
+	}
+
+	mgr := NewManager(repo)
+	_, err = mgr.runApply(applyOp{
+		Guards: func() error { return nil },
+		Rewrite: func(string) (rewriteResult, error) {
+			newHead, remap, err := repo.ApplyRedact(commits, spec, gitio.DropSignatures)
+			if err != nil {
+				return rewriteResult{}, err
+			}
+			c1New, ok := remap.Rewritten[commits[0].Hash]
+			if !ok {
+				t.Fatalf("setup: c1 should be rewritten, remap: %+v", remap)
+			}
+			wrongExpectations := []model.Expectation{
+				{
+					OldCommit: commits[0].Hash, NewCommit: c1New,
+					Expected: model.NewChangeSet(
+						[]model.PathChange{{Path: "other.txt", Status: model.Modified}}),
+				},
+			}
+			return rewriteResult{
+				NewHead:      newHead,
+				Expectations: wrongExpectations,
+				OldLen:       len(commits),
+				NewLen:       len(commits) - len(remap.Dropped),
+			}, nil
+		},
+	}, ApplyOptions{UnixTimestamp: 1, ExpectedHead: oldHead})
+
+	if err == nil {
+		t.Fatal("a wrong expectation must abort at the generic verify stage, not silently pass")
+	}
+	newHead, herr := repo.ResolveRef("HEAD")
+	if herr != nil {
+		t.Fatal(herr)
+	}
+	if newHead != oldHead {
+		t.Errorf("a verify-stage abort must not move the branch: %s -> %s",
+			shortHash(oldHead), shortHash(newHead))
 	}
 }
 

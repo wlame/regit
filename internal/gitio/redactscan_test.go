@@ -660,51 +660,32 @@ func TestGrepTree_dashPrefixedLiteralDoesNotBreakParsing(t *testing.T) {
 	}
 }
 
-// TestGrepPath_scopesToOnePath is the direct regression test for why
-// verifyRedactAbsence needs GrepPath instead of a whole-tree GrepTree call:
-// the literal must be found when it lives in the queried path, but reported
-// absent for that SAME tree when queried against a different path that
-// never carried it — even though GrepTree(tree, literal) over the whole tree
-// would report true either way.
-func TestGrepPath_scopesToOnePath(t *testing.T) {
+// TestBlobContent_readsRawBytesAndReportsAbsence covers BlobContent's two
+// outcomes: the exact stored bytes for a path that exists, and ok=false (no
+// error) for one that doesn't — the "absent" case an absence check must be
+// able to treat as a natural no-op rather than a failure.
+func TestBlobContent_readsRawBytesAndReportsAbsence(t *testing.T) {
 	r, commits := redactScanRepo(t)
-	head := commits[0].Hash // c1: cfg.yaml has sk-OLD; no other path does
+	head := commits[0].Hash // c1: cfg.yaml has "before\ntoken: sk-OLD\nafter\n"
 
-	found, err := r.GrepPath(head, "cfg.yaml", "sk-OLD")
+	content, ok, err := r.BlobContent(head, "cfg.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !found {
-		t.Error("sk-OLD should be found when cfg.yaml itself is queried")
+	if !ok {
+		t.Fatal("cfg.yaml should be present at c1")
+	}
+	want := "before\ntoken: sk-OLD\nafter\n"
+	if content != want {
+		t.Errorf("content = %q, want %q", content, want)
 	}
 
-	found, err = r.GrepPath(head, "docs/readme.md", "sk-OLD")
+	_, ok, err = r.BlobContent(head, "docs/readme.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if found {
-		t.Error("sk-OLD should be absent when a different, unrelated path is queried")
-	}
-}
-
-// TestGrepPath_dashPrefixedLiteralDoesNotBreakParsing mirrors
-// TestGrepTree_dashPrefixedLiteralDoesNotBreakParsing for the path-scoped
-// sibling: the same -e requirement applies here.
-func TestGrepPath_dashPrefixedLiteralDoesNotBreakParsing(t *testing.T) {
-	r, dir := purgeTestRepoEmpty(t)
-	mustWriteFile(t, dir, "cfg.yaml", "x=-secretdash\n")
-	gitT(t, dir, "add", ".")
-	gitT(t, dir, "commit", "-m", "add dash-prefixed secret")
-	commits, err := r.ReadCommits()
-	if err != nil {
-		t.Fatal(err)
-	}
-	found, err := r.GrepPath(commits[0].Hash, "cfg.yaml", "-secretdash")
-	if err != nil {
-		t.Fatalf("GrepPath with a dash-prefixed literal must not error: %v", err)
-	}
-	if !found {
-		t.Error("GrepPath should find the dash-prefixed literal, not silently miss it")
+	if ok {
+		t.Error("docs/readme.md should be absent at c1 (added only in c2)")
 	}
 }
 

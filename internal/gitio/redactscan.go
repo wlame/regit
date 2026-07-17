@@ -541,25 +541,31 @@ func (r *Repo) GrepTree(tree, literal string) (bool, error) {
 	return false, fmt.Errorf("grep tree %s: %w", short(tree), err)
 }
 
-// GrepPath reports whether literal occurs anywhere within path's blob content
-// at tree — GrepTree's path-scoped sibling. The redact absence check uses
-// this (not GrepTree) to search only the paths a redaction actually
-// targeted: scoping to one path means an occurrence the operator
-// deliberately left unselected elsewhere in the SAME tree can never trip a
-// false abort, which a whole-tree GrepTree call would risk. Same -F/-e/
-// --quiet contract as GrepTree (literal match, dash-safe, exit 0/1 are both
-// success outcomes) — see its doc comment for why each flag is required; the
-// only addition is the trailing `-- path` pathspec.
-func (r *Repo) GrepPath(tree, path, literal string) (bool, error) {
-	_, err := r.git("grep", "-F", "--quiet", "-e", literal, tree, "--", path)
-	if err == nil {
-		return true, nil
+// BlobContent returns path's raw blob content at tree (a commit-ish or a raw
+// tree both work, same as GrepTree). ok is false when path is absent from
+// tree — a normal outcome (e.g. a path a commit never carried), not an
+// error — mirroring RedactBlobsInTree's own ls-tree presence check.
+//
+// This is a deliberately RAW read: no line-splitting, no redaction logic, no
+// git-grep pattern matching — just the exact bytes git has stored. It exists
+// so a caller verifying a rewrite's OUTCOME (see safety.Manager's
+// redactLineSurvives) can compare against the real content directly, rather
+// than through RedactBlobsInTree/redactLines — the SAME matching logic that
+// performed the rewrite, and so a bug there could otherwise hide itself from
+// a check meant to catch exactly that kind of bug.
+func (r *Repo) BlobContent(tree, path string) (content string, ok bool, err error) {
+	entry, err := r.gitRaw("ls-tree", "-z", tree, "--", path)
+	if err != nil {
+		return "", false, fmt.Errorf("ls-tree %s:%s: %w", short(tree), path, err)
 	}
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
-		return false, nil
+	if entry == "" {
+		return "", false, nil
 	}
-	return false, fmt.Errorf("grep tree %s path %s: %w", short(tree), path, err)
+	content, err = r.gitRaw("cat-file", "blob", tree+":"+path)
+	if err != nil {
+		return "", false, fmt.Errorf("cat-file %s:%s: %w", short(tree), path, err)
+	}
+	return content, true, nil
 }
 
 // SecretAddedFrom returns every commit hash reachable from rev that ever

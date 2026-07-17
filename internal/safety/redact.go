@@ -2,6 +2,7 @@ package safety
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/wlame/regit/internal/gitio"
 	"github.com/wlame/regit/internal/model"
@@ -42,6 +43,17 @@ import (
 // So side-branch content is reported advisory-only — by
 // gitio.SecretInSideHistory, called by redact's CALLER (the capability verb
 // and TUI layers), never computed inside this guarded apply.
+//
+// A consequence callers must know: when allSelected is true AND the secret
+// also has merged side-branch history, THIS apply has no up-front guard for
+// that at all — verifyRedactAbsence's GLOBAL tier (tier 2; see its doc
+// comment) will still abort, correctly, but only LATE, after guards have
+// passed, a backup ref has been created, and the rewrite has actually run.
+// That is a safe abort (the branch ref never moves — the whole point of
+// running verification before UpdateRef), but a poor user experience next to
+// an up-front warning. So the capability verb and TUI layers should call
+// gitio.SecretInSideHistory themselves BEFORE staging an apply, to steer the
+// user ahead of time rather than let them discover it from a late abort.
 func (m *Manager) ApplyRedact(
 	commits []model.Commit, spec model.RedactSpec, allSelected bool,
 	state model.RepoState, opts ApplyOptions,
@@ -168,56 +180,70 @@ func (m *Manager) redactModifiedPaths(
 // verifyRedactAbsence is the final, independent safety net, run BEFORE the
 // branch ref moves — the content analog of verifyPurgeAbsence, in two tiers:
 //
-//  1. PRECISE (always): for every expectation with a non-empty Expected (a
-//     genuinely rewritten commit), re-examine ONLY the paths that
-//     expectation's OWN Expected set names — never any other path in the
-//     same tree. That scoping is deliberate: it is what lets an occurrence
-//     the caller left unselected elsewhere in the tree pass cleanly instead
-//     of tripping a false abort here, regardless of allSelected. Two
-//     independent sub-checks per such path:
+//  1. PRECISE (always, independent of allSelected): for every commit that
+//     survived the rewrite (every entry in expectations — Passthrough and
+//     Rewritten alike, Dropped commits having no pairing to check at all),
+//     check EVERY path in spec.Targets — not merely the paths that
+//     COMMIT'S OWN Expected set happens to name. Scoping to a commit's
+//     Expected set would miss exactly the shape a broken transform produces:
+//     a selected target line the transform silently fails to strip changes
+//     NOTHING in its own path, so it never enters that commit's Expected set
+//     at all, even though it is squarely one of spec.Targets' own paths.
+//     spec.Targets — not Expected — is the true selection boundary: a
+//     vetoed occurrence is by construction never added to Targets (see
+//     redact.Engine.Plan), and a target path a given commit's tree never
+//     carried is a natural, harmless no-op here. So widening the loop to all
+//     of spec.Targets cannot cause a false abort on a partial selection; it
+//     only closes the gap. Two independent sub-checks per path:
 //     (a) none of that path's ORIGINAL target line contents may survive as a
-//     whole line in the new tree (redactLineSurvives, reusing
-//     RedactBlobsInTree's no-op contract as the detector);
-//     (b) in replace mode only, the literal spec.Match itself must not
-//     survive anywhere in that path's new blob (GrepPath) — this catches a
-//     replace rule that changed SOME bytes on the target line without
-//     actually stripping the secret text (sub-check (a) alone would miss
-//     this, since the line's exact original text is gone either way).
+//     whole line in the new tree (redactLineSurvives) — checked by reading
+//     the tree's raw blob bytes directly (gitio.BlobContent) and comparing
+//     lines, deliberately NOT routed through RedactBlobsInTree/redactLines,
+//     the SAME matching logic the rewrite itself used: reusing it here would
+//     let a bug in that matching hide itself from the one check meant to
+//     catch exactly that;
+//     (b) in replace mode only, the literal spec.Match must not survive
+//     inside the RECOMPUTED text the rule produces for each selected line
+//     (redactReplacedLineStillHasMatch) — checked against that recomputed
+//     text alone, never the whole blob: grepping the whole blob would abort
+//     on a literal the operator deliberately left on some OTHER, unselected
+//     line of the SAME path, making that kind of same-path veto permanently
+//     un-appliable.
 //  2. GLOBAL (only when allSelected — every occurrence Scan discovered was
 //     selected): spec.Match must be unreachable from newHead's entire
 //     history (SecretAddedFrom) and absent from its tip tree (GrepTree).
-//     This sweeps for a survivor OUTSIDE any target path entirely — exactly
-//     the gap the precise, per-target-path check above cannot see by
-//     construction (a path never named in any Expected set is never probed
-//     by tier 1 at all).
+//     This is a fully independent re-scan (a different git query altogether,
+//     not built on remap/expectations at all) that sweeps for a survivor
+//     OUTSIDE any target path entirely — a gap tier 1 cannot see by
+//     construction, since it only ever looks at spec.Targets' own paths. A
+//     caller that sets allSelected=true when the secret ALSO has merged
+//     side-branch history (gitio.SecretInSideHistory) will still see this
+//     tier abort here, LATE, with no earlier guard: this apply has no
+//     up-front side-history check (see ApplyRedact's doc comment for why),
+//     so a caller wanting to steer the user before staging must run
+//     gitio.SecretInSideHistory itself beforehand.
 func (m *Manager) verifyRedactAbsence(
 	newHead string, spec model.RedactSpec, allSelected bool, expectations []model.Expectation,
 ) error {
 	for _, e := range expectations {
-		for _, ch := range e.Expected.Changes {
-			for _, line := range spec.Targets[ch.Path] {
-				survived, err := m.redactLineSurvives(e.NewCommit, ch.Path, line)
+		for path, lines := range spec.Targets {
+			for _, line := range lines {
+				survived, err := m.redactLineSurvives(e.NewCommit, path, line)
 				if err != nil {
 					return fmt.Errorf("verify redact absence: %w", err)
 				}
 				if survived {
 					return fmt.Errorf(
 						"redact verification failed: %q still present in %s at %s",
-						line, ch.Path, shortHash(e.NewCommit))
+						line, path, shortHash(e.NewCommit))
 				}
 			}
-			if spec.Mode != model.RedactReplace {
-				continue
-			}
-			found, err := m.repo.GrepPath(e.NewCommit, ch.Path, spec.Match)
-			if err != nil {
-				return fmt.Errorf("verify redact absence: %w", err)
-			}
-			if found {
-				return fmt.Errorf(
-					"redact verification failed: %q still present in %s at %s after replace",
-					spec.Match, ch.Path, shortHash(e.NewCommit))
-			}
+		}
+	}
+
+	if spec.Mode == model.RedactReplace {
+		if err := redactReplacedLineStillHasMatch(spec); err != nil {
+			return err
 		}
 	}
 
@@ -245,18 +271,55 @@ func (m *Manager) verifyRedactAbsence(
 
 // redactLineSurvives reports whether line still exists as a whole line
 // somewhere in path's blob at tree (a commit-ish or a raw tree both work,
-// same as GrepTree/GrepPath). It reuses RedactBlobsInTree's own guaranteed
-// no-op contract as the detector: a REMOVE-mode probe scoped to exactly this
-// one path/line either finds and strips it (the tree comes back changed —
-// survived) or proves it is genuinely gone (no-op — the tree comes back
-// unchanged).
+// same as GrepTree/BlobContent). Reads the tree's raw blob bytes directly via
+// gitio.BlobContent and compares lines itself (split on "\n", TrimSuffix
+// "\r", exact equality) — mechanism-independent of RedactBlobsInTree/
+// redactLines, the transform that performed the rewrite. See
+// verifyRedactAbsence's doc comment for why that independence matters: this
+// is a check on what the rewrite actually DID to the real git object, not a
+// re-run of the same logic that could share the same bug.
 func (m *Manager) redactLineSurvives(tree, path, line string) (bool, error) {
-	probe := model.RedactSpec{
-		Mode: model.RedactRemove, Targets: map[string][]string{path: {line}},
-	}
-	newTree, err := m.repo.RedactBlobsInTree(tree, probe)
+	content, ok, err := m.repo.BlobContent(tree, path)
 	if err != nil {
 		return false, err
 	}
-	return newTree != tree, nil
+	if !ok {
+		return false, nil // path absent from this tree: nothing can survive
+	}
+	for _, raw := range strings.Split(content, "\n") {
+		if strings.TrimSuffix(raw, "\r") == line {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// redactReplacedLineStillHasMatch checks, for every selected target line,
+// whether spec.Match still occurs in the text the replace rule PRODUCES for
+// that line — a pure, commit-independent computation (the rule is the same
+// for every occurrence, so the recomputed text is the same regardless of
+// which commit or how many carry the line). This is deliberately scoped to
+// ONLY the lines spec.Targets names, not any other content in the same path:
+// a literal the operator left on a different, unselected line is none of
+// this check's business (see verifyRedactAbsence's doc comment for the
+// false-abort this scoping avoids). spec.Rule was already validated by
+// spec.Validate() in ApplyRedact's Guards, so Compile cannot fail here in
+// practice; the error is still propagated rather than ignored, per this
+// codebase's error-handling convention.
+func redactReplacedLineStillHasMatch(spec model.RedactSpec) error {
+	rule, err := spec.Rule.Compile()
+	if err != nil {
+		return fmt.Errorf("verify redact absence: %w", err)
+	}
+	for path, lines := range spec.Targets {
+		for _, line := range lines {
+			replaced := rule.ReplaceAllString(line, spec.Rule.Replacement)
+			if strings.Contains(replaced, spec.Match) {
+				return fmt.Errorf(
+					"redact verification failed: %q still present in %s after replacing %q",
+					spec.Match, path, line)
+			}
+		}
+	}
+	return nil
 }
