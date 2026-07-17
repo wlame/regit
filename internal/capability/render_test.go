@@ -179,6 +179,63 @@ func TestSquashArgMap_specUnaffectedByPurgeQuoting(t *testing.T) {
 	}
 }
 
+// TestRedactArgMap_roundTrip covers the redact footer's fidelity in both
+// modes: remove (no rule fields) and replace (pattern + replacement + a
+// disabled cascade), including --match itself — RedactArgMap deliberately
+// renders it verbatim (see its doc comment) rather than omitting it.
+func TestRedactArgMap_roundTrip(t *testing.T) {
+	argMap := RedactArgMap("sk-live-abc123", []string{"cfg.yaml", "*.env"}, "remove", "", "", true)
+	line := Render("redact", argMap)
+	toks := tokenize(line)
+	if len(toks) < 2 || toks[0] != "regit" || toks[1] != "redact" {
+		t.Fatalf("unexpected tokens: %v", toks)
+	}
+	parsed, err := Parse(mustLookup(t, "redact"), toks[2:])
+	if err != nil {
+		t.Fatalf("re-parse err: %v from %q", err, line)
+	}
+	if got := parsed.String("match"); got != "sk-live-abc123" {
+		t.Errorf("match round-trip: got %q, want %q (rendered: %q)", got, "sk-live-abc123", line)
+	}
+	if got := parsed.List("in"); len(got) != 2 || got[0] != "cfg.yaml" || got[1] != "*.env" {
+		t.Errorf("in round-trip: got %v, line: %q", got, line)
+	}
+	if parsed.Has("mode") {
+		t.Errorf("mode=remove is the default and should be omitted, line: %q", line)
+	}
+	if parsed.Has("no-cascade") {
+		t.Errorf("cascade=true means no-cascade=false is the default and should be omitted, line: %q", line)
+	}
+	if !parsed.Bool("execute") {
+		t.Errorf("execute should round-trip true, line: %q", line)
+	}
+}
+
+// TestRedactArgMap_replaceModeRoundTrip exercises the replace-mode fields and
+// a disabled cascade, which — unlike mode=remove above — must all survive
+// Render's default-omission and re-parse back to their original values.
+func TestRedactArgMap_replaceModeRoundTrip(t *testing.T) {
+	argMap := RedactArgMap("sk-live-abc123", nil, "replace", `sk-live-\S+`, "REDACTED", false)
+	line := Render("redact", argMap)
+	toks := tokenize(line)
+	parsed, err := Parse(mustLookup(t, "redact"), toks[2:])
+	if err != nil {
+		t.Fatalf("re-parse err: %v from %q", err, line)
+	}
+	if got := parsed.String("mode"); got != "replace" {
+		t.Errorf("mode round-trip: got %q, line: %q", got, line)
+	}
+	if got := parsed.String("replace-pattern"); got != `sk-live-\S+` {
+		t.Errorf("replace-pattern round-trip: got %q, line: %q", got, line)
+	}
+	if got := parsed.String("replace-with"); got != "REDACTED" {
+		t.Errorf("replace-with round-trip: got %q, line: %q", got, line)
+	}
+	if !parsed.Bool("no-cascade") {
+		t.Errorf("no-cascade should round-trip true (cascade=false), line: %q", line)
+	}
+}
+
 func mustLookup(t *testing.T, name string) Command {
 	t.Helper()
 	c, ok := Lookup(name)

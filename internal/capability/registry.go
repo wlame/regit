@@ -282,6 +282,48 @@ var registry = []Command{
 		ExitCodes: map[int]string{0: "ok / dry-run", 1: "usage error", 2: "guard blocked", 3: "apply error"},
 	},
 	{
+		Name:     "redact",
+		Summary:  "Remove or replace a literal secret across branch history.",
+		Mutating: true,
+		// WSNone (headless-only) is deliberate and TEMPORARY: this row's
+		// Selection (SelGlobal) already matches purge's, but tagging it with a
+		// real Workspace before its TUI flow (picker, preview, confirmation)
+		// exists would make it an invisible panel entry — internal/ui's own
+		// TestPanelRows_everyWorkspaceCarryingCommandHasABinding guards exactly
+		// that. Flip this to WSRestructure (matching purge) in the same change
+		// that adds redact's featureBinding + panelRows entry.
+		Workspace: WSNone,
+		Selection: SelGlobal,
+		Run:       runRedact,
+		Params: []Param{
+			{Name: "match", Type: ParamString, Required: true, Help: "literal secret text to find (NOT a regex)"},
+			{Name: "in", Type: ParamStringList, Help: "glob(s) narrowing which paths are scanned"},
+			{Name: "mode", Type: ParamEnum, Enum: []string{"remove", "replace"}, Default: "remove", Help: "remove the whole matched line, or replace within it"},
+			{Name: "replace-pattern", Type: ParamString, AppliesIf: "mode=replace", Required: true, Help: "RE2 regex matched within each target line"},
+			{Name: "replace-with", Type: ParamString, AppliesIf: "mode=replace", Help: "replacement text ($1 capture refs; omit to strip the match, keep the line)"},
+			{Name: "no-cascade", Type: ParamBool, Default: "false", Help: "do not follow a hit's line forward through later history (rotations, renames)"},
+			{Name: "execute", Type: ParamBool, Default: "false", Help: "apply (default: dry-run preview)"},
+			{Name: "force", Type: ParamBool, Default: "false", Help: "allow rewriting already-pushed commits"},
+			{Name: "sign", Type: ParamBool, Default: "false", Help: "re-sign rewritten commits with your configured signing key"},
+			{Name: "repo", Type: ParamString, Default: ".", Help: "path to the git repository"},
+		},
+		Examples: []Example{
+			{Cmd: "regit redact --match=sk-live-abc123", Why: "preview removing every line containing the literal secret (dry-run)"},
+			{Cmd: `regit redact --match=sk-live-abc123 --mode=replace --replace-pattern='sk-live-\S+' --replace-with=REDACTED --execute`,
+				Why: "replace only the secret substring (keeping the rest of the line) using capture-group-capable regex, then apply"},
+			{Cmd: "regit redact --match=sk-live-abc123 --mode=replace --execute", Why: "--mode=replace without --replace-pattern is rejected: the rule is required", Bad: true},
+			{Cmd: `regit redact --match='sk-.*'`, Why: "WRONG: --match is a literal substring (git pickaxe -S), not a regex — metacharacters are matched verbatim, not as a wildcard", Bad: true},
+		},
+		Limitations: []string{
+			"Only the first-parent chain is rewritten; a match with history on a merged side branch is reported as an advisory note, never redacted from that branch's own commits — see gitio.SecretInSideHistory.",
+			"Blocks if a merge commit sits in the rewritten range (like purge).",
+			"--match is matched as a literal substring, never a regex; use --mode=replace with --replace-pattern for regex-based edits within a matched line.",
+			"Headless has no picker: every occurrence Scan finds is redacted, including cascaded descendants (rotations/renames) unless --no-cascade.",
+			"The secret value is written to .git/regit/command.log and shell history by this very invocation — rotate the credential after redacting.",
+		},
+		ExitCodes: map[int]string{0: "ok / dry-run", 1: "usage error", 2: "guard blocked", 3: "apply error"},
+	},
+	{
 		Name:      "undo",
 		Summary:   "Restore the branch to the most recent regit backup ref.",
 		Mutating:  true,

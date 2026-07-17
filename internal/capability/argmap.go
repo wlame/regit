@@ -171,6 +171,30 @@ func PurgeArgMap(paths []string) map[string]string {
 	return map[string]string{"_positional": strings.Join(quoted, " "), "execute": "true"}
 }
 
+// RedactArgMap builds the flag map for a `regit redact --execute` line.
+// Unlike most other builders here, every flag is set UNCONDITIONALLY (even
+// when empty) rather than only when non-zero: the redact footer is a full,
+// verbatim projection of the operator's selection, deliberately including
+// --match itself. There is no privacy upside to hiding the secret from the
+// logged command: this same invocation already writes it, verbatim, to
+// .git/regit/command.log and the operator's shell history (see runRedact's
+// hygiene warning) — and hiding it from the footer would make the logged
+// line non-reproducible. Render's own default/empty-value omission (see
+// render.go's emit) still trims the map down to only the flags that differ
+// from their registry default, exactly as it does for every other verb, so
+// setting every key here costs nothing extra in the rendered output.
+func RedactArgMap(match string, globs []string, mode, pattern, with string, cascade bool) map[string]string {
+	return map[string]string{
+		"match":           match,
+		"in":              strings.Join(globs, ","),
+		"mode":            mode,
+		"replace-pattern": pattern,
+		"replace-with":    with,
+		"no-cascade":      strconv.FormatBool(!cascade),
+		"execute":         "true",
+	}
+}
+
 // keyValsToString serialises a map[date]count as "DAY=N,DAY=N" in stable
 // (sorted) order, matching the --pin flag's wire format.
 func keyValsToString(kv map[string]int) string {
