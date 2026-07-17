@@ -242,6 +242,124 @@ func TestEnterRedactFlow_noExplicitSelectionStaysSingle(t *testing.T) {
 	}
 }
 
+// TestUpdateRedactMatch_tabMovesFocusAndTypingEditsFocusedField drives step 1
+// through the REAL Update path (send, not direct state manipulation): tab
+// moves field focus between match and glob, and each field only receives the
+// characters typed while IT has focus — pinning both
+// updateRedactMatch's key routing and redactFocusMatchField's blur/focus
+// bookkeeping, which every other test in this file bypasses via
+// matchInput.SetValue.
+func TestUpdateRedactMatch_tabMovesFocusAndTypingEditsFocusedField(t *testing.T) {
+	m := redactTestModel(t)
+	m.enterRedactFlow()
+	if m.redactSt.fieldFocus != 0 || !m.redactSt.matchInput.Focused() {
+		t.Fatalf("setup: expected the match field focused at fieldFocus 0, got fieldFocus=%d matchFocused=%v",
+			m.redactSt.fieldFocus, m.redactSt.matchInput.Focused())
+	}
+
+	m = send(m, "s", "k")
+	if got := m.redactSt.matchInput.Value(); got != "sk" {
+		t.Errorf("match field value = %q, want %q", got, "sk")
+	}
+
+	m = send(m, "tab")
+	if m.redactSt.fieldFocus != 1 {
+		t.Fatalf("fieldFocus after tab = %d, want 1 (glob)", m.redactSt.fieldFocus)
+	}
+	if m.redactSt.matchInput.Focused() {
+		t.Error("match field should be blurred after tab")
+	}
+	if !m.redactSt.globInput.Focused() {
+		t.Error("glob field should be focused after tab")
+	}
+
+	m = send(m, "*", ".", "e", "n", "v")
+	if got := m.redactSt.globInput.Value(); got != "*.env" {
+		t.Errorf("glob field value = %q, want %q", got, "*.env")
+	}
+	if got := m.redactSt.matchInput.Value(); got != "sk" {
+		t.Errorf("match field value changed while typing into the glob field: got %q, want unchanged %q", got, "sk")
+	}
+
+	m = send(m, "shift+tab")
+	if m.redactSt.fieldFocus != 0 {
+		t.Fatalf("fieldFocus after shift+tab = %d, want 0 (match)", m.redactSt.fieldFocus)
+	}
+	if !m.redactSt.matchInput.Focused() {
+		t.Error("match field should be focused again after shift+tab")
+	}
+	if m.redactSt.globInput.Focused() {
+		t.Error("glob field should be blurred after shift+tab")
+	}
+}
+
+// TestUpdateRedactMode_tabCyclesReplaceFieldsAndTypingEditsFocusedField is
+// step 3's counterpart: after switching to replace mode, tab/shift+tab must
+// move focus between the pattern and replacement rows (redactCycleModeFocus)
+// and typing must land in whichever field currently has it — a swapped
+// modeFocus index (1 vs. 2) would make this fail even though every other
+// test in this file only ever reads/writes the fields directly.
+func TestUpdateRedactMode_tabCyclesReplaceFieldsAndTypingEditsFocusedField(t *testing.T) {
+	m := redactModelAtModeStep(t, "sk-OLD")
+	if m.redactSt.modeFocus != 0 {
+		t.Fatalf("setup: expected modeFocus 0 (mode row), got %d", m.redactSt.modeFocus)
+	}
+
+	m = send(m, "right") // remove -> replace; the mode row keeps focus
+	if m.redactSt.mode != model.RedactReplace {
+		t.Fatalf("setup: expected replace mode after 'right', got %v", m.redactSt.mode)
+	}
+	if m.redactSt.modeFocus != 0 {
+		t.Fatalf("switching mode should not itself move focus off the mode row, got modeFocus=%d", m.redactSt.modeFocus)
+	}
+
+	m = send(m, "tab") // mode row -> pattern row
+	if m.redactSt.modeFocus != 1 {
+		t.Fatalf("modeFocus after tab = %d, want 1 (pattern)", m.redactSt.modeFocus)
+	}
+	if !m.redactSt.patternInput.Focused() {
+		t.Error("pattern field should be focused")
+	}
+	if m.redactSt.replaceInput.Focused() {
+		t.Error("replacement field should not be focused yet")
+	}
+
+	m = send(m, "s", "k", "-", ".", "*")
+	if got := m.redactSt.patternInput.Value(); got != "sk-.*" {
+		t.Errorf("pattern field value = %q, want %q", got, "sk-.*")
+	}
+
+	m = send(m, "tab") // pattern row -> replacement row
+	if m.redactSt.modeFocus != 2 {
+		t.Fatalf("modeFocus after second tab = %d, want 2 (replacement)", m.redactSt.modeFocus)
+	}
+	if m.redactSt.patternInput.Focused() {
+		t.Error("pattern field should be blurred once the replacement row has focus")
+	}
+	if !m.redactSt.replaceInput.Focused() {
+		t.Error("replacement field should be focused")
+	}
+
+	m = send(m, "R", "E", "D")
+	if got := m.redactSt.replaceInput.Value(); got != "RED" {
+		t.Errorf("replacement field value = %q, want %q", got, "RED")
+	}
+	if got := m.redactSt.patternInput.Value(); got != "sk-.*" {
+		t.Errorf("pattern field value changed while editing replacement: got %q, want unchanged %q", got, "sk-.*")
+	}
+
+	m = send(m, "shift+tab") // replacement row -> pattern row
+	if m.redactSt.modeFocus != 1 {
+		t.Fatalf("modeFocus after shift+tab = %d, want 1 (pattern)", m.redactSt.modeFocus)
+	}
+	if !m.redactSt.patternInput.Focused() {
+		t.Error("pattern field should be focused again")
+	}
+	if m.redactSt.replaceInput.Focused() {
+		t.Error("replacement field should be blurred")
+	}
+}
+
 // TestRedactScan_staleResultDroppedBySeqGuard: a result from an abandoned
 // scan (the flow was closed and reopened before the first scan returned)
 // must not clobber a newer, still in-flight scan's state — mirrors
@@ -681,5 +799,116 @@ func TestRedactFlow_realApplyRewritesHistoryAndClosesTheFlow(t *testing.T) {
 	}
 	if len(reachable) > 0 {
 		t.Errorf("sk-OLD should no longer be reachable from HEAD's history, found in %v", reachable)
+	}
+}
+
+// --- redactChange.guard() ----------------------------------------------------
+//
+// Pure-struct-literal guard tests, mirroring purge_test.go's
+// TestPurgeChange_guardBlocksDirtyTree / _guardBlocksMergeAtStoredBase /
+// _guardBlocksStoredSideHistory exactly: construct a redactChange with only
+// the fields guard() actually reads (c.pv.Base/Affected/Dropped, no scan or
+// repo needed), so each blocking branch is pinned in isolation without
+// standing up a real repo fixture.
+
+// TestRedactChange_guardBlocksNoTargetContent: pv.Base < 0 means
+// BuildRedactPreview found no commit whose tree the spec's transform would
+// change — the "nothing to redact" branch.
+func TestRedactChange_guardBlocksNoTargetContent(t *testing.T) {
+	rc := redactChange{pv: capability.RedactPreview{Base: -1}}
+	g := rc.guard(model.RepoState{})
+	if !g.Blocked {
+		t.Fatal("pv.Base < 0 should block the redact guard")
+	}
+	if !strings.Contains(g.BlockReason, "no commit's snapshot") {
+		t.Errorf("block reason should mention the missing content, got: %q", g.BlockReason)
+	}
+}
+
+// TestRedactChange_guardBlocksMergeInAffected: a merge commit anywhere in
+// pv.Affected (the rewritten suffix) blocks — mirrors
+// TestPurgeChange_guardBlocksMergeAtStoredBase.
+func TestRedactChange_guardBlocksMergeInAffected(t *testing.T) {
+	rc := redactChange{pv: capability.RedactPreview{
+		Base:     0,
+		Affected: []model.Commit{{Hash: "a"}, {Hash: "merge", IsMerge: true}, {Hash: "c"}},
+	}}
+	g := rc.guard(model.RepoState{})
+	if !g.Blocked {
+		t.Fatal("a merge commit in pv.Affected should block the redact guard")
+	}
+	if !strings.Contains(g.BlockReason, "merge") {
+		t.Errorf("block reason should mention merge, got: %q", g.BlockReason)
+	}
+}
+
+// TestRedactChange_guardBlocksDirtyTree: an uncommitted working tree blocks —
+// mirrors TestPurgeChange_guardBlocksDirtyTree.
+func TestRedactChange_guardBlocksDirtyTree(t *testing.T) {
+	rc := redactChange{pv: capability.RedactPreview{
+		Base:     0,
+		Affected: []model.Commit{{Hash: "a"}},
+	}}
+	g := rc.guard(model.RepoState{IsDirty: true})
+	if !g.Blocked {
+		t.Fatal("a dirty tree should block the redact guard")
+	}
+	if !strings.Contains(g.BlockReason, "uncommitted changes") {
+		t.Errorf("block reason should mention uncommitted changes, got: %q", g.BlockReason)
+	}
+}
+
+// TestRedactChange_guardBlocksWouldEmptyBranch: Base==0 and every affected
+// commit predicted Dropped means the redact would remove the whole branch —
+// the pre-check run_redact.go's headless path also performs, mirrored here
+// from the SAME pv.Base/pv.Dropped BuildRedactPreview produces (see guard's
+// doc comment).
+func TestRedactChange_guardBlocksWouldEmptyBranch(t *testing.T) {
+	affected := []model.Commit{{Hash: "a"}, {Hash: "b"}}
+	rc := redactChange{pv: capability.RedactPreview{
+		Base:     0,
+		Affected: affected,
+		Dropped:  map[string]bool{"a": true, "b": true},
+	}}
+	g := rc.guard(model.RepoState{})
+	if !g.Blocked {
+		t.Fatal("Base==0 with every affected commit dropped should block the redact guard")
+	}
+	if !strings.Contains(g.BlockReason, "every commit") {
+		t.Errorf("block reason should mention removing every commit, got: %q", g.BlockReason)
+	}
+}
+
+// TestRedactChange_guardRequiresConfirmationForPushedCommits: a pushed
+// commit in pv.Affected does not hard-block — it requires the typed
+// branch-name confirmation, mirroring purgeChange's identical pushed case.
+func TestRedactChange_guardRequiresConfirmationForPushedCommits(t *testing.T) {
+	rc := redactChange{pv: capability.RedactPreview{
+		Base:     0,
+		Affected: []model.Commit{{Hash: "a", IsPushed: true}},
+	}}
+	g := rc.guard(model.RepoState{Branch: "main"})
+	if g.Blocked {
+		t.Fatal("a pushed commit should require confirmation, not hard-block")
+	}
+	if !g.NeedsConfirmation {
+		t.Fatal("a pushed commit in pv.Affected should require confirmation")
+	}
+	if g.ConfirmWord != "main" {
+		t.Errorf("ConfirmWord = %q, want the branch name %q", g.ConfirmWord, "main")
+	}
+}
+
+// TestRedactChange_guardPassesCleanRedact is the positive case: none of the
+// five blocking/confirming conditions apply, so guard() returns the zero
+// Guard (not blocked, no confirmation needed).
+func TestRedactChange_guardPassesCleanRedact(t *testing.T) {
+	rc := redactChange{pv: capability.RedactPreview{
+		Base:     0,
+		Affected: []model.Commit{{Hash: "a"}},
+	}}
+	g := rc.guard(model.RepoState{})
+	if g.Blocked || g.NeedsConfirmation {
+		t.Fatalf("a clean redact should pass guard() unconditionally, got: %+v", g)
 	}
 }
