@@ -28,6 +28,16 @@ func purgeTestRepo(t *testing.T) (*Repo, string) {
 	return r, dir
 }
 
+// writeAndCommit writes content to name under dir and commits it alone, using
+// the same hermetic git env (gitT) as purgeTestRepo's own seed commit — a
+// content sibling of purgeTestRepo for fixtures that need a fresh, known blob.
+func writeAndCommit(t *testing.T, r *Repo, dir, name, content string) {
+	t.Helper()
+	mustWriteFile(t, dir, name, content)
+	gitT(t, dir, "add", name)
+	gitT(t, dir, "commit", "-q", "-m", "add "+name)
+}
+
 // treePaths lists every blob path in a tree, for assertions.
 func treePaths(t *testing.T, r *Repo, tree string) []string {
 	t.Helper()
