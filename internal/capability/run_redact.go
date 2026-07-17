@@ -23,15 +23,23 @@ import (
 const hygieneWarning = "⚠ the secret now appears in .git/regit/command.log and your shell history — " +
 	"clear both and rotate the credential."
 
-// sideHistoryAdvisory is the exact wording for the non-blocking note printed
-// when the redacted literal also has add/remove history on a merged side
-// branch (see gitio.SecretInSideHistory). Unlike purge's PathsInSideHistory
-// — which hard-blocks — this is advisory only: regit only ever rewrites the
-// first-parent chain, so a side branch's own commits can never be scrubbed no
-// matter what happens on the main line, and the operator is warned about that
-// scope rather than refused outright.
-const sideHistoryAdvisory = "note: the secret also appears in merged side-branch history, " +
-	"which this rewrite does not touch"
+// sideHistoryAdvisory is printed BEFORE staging the apply when the redacted
+// literal also has add/remove history on a merged side branch (see
+// gitio.SecretInSideHistory). regit only ever rewrites the first-parent
+// chain, so that side branch's own commits can never be scrubbed no matter
+// what happens on the main line — and, since headless always sets
+// allSelected=true, safety.Manager.ApplyRedact's own GLOBAL absence tier
+// will independently rediscover the exact same reachable content once the
+// rewrite runs and abort rather than report a partial removal (see
+// ApplyRedact's doc comment). This note is worded to PREDICT that abort in
+// the same terms, so the note and the eventual "still reachable from the
+// rewritten head's history" failure read as one story instead of two
+// unrelated problems. run_redact still does not add its own guard for this
+// (no exit-2 block): the attempt proceeds and safety's own verification is
+// what refuses it, late but safely (ref never moves).
+const sideHistoryAdvisory = "note: the secret also lives in merged side-branch history, which regit " +
+	"cannot rewrite (it only rewrites the first-parent chain). This run will abort rather than " +
+	"report a partial removal — remove that branch from history or use git filter-repo to reach it."
 
 // RedactPreview is everything the CLI dry-run (and, later, the TUI pipeline)
 // needs: the scanned occurrences with their context/cascade, any binary-only
@@ -239,24 +247,19 @@ func runRedact(ctx *RunContext, a ParsedArgs) error {
 	}
 
 	// Side-branch history is checked and reported here — BEFORE staging the
-	// apply — rather than after: safety.Manager.ApplyRedact's own GLOBAL
-	// absence tier (armed here since allSelected is always true headless)
-	// independently re-derives this exact same signal from newHead once the
-	// rewrite has actually run, and — per that function's doc comment —
-	// reliably ABORTS the apply when it fires, since the side branch's
-	// commits stay reachable from newHead no matter what the rewrite does to
-	// the first-parent chain. A successful ApplyRedact call is therefore
-	// proof, after the fact, that no side-branch collision exists for this
-	// exact match — printing the note only on the (unreachable) success path
-	// would make it permanent dead code. Checking and printing it here, before
-	// the attempt, is what ApplyRedact's own doc comment recommends ("the
-	// capability verb and TUI layers should call gitio.SecretInSideHistory
-	// themselves BEFORE staging an apply, to steer the user ahead of time
-	// rather than let them discover it from a late abort") — it is
-	// deliberately NOT a guardErr: run_redact never refuses to attempt the
-	// apply over this, unlike purge's hard PathsInSideHistory block; whatever
-	// happens next (success, or ApplyRedact's own late, safe abort) is left
-	// to the guarded apply itself.
+	// apply — because a positive result here means safety.Manager.ApplyRedact
+	// is going to abort: its own GLOBAL absence tier (armed since allSelected
+	// is always true headless) independently rediscovers this exact same
+	// content reachable from newHead once the rewrite has actually run, and
+	// — per that function's doc comment — reliably ABORTS rather than report
+	// a partial removal. So sideHistoryAdvisory is worded to predict that
+	// abort, printed here so the operator reads it BEFORE the (safe, late)
+	// failure rather than being surprised by a bare verification error. This
+	// is deliberately NOT a guardErr: run_redact adds no exit-2 block of its
+	// own over this, unlike purge's hard PathsInSideHistory refusal — the
+	// attempt still proceeds, and safety's own verification is what refuses
+	// it (see ApplyRedact's doc comment for why callers should check this
+	// up front rather than let the operator discover it from a late abort).
 	sideHistory, err := repo.SecretInSideHistory(commits, match)
 	if err != nil {
 		return runtimeErr("check side-branch history: %v", err)

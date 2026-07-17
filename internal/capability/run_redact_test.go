@@ -77,9 +77,9 @@ func TestRegistry_redactRowPresent(t *testing.T) {
 	if !ok {
 		t.Fatal("redact row missing from the registry")
 	}
-	// WSNone is deliberate until Task 8 wires up the TUI flow — see the
-	// registry row's own doc comment. capability's own registry_test.go (not
-	// this file) is what would need updating alongside that flip.
+	// redact carries no Workspace tag until its featureBinding + panel entry
+	// land, so the panel-binding guard test stays green — see the registry
+	// row's own doc comment.
 	if c.Workspace != WSNone {
 		t.Errorf("Workspace = %v, want WSNone (headless-only pending the TUI flow)", c.Workspace)
 	}
