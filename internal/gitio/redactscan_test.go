@@ -660,6 +660,89 @@ func TestGrepTree_dashPrefixedLiteralDoesNotBreakParsing(t *testing.T) {
 	}
 }
 
+// TestGrepPath_scopesToOnePath is the direct regression test for why
+// verifyRedactAbsence needs GrepPath instead of a whole-tree GrepTree call:
+// the literal must be found when it lives in the queried path, but reported
+// absent for that SAME tree when queried against a different path that
+// never carried it — even though GrepTree(tree, literal) over the whole tree
+// would report true either way.
+func TestGrepPath_scopesToOnePath(t *testing.T) {
+	r, commits := redactScanRepo(t)
+	head := commits[0].Hash // c1: cfg.yaml has sk-OLD; no other path does
+
+	found, err := r.GrepPath(head, "cfg.yaml", "sk-OLD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found {
+		t.Error("sk-OLD should be found when cfg.yaml itself is queried")
+	}
+
+	found, err = r.GrepPath(head, "docs/readme.md", "sk-OLD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found {
+		t.Error("sk-OLD should be absent when a different, unrelated path is queried")
+	}
+}
+
+// TestGrepPath_dashPrefixedLiteralDoesNotBreakParsing mirrors
+// TestGrepTree_dashPrefixedLiteralDoesNotBreakParsing for the path-scoped
+// sibling: the same -e requirement applies here.
+func TestGrepPath_dashPrefixedLiteralDoesNotBreakParsing(t *testing.T) {
+	r, dir := purgeTestRepoEmpty(t)
+	mustWriteFile(t, dir, "cfg.yaml", "x=-secretdash\n")
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "add dash-prefixed secret")
+	commits, err := r.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found, err := r.GrepPath(commits[0].Hash, "cfg.yaml", "-secretdash")
+	if err != nil {
+		t.Fatalf("GrepPath with a dash-prefixed literal must not error: %v", err)
+	}
+	if !found {
+		t.Error("GrepPath should find the dash-prefixed literal, not silently miss it")
+	}
+}
+
+// TestSecretInSideHistory_findsSecretOnMergedSideBranch reuses
+// mergedSideBranchRepo (built for LineDescendants' off-chain guard test): the
+// secret is introduced ONLY on the side branch, merged into main via an
+// ordinary (non-first-parent) merge, so it never touches main's own
+// first-parent chain commits at all.
+func TestSecretInSideHistory_findsSecretOnMergedSideBranch(t *testing.T) {
+	r, _ := mergedSideBranchRepo(t)
+	commits, err := r.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found, err := r.SecretInSideHistory(commits, "sk-OLD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found {
+		t.Error("sk-OLD lives only on the merged side branch and must be reported")
+	}
+}
+
+// TestSecretInSideHistory_falseWhenOnlyOnFirstParentChain is the negative
+// companion: a linear-history fixture where the secret's ENTIRE life is on
+// the first-parent chain must report false — there is no side-branch commit
+// carrying it that a first-parent-only redact could miss.
+func TestSecretInSideHistory_falseWhenOnlyOnFirstParentChain(t *testing.T) {
+	r, commits := redactScanRepo(t)
+	found, err := r.SecretInSideHistory(commits, "sk-OLD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found {
+		t.Error("sk-OLD's whole history is on the first-parent chain; nothing should be flagged")
+	}
+}
+
 func TestSecretAddedFrom_emptyAfterFullRedaction(t *testing.T) {
 	r, commits := redactScanRepo(t)
 

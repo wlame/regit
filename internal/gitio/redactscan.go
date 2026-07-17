@@ -541,6 +541,27 @@ func (r *Repo) GrepTree(tree, literal string) (bool, error) {
 	return false, fmt.Errorf("grep tree %s: %w", short(tree), err)
 }
 
+// GrepPath reports whether literal occurs anywhere within path's blob content
+// at tree — GrepTree's path-scoped sibling. The redact absence check uses
+// this (not GrepTree) to search only the paths a redaction actually
+// targeted: scoping to one path means an occurrence the operator
+// deliberately left unselected elsewhere in the SAME tree can never trip a
+// false abort, which a whole-tree GrepTree call would risk. Same -F/-e/
+// --quiet contract as GrepTree (literal match, dash-safe, exit 0/1 are both
+// success outcomes) — see its doc comment for why each flag is required; the
+// only addition is the trailing `-- path` pathspec.
+func (r *Repo) GrepPath(tree, path, literal string) (bool, error) {
+	_, err := r.git("grep", "-F", "--quiet", "-e", literal, tree, "--", path)
+	if err == nil {
+		return true, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return false, nil
+	}
+	return false, fmt.Errorf("grep tree %s path %s: %w", short(tree), path, err)
+}
+
 // SecretAddedFrom returns every commit hash reachable from rev that ever
 // changed the occurrence count of match — the backbone of the absence check:
 // an EMPTY result means the literal was never added anywhere in rev's
@@ -564,4 +585,38 @@ func (r *Repo) SecretAddedFrom(rev, match string) ([]string, error) {
 		return nil, nil
 	}
 	return strings.Fields(out), nil
+}
+
+// SecretInSideHistory reports whether match was ever added or removed by a
+// commit reachable from HEAD but NOT on commits' first-parent chain (a "side
+// branch" commit) — the content analog of PathsInSideHistory, built directly
+// on SecretAddedFrom (whose --full-history walk from HEAD already visits
+// every reachable commit, side branches included) instead of a
+// pathspec-limited rev-list. commits is the FULL first-parent history
+// (root-first, as ReadCommits returns it).
+//
+// regit only ever rewrites the first-parent chain (see ApplyRedact), so a
+// literal with side-branch history can never be fully redacted from HEAD's
+// reachable history: the text stays reachable via the side branch's own,
+// untouched commits no matter what happens to commits itself. Unlike purge's
+// PathsInSideHistory — which BLOCKS the rewrite up front — this is advisory
+// only: safety.Manager.ApplyRedact never calls it (its own doc comment
+// explains why the two operations differ here); it exists for the redact
+// verb/TUI layer to report a warning alongside an otherwise-successful
+// rewrite.
+func (r *Repo) SecretInSideHistory(commits []model.Commit, match string) (bool, error) {
+	onChain := make(map[string]bool, len(commits))
+	for _, c := range commits {
+		onChain[c.Hash] = true
+	}
+	hashes, err := r.SecretAddedFrom("HEAD", match)
+	if err != nil {
+		return false, fmt.Errorf("side-history secret search: %w", err)
+	}
+	for _, h := range hashes {
+		if !onChain[h] {
+			return true, nil
+		}
+	}
+	return false, nil
 }
