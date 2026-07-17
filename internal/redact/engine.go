@@ -97,19 +97,19 @@ func (e Engine) Scan(opts ScanOptions) (ScanResult, error) {
 // SecretHit whose commit sits off HEAD's first-parent chain. SecretAdditions
 // walks ALL parents (not just first-parent), so a hit legitimately can name
 // such a commit — e.g. a secret introduced on a side branch that was later
-// merged into HEAD by an ordinary, non-first-parent merge.
-// LineDescendants' forward walk has no well-defined "next commit" for that
-// case and refuses it via gitio.ErrLineOffFirstParentChain (a guard Task 3's
-// review required). Rather than aborting the whole Scan over one untrackable
-// hit, that ONE occurrence is reported with no descendants and a ChainNote
-// explaining why: it is still a real, redactable occurrence — its own
-// commit's tree still holds the secret, and gitio.RedactBase finds targets by
-// tree CONTENT (starting from wherever that content first appears on the
-// first-parent chain, e.g. the merge commit), not by requiring this exact
-// commit hash to be on that chain — it just cannot be cascaded forward, since
-// there is no well-defined "next state" to walk from off-chain. Any OTHER
-// error from LineDescendants is a genuine failure (a broken repo, a bad ref)
-// and still aborts the scan.
+// merged into HEAD by an ordinary, non-first-parent merge. LineDescendants
+// only ever tracks a line forward along HEAD's first-parent chain, so a hit
+// that starts off that chain has no well-defined "next commit" to step to,
+// and it reports that via gitio.ErrLineOffFirstParentChain. Rather than
+// aborting the whole Scan over one untrackable hit, that ONE occurrence is
+// reported with no descendants and a ChainNote explaining why: it is still a
+// real, redactable occurrence — its own commit's tree still holds the
+// secret, and gitio.RedactBase finds targets by tree CONTENT (starting from
+// wherever that content first appears on the first-parent chain, e.g. the
+// merge commit), not by requiring this exact commit hash to be on that chain
+// — it just cannot be cascaded forward, since there is no well-defined "next
+// state" to walk from off-chain. Any OTHER error from LineDescendants is a
+// genuine failure (a broken repo, a bad ref) and still aborts the scan.
 func (e Engine) cascade(hit gitio.SecretHit) ([]model.RedactVersion, string, error) {
 	desc, note, err := e.Repo.LineDescendants(hit.Commit, hit.Path, hit.Line)
 	if err != nil {

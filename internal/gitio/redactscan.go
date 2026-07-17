@@ -409,11 +409,11 @@ func (r *Repo) isOnFirstParentChain(commit string) (bool, error) {
 
 // ErrLineOffFirstParentChain is the sentinel wrapped into the error
 // LineDescendants returns when fromCommit is not on HEAD's first-parent
-// chain. A caller that may legitimately see such a commit — Task 5's Scan,
-// fed straight from SecretAdditions — checks this with errors.Is to tell
-// "this one occurrence cannot be cascaded" apart from every other failure
-// mode (a broken repo, a bad ref), which must still abort outright rather
-// than being swallowed alongside it.
+// chain. A caller that walks all parents, such as a redact scan built on
+// SecretAdditions, may legitimately see such a commit; it checks this with
+// errors.Is to tell "this one occurrence cannot be cascaded" apart from
+// every other failure mode (a broken repo, a bad ref), which must still
+// abort outright rather than being swallowed alongside it.
 var ErrLineOffFirstParentChain = errors.New(
 	"commit is not on HEAD's first-parent chain")
 

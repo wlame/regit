@@ -1,6 +1,7 @@
 package redact
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -107,6 +108,29 @@ func duplicateLineRepo(t *testing.T) (*gitio.Repo, []model.Commit) {
 	return r, commits
 }
 
+// sameLineTwoPathsRepo builds a single-commit fixture that adds the SAME
+// secret-matching line to TWO different new files. The dedup key is
+// (Commit, Path, Line), so a shared Commit and Line with different Path
+// must NOT collapse — this is the discriminating counterpart to
+// duplicateLineRepo, which pins the "identical triple collapses" half of
+// the contract.
+func sameLineTwoPathsRepo(t *testing.T) (*gitio.Repo, []model.Commit) {
+	t.Helper()
+	r, dir := openRepo(t)
+	mustWriteFile(t, dir, "cfg.yaml", "token: sk-SHARED\n")
+	mustWriteFile(t, dir, "other.yaml", "token: sk-SHARED\n")
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "c1 add the same line to two files")
+	commits, err := r.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) != 1 {
+		t.Fatalf("setup: want 1 commit, got %d", len(commits))
+	}
+	return r, commits
+}
+
 // binarySecretRepo builds a single-commit fixture whose file holds a NUL
 // byte AND the secret literal — the shape SecretAdditions' text-hunk parser
 // can never see a match inside (git renders it as "Binary files ... differ",
@@ -142,6 +166,37 @@ func mergedSideBranchRepo(t *testing.T) *gitio.Repo {
 	mustWriteFile(t, dir, "keep.txt", "v2")
 	gitT(t, dir, "add", ".")
 	gitT(t, dir, "commit", "-m", "main continues")
+	return r
+}
+
+// corruptedObjectRepo builds a 2-commit fixture (c1 adds the secret, c2 adds
+// an unrelated file) and then removes the loose object backing c2's new
+// file from the repository's own object store. This reproduces a real (if
+// rare) git failure mode — a partial clone or a corrupted object store —
+// where commit metadata stays fully readable but a blob-content operation
+// fails outright: `rev-list`, which both of LineDescendants' first-parent
+// chain checks rely on, never reads blob content, so it keeps working; a
+// `diff` between the two commits does need the new file's content and fails
+// with a real git error. This is the only way found to drive
+// LineDescendants to a NON-sentinel error through Scan's real git plumbing —
+// any commit that is simply absent from, or off, the first-parent chain
+// always surfaces as ErrLineOffFirstParentChain instead (see
+// mergedSideBranchRepo), so that path cannot exercise this one.
+func corruptedObjectRepo(t *testing.T) *gitio.Repo {
+	t.Helper()
+	r, dir := openRepo(t)
+	mustWriteFile(t, dir, "cfg.yaml", "token: sk-CORRUPT\n")
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "c1 add secret")
+	mustWriteFile(t, dir, "extra.txt", "irrelevant\n")
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "c2 unrelated add")
+
+	blob := gitT(t, dir, "rev-parse", "HEAD:extra.txt")
+	objPath := filepath.Join(dir, ".git", "objects", blob[:2], blob[2:])
+	if err := os.Remove(objPath); err != nil {
+		t.Fatalf("remove loose object %s (fixture assumes it is unpacked): %v", objPath, err)
+	}
 	return r
 }
 
@@ -216,6 +271,39 @@ func TestScan_dedupesIdenticalIntroTriple(t *testing.T) {
 	}
 }
 
+// TestScan_sameLineDifferentPathsStayDistinct is the discriminating
+// counterpart to TestScan_dedupesIdenticalIntroTriple: the SAME commit
+// adding the SAME line to two DIFFERENT paths must keep both occurrences,
+// since Path is part of the dedup key. A dedup keyed on (Commit, Line) alone
+// would wrongly collapse this to one and silently drop a real occurrence.
+func TestScan_sameLineDifferentPathsStayDistinct(t *testing.T) {
+	r, commits := sameLineTwoPathsRepo(t)
+	eng := Engine{Repo: r}
+
+	res, err := eng.Scan(ScanOptions{Match: "sk-SHARED", Cascade: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Occurrences) != 2 {
+		t.Fatalf("got %d occurrences, want 2 (same commit/line, different path, must NOT collapse): %+v",
+			len(res.Occurrences), res.Occurrences)
+	}
+	gotPaths := map[string]bool{}
+	for _, occ := range res.Occurrences {
+		if occ.Intro.Commit != commits[0].Hash {
+			t.Errorf("Intro.Commit = %s, want c1 %s", occ.Intro.Commit, commits[0].Hash)
+		}
+		if occ.Intro.Line != "token: sk-SHARED" {
+			t.Errorf("Intro.Line = %q, want %q", occ.Intro.Line, "token: sk-SHARED")
+		}
+		gotPaths[occ.Intro.Path] = true
+	}
+	wantPaths := map[string]bool{"cfg.yaml": true, "other.yaml": true}
+	if !reflect.DeepEqual(gotPaths, wantPaths) {
+		t.Errorf("paths = %v, want %v", gotPaths, wantPaths)
+	}
+}
+
 func TestScan_reportsBinaryHitsSeparately(t *testing.T) {
 	r := binarySecretRepo(t)
 	eng := Engine{Repo: r}
@@ -236,11 +324,10 @@ func TestScan_reportsBinaryHitsSeparately(t *testing.T) {
 	}
 }
 
-// TestScan_offFirstParentChainHitSkipsCascadeWithNote is the seam-guard test
-// this task's brief specifically calls for: LineDescendants errors (via
-// gitio.ErrLineOffFirstParentChain) when asked to cascade a hit whose commit
-// is off HEAD's first-parent chain. Scan must absorb that as a per-occurrence
-// note, not let it abort the entire scan.
+// TestScan_offFirstParentChainHitSkipsCascadeWithNote covers the seam where
+// LineDescendants errors (via gitio.ErrLineOffFirstParentChain) when asked
+// to cascade a hit whose commit is off HEAD's first-parent chain. Scan must
+// absorb that as a per-occurrence note, not let it abort the entire scan.
 func TestScan_offFirstParentChainHitSkipsCascadeWithNote(t *testing.T) {
 	r := mergedSideBranchRepo(t)
 	eng := Engine{Repo: r}
@@ -261,6 +348,25 @@ func TestScan_offFirstParentChainHitSkipsCascadeWithNote(t *testing.T) {
 	}
 	if occ.ChainNote == "" {
 		t.Fatal("ChainNote should explain the occurrence could not be cascaded")
+	}
+}
+
+// TestScan_nonSentinelCascadeErrorAborts is the abort-side counterpart to
+// TestScan_offFirstParentChainHitSkipsCascadeWithNote: a LineDescendants
+// failure that is NOT the off-chain sentinel (here, a genuine git failure
+// from a missing object) must still abort Scan — the errors.Is branch in
+// cascade must not swallow it the way it swallows the sentinel case.
+func TestScan_nonSentinelCascadeErrorAborts(t *testing.T) {
+	r := corruptedObjectRepo(t)
+	eng := Engine{Repo: r}
+
+	_, err := eng.Scan(ScanOptions{Match: "sk-CORRUPT", Cascade: true})
+	if err == nil {
+		t.Fatal("Scan should abort when LineDescendants fails for a reason " +
+			"other than the off-chain sentinel")
+	}
+	if errors.Is(err, gitio.ErrLineOffFirstParentChain) {
+		t.Errorf("err = %v, want a genuine git failure, not the off-chain sentinel", err)
 	}
 }
 

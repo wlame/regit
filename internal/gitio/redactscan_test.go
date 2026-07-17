@@ -424,16 +424,16 @@ func mergedSideBranchRepo(t *testing.T) (r *Repo, sideHash string) {
 // via first-parent at every step) — SecretAdditions walks ALL parents (no
 // --first-parent), so a SecretHit.Commit can legitimately be such a commit.
 // LineDescendants must reject it with a clear error instead of silently
-// producing garbage for the caller (Task 5's engine) to trust.
+// producing garbage for a caller built on top of it to trust.
 func TestLineDescendants_errorsWhenFromCommitOffFirstParentChain(t *testing.T) {
 	r, sideHash := mergedSideBranchRepo(t)
 	_, _, err := r.LineDescendants(sideHash, "cfg.yaml", "token: sk-OLD")
 	if err == nil {
 		t.Fatal("LineDescendants should error when fromCommit is not on HEAD's first-parent chain")
 	}
-	// The error must be recognizable via the sentinel, not just non-nil: Task
-	// 5's Scan distinguishes "this one occurrence cannot be cascaded" from
-	// every other failure mode by checking errors.Is against exactly this.
+	// The error must be recognizable via the sentinel, not just non-nil: a
+	// caller distinguishing "this one occurrence cannot be cascaded" from
+	// every other failure mode needs to check errors.Is against exactly this.
 	if !errors.Is(err, ErrLineOffFirstParentChain) {
 		t.Errorf("err = %v, want it to wrap ErrLineOffFirstParentChain", err)
 	}
