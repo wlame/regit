@@ -135,6 +135,41 @@ func TestParseHunks(t *testing.T) {
 	}
 }
 
+// TestParseHunks_noNewlineMarkerMidHunkDoesNotEndCollection is the direct
+// regression test for a CRITICAL finding: git emits "\ No newline at end of
+// file" INLINE, immediately after ANY hunk line whose file lacks a trailing
+// newline — including a '-' line followed by more '+'/'-' lines in the SAME
+// hunk (verified against real git: a same-line rotation in a no-final-newline
+// file produces exactly this shape). The original parser treated that marker
+// as "end this hunk", silently discarding every line after it — so the '+'
+// line carrying the ROTATED value never made it into hunk.lines at all.
+func TestParseHunks_noNewlineMarkerMidHunkDoesNotEndCollection(t *testing.T) {
+	patch := strings.Join([]string{
+		"diff --git a/cfg.yaml b/cfg.yaml",
+		"index 935995c..9372754 100644",
+		"--- a/cfg.yaml",
+		"+++ b/cfg.yaml",
+		"@@ -2 +2 @@ before",
+		"-token: sk-OLD",
+		"\\ No newline at end of file",
+		"+token: sk-NEW",
+		"\\ No newline at end of file",
+		"",
+	}, "\n")
+	hunks := parseHunks(patch)
+	if len(hunks) != 1 {
+		t.Fatalf("got %d hunks, want 1: %+v", len(hunks), hunks)
+	}
+	want := []hunkLine{
+		{op: '-', text: "token: sk-OLD"},
+		{op: '+', text: "token: sk-NEW"},
+	}
+	if !reflect.DeepEqual(hunks[0].lines, want) {
+		t.Errorf("lines = %+v, want %+v (the '+' line after a MID-hunk \"\\ No newline\" "+
+			"marker must still be collected)", hunks[0].lines, want)
+	}
+}
+
 // TestParseHunks_textBeforeFirstHunkIsIgnored covers the file-header skip
 // explicitly: mode/index/---/+++ lines (and anything else before the first
 // "@@ " marker, such as diff-tree's leading commit-hash line) must never leak
@@ -222,6 +257,227 @@ func TestSecretAdditions_globMatchingPathStillFinds(t *testing.T) {
 	}
 	if len(hits) != 1 || hits[0].Commit != commits[0].Hash {
 		t.Fatalf("hits = %+v, want exactly one hit on c1 (%s)", hits, short(commits[0].Hash))
+	}
+}
+
+// noFinalNewlineRotationRepo builds a 2-commit fixture where the secret's
+// FILE never has a trailing newline in either commit: c1 adds it, c2 rotates
+// the exact same (last) line to a new value. This is the shape that trips
+// the mid-hunk "\ No newline at end of file" marker (see
+// TestParseHunks_noNewlineMarkerMidHunkDoesNotEndCollection) — and it is a
+// realistic one: secrets often live in one-line files or in files whose last
+// line is the credential itself, which editors commonly leave without a
+// trailing newline.
+func noFinalNewlineRotationRepo(t *testing.T) (*Repo, []model.Commit) {
+	t.Helper()
+	r, dir := purgeTestRepoEmpty(t)
+	mustWriteFile(t, dir, "cfg.yaml", "before\ntoken: sk-OLD") // no trailing \n
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "c1 add secret, no trailing newline")
+	mustWriteFile(t, dir, "cfg.yaml", "before\ntoken: sk-NEW") // still no trailing \n
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "c2 rotate secret, no trailing newline")
+	commits, err := r.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) != 2 {
+		t.Fatalf("setup: want 2 commits, got %d", len(commits))
+	}
+	return r, commits
+}
+
+// TestSecretAdditions_andLineDescendants_noFinalNewlineRotationNotMissed is
+// the end-to-end companion to TestParseHunks_noNewlineMarkerMidHunkDoesNotEndCollection:
+// both entry points that consume parseHunks must survive a no-final-newline
+// rotation. Before the fix: SecretAdditions missed the "sk-NEW" addition
+// entirely (its '+' line was dropped), and LineDescendants misclassified the
+// rotation as a deletion (0 added lines once the '+' line vanished) — the
+// live descendant would have silently escaped the cascade.
+func TestSecretAdditions_andLineDescendants_noFinalNewlineRotationNotMissed(t *testing.T) {
+	r, commits := noFinalNewlineRotationRepo(t)
+
+	hits, err := r.SecretAdditions("sk-NEW", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].Commit != commits[1].Hash {
+		t.Fatalf("hits = %+v, want exactly one hit on c2 (%s): the rotated value must not be "+
+			"dropped just because the file lacks a trailing newline", hits, short(commits[1].Hash))
+	}
+	if hits[0].Line != "token: sk-NEW" {
+		t.Errorf("hits[0].Line = %q, want %q", hits[0].Line, "token: sk-NEW")
+	}
+
+	desc, note, err := r.LineDescendants(commits[0].Hash, "cfg.yaml", "token: sk-OLD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if note != "" {
+		t.Errorf("note = %q, want empty (this is a clean rotation, not an ambiguous rewrite)", note)
+	}
+	if len(desc) != 1 || desc[0].Line != "token: sk-NEW" || desc[0].Commit != commits[1].Hash {
+		t.Fatalf("descendants = %+v, want exactly one rotation to sk-NEW on c2 — a misparse would "+
+			"see 0 added lines and wrongly report this as a deletion (empty descendants, no note)", desc)
+	}
+}
+
+// renameThenRotateRepo is the discriminating fixture for the rename-tracking
+// claim: c1 adds the secret, c2 renames the file with NO content change, c3
+// rotates the line AT THE NEW PATH. A pathspec-limited diff (`git diff ...
+// -- <old path>`) cannot see this rotation at all — restricting the c1->c2
+// diff to the OLD path makes -M report a plain deletion instead of a rename
+// (see LineDescendants' doc comment), so a regression to that approach would
+// end the chain at c2 with ZERO descendants. Only a correctly
+// rename-following implementation reaches c3's rotation. Unlike
+// redactScanRepo (whose rename step is immediately followed by a plain
+// DELETION — which a pathspec regression also reports as "0 added", so
+// deletion masks the discrepancy), this fixture's post-rename step is a
+// ROTATION (1 added line), which a pathspec regression cannot produce at
+// all: it never even reaches c3's diff, because it already (wrongly) ended
+// the chain at c2.
+func renameThenRotateRepo(t *testing.T) (*Repo, []model.Commit) {
+	t.Helper()
+	r, dir := purgeTestRepoEmpty(t)
+	mustWriteFile(t, dir, "cfg.yaml", "before\ntoken: sk-OLD\nafter\n")
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "c1 add secret")
+	mustMkdir(t, dir, "conf")
+	gitT(t, dir, "mv", "cfg.yaml", "conf/cfg.yaml")
+	gitT(t, dir, "commit", "-m", "c2 rename cfg.yaml")
+	mustWriteFile(t, dir, "conf/cfg.yaml", "before\ntoken: sk-NEW\nafter\n")
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "c3 rotate secret at new path")
+	commits, err := r.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) != 3 {
+		t.Fatalf("setup: want 3 commits, got %d", len(commits))
+	}
+	return r, commits
+}
+
+// TestLineDescendants_rotationAfterRenameTracksNewPath is the discriminating
+// test TestLineDescendants_followsRotationRenameAndDeletion is NOT: that
+// fixture's rename is immediately followed by a deletion, which a
+// pathspec-limited-diff regression also (wrongly, but coincidentally)
+// reports as "0 added lines" — so it cannot tell a correct rename-follow
+// from a broken one. This test can: only a correct implementation reaches
+// c3's rotation at the RENAMED path.
+func TestLineDescendants_rotationAfterRenameTracksNewPath(t *testing.T) {
+	r, commits := renameThenRotateRepo(t)
+
+	desc, note, err := r.LineDescendants(commits[0].Hash, "cfg.yaml", "token: sk-OLD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if note != "" {
+		t.Errorf("note = %q, want empty", note)
+	}
+	if len(desc) != 1 {
+		t.Fatalf("descendants = %+v, want exactly one (the rotation at the renamed path) — "+
+			"a pathspec-limited-diff regression would see the rename as a deletion and report none", desc)
+	}
+	got := desc[0]
+	if got.Commit != commits[2].Hash {
+		t.Errorf("descendant.Commit = %s, want c3 %s", short(got.Commit), short(commits[2].Hash))
+	}
+	if got.Path != "conf/cfg.yaml" {
+		t.Errorf("descendant.Path = %q, want conf/cfg.yaml (the renamed path)", got.Path)
+	}
+	if got.Line != "token: sk-NEW" {
+		t.Errorf("descendant.Line = %q, want %q", got.Line, "token: sk-NEW")
+	}
+}
+
+// mergedSideBranchRepo builds a fixture where a commit is merged into main
+// via an ORDINARY (non-first-parent) merge: sideHash is a genuine ancestor
+// of HEAD (reachable) but is NOT on HEAD's first-parent chain — the exact
+// shape LineDescendants' forward-walk contract requires fromCommit to avoid.
+func mergedSideBranchRepo(t *testing.T) (r *Repo, sideHash string) {
+	t.Helper()
+	var dir string
+	r, dir = purgeTestRepoEmpty(t)
+	mustWriteFile(t, dir, "keep.txt", "v1")
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "c0 keep only")
+	gitT(t, dir, "checkout", "-q", "-b", "side")
+	mustWriteFile(t, dir, "cfg.yaml", "before\ntoken: sk-OLD\nafter\n")
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "side adds secret")
+	sideHash = gitT(t, dir, "rev-parse", "HEAD")
+	gitT(t, dir, "checkout", "-q", "main")
+	gitT(t, dir, "merge", "--no-ff", "-q", "-m", "merge side", "side")
+	mustWriteFile(t, dir, "keep.txt", "v2")
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "main continues")
+	return r, sideHash
+}
+
+// TestLineDescendants_errorsWhenFromCommitOffFirstParentChain is the seam
+// guard test: LineDescendants' forward walk (`rev-list --first-parent
+// --reverse fromCommit..HEAD`) silently computes a nonsensical chain when
+// fromCommit is not actually ON HEAD's first-parent lineage (a side-branch
+// commit merged in via an ordinary merge IS reachable from HEAD, just not
+// via first-parent at every step) — SecretAdditions walks ALL parents (no
+// --first-parent), so a SecretHit.Commit can legitimately be such a commit.
+// LineDescendants must reject it with a clear error instead of silently
+// producing garbage for the caller (Task 5's engine) to trust.
+func TestLineDescendants_errorsWhenFromCommitOffFirstParentChain(t *testing.T) {
+	r, sideHash := mergedSideBranchRepo(t)
+	_, _, err := r.LineDescendants(sideHash, "cfg.yaml", "token: sk-OLD")
+	if err == nil {
+		t.Fatal("LineDescendants should error when fromCommit is not on HEAD's first-parent chain")
+	}
+}
+
+// duplicateLineAcrossHunksRepo builds a fixture where the SAME line content
+// appears twice in one file, far enough apart that a -U0 diff always puts
+// each occurrence's change in its OWN hunk (verified against real git: two
+// non-adjacent changed lines never merge into one hunk under -U0, regardless
+// of distance). c2 then rotates each occurrence to a DIFFERENT new value.
+func duplicateLineAcrossHunksRepo(t *testing.T) (*Repo, []model.Commit) {
+	t.Helper()
+	r, dir := purgeTestRepoEmpty(t)
+	mustWriteFile(t, dir, "cfg.yaml", "token: sk-DUP\nother\ntoken: sk-DUP\n")
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "c1 add duplicate lines")
+	mustWriteFile(t, dir, "cfg.yaml", "token: ROTATED1\nother\ntoken: ROTATED2\n")
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "c2 rotate both occurrences differently")
+	commits, err := r.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) != 2 {
+		t.Fatalf("setup: want 2 commits, got %d", len(commits))
+	}
+	return r, commits
+}
+
+// TestLineDescendants_duplicateLineAcrossHunksEndsChainWithNote covers a
+// missed-secret variant: when the tracked content is removed by MORE THAN
+// ONE hunk in the same commit pair (two identical lines with divergent
+// fates), silently picking the first hunk's fate would report only ONE of
+// the two rotations and silently drop the other. The conservative fix ends
+// the chain with an ambiguity note instead, so a human reviews the commit.
+func TestLineDescendants_duplicateLineAcrossHunksEndsChainWithNote(t *testing.T) {
+	r, commits := duplicateLineAcrossHunksRepo(t)
+
+	desc, note, err := r.LineDescendants(commits[0].Hash, "cfg.yaml", "token: sk-DUP")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(desc) != 0 {
+		t.Errorf("descendants = %+v, want none (which rotation applies to OUR occurrence is ambiguous)",
+			desc)
+	}
+	if note == "" {
+		t.Fatal("note should explain the chain ended due to ambiguity, naming the commit")
+	}
+	if !strings.Contains(note, short(commits[1].Hash)) {
+		t.Errorf("note = %q, want it to name the short hash of c2 (%s)", note, short(commits[1].Hash))
 	}
 }
 

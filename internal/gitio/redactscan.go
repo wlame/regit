@@ -38,9 +38,15 @@ type hunk struct {
 // Everything before the first "@@ " line is skipped: the "diff --git"/mode/
 // index/"--- "/"+++ " file-header block, and (when the caller passes
 // `diff-tree`'s raw output before stripping it — see secretAdditionsInCommit)
-// its leading bare commit-hash line. A line that starts with none of ' ',
-// '+', '-' (git's "\ No newline at end of file" marker, or a NEXT file's
-// "diff --git" header if a multi-file patch is ever passed whole) ends
+// its leading bare commit-hash line. A line starting with '\' is git's
+// "\ No newline at end of file" marker: it can appear MID-hunk (immediately
+// after EITHER a '-' or a '+' line, whenever that side of the change lacks a
+// trailing newline — verified against real git for a same-line rotation), so
+// it must be skipped WITHOUT ending collection into the current hunk; a
+// version that treated it as "end this hunk" silently dropped every '+' line
+// that came after it, which is exactly where a rotated secret's new value
+// lives. Only a line starting with none of ' ', '+', '-', '\' (a NEXT file's
+// "diff --git" header, if a multi-file patch is ever passed whole) ends
 // collection into the CURRENT hunk without discarding what was already
 // gathered; only a fresh "@@ " line starts a new one. This is the ONE parser
 // shared by SecretAdditions (-U2 output, added-line extraction with context)
@@ -61,6 +67,8 @@ func parseHunks(patch string) []hunk {
 		switch line[0] {
 		case ' ', '+', '-':
 			cur.lines = append(cur.lines, hunkLine{op: line[0], text: line[1:]})
+		case '\\':
+			continue // "\ No newline at end of file": not hunk content, keep collecting
 		default:
 			cur = nil
 		}
@@ -112,9 +120,14 @@ const secretContextRadius = 2
 // in an API key, say) must never be reinterpreted as a wildcard. --no-merges
 // on the log skips merge commits entirely — their redaction is guard-blocked
 // one layer up regardless, so there is nothing useful to extract from them
-// here.
+// here. --no-show-signature matches read.go's convention: without it, a
+// repo with log.showSignature=true injects gpg verification lines into the
+// output, which (combined with -z's NUL-delimited records here) would
+// corrupt the hash tokens this parses.
 func (r *Repo) SecretAdditions(match string, globs []string) ([]SecretHit, error) {
-	args := []string{"log", "-z", "--format=%H", "--no-merges", "-S" + match, "HEAD"}
+	args := []string{
+		"log", "-z", "--no-show-signature", "--format=%H", "--no-merges", "-S" + match, "HEAD",
+	}
 	if len(globs) > 0 {
 		args = append(args, "--")
 		args = append(args, globs...)
@@ -209,15 +222,23 @@ func hunkContext(lines []hunkLine, i int) []string {
 // oldest first. git has no native "children" pointer (only parent links), so
 // this is computed as a REVERSE rev-list walk from HEAD, excluding everything
 // reachable from fromCommit: `rev-list --first-parent --reverse
-// fromCommit..HEAD` — valid precisely because LineDescendants only ever
-// starts from a commit that IS on HEAD's first-parent ancestry (where the
-// secret was introduced on the branch being scanned).
+// fromCommit..HEAD` — valid precisely because LineDescendants' guard (see its
+// call to isOnFirstParentChain) already confirmed fromCommit IS on HEAD's
+// first-parent ancestry before this runs. No -z here: the output is a plain
+// hash-per-line list (no paths, nothing that needs NUL-safety), and `-z` on
+// `rev-list` needs a newer git than every other rev-list call in this repo
+// assumes — plain output plus whitespace splitting, like FirstParents in
+// read.go, works on any supported git version.
 func (r *Repo) forwardFirstParentChain(fromCommit string) ([]string, error) {
-	out, err := r.gitRaw("rev-list", "--first-parent", "--reverse", "-z", fromCommit+"..HEAD")
+	out, err := r.git("rev-list", "--first-parent", "--reverse", fromCommit+"..HEAD")
 	if err != nil {
 		return nil, fmt.Errorf("forward chain from %s: %w", short(fromCommit), err)
 	}
-	return append([]string{fromCommit}, splitNUL(out)...), nil
+	chain := []string{fromCommit}
+	if out != "" {
+		chain = append(chain, strings.Fields(out)...)
+	}
+	return chain, nil
 }
 
 // findPathSection scans a multi-file diff's per-file sections (as split by
@@ -237,17 +258,26 @@ func findPathSection(patch, trackPath string) (section, newPath string, found bo
 	return "", "", false
 }
 
-// findRemovedLine searches hunks for one whose removed ('-') lines include
-// trackLine, returning that hunk (by value — hunk is small) and true.
-func findRemovedLine(hunks []hunk, trackLine string) (hunk, bool) {
+// findRemovedLines returns every hunk (by value — hunk is small) whose
+// removed ('-') lines include trackLine. Ordinarily this is 0 or 1 hunks; a
+// SECOND match means trackLine's exact text occurs more than once in the
+// file and BOTH occurrences changed in this commit pair — LineDescendants
+// treats that as ambiguous (see its doc comment) rather than guessing which
+// hunk's fate belongs to the occurrence being tracked. A hunk containing
+// trackLine as a removed line more than once (duplicated within itself) only
+// counts once here — the ambiguity that matters is "which hunk", not "how
+// many times within one hunk".
+func findRemovedLines(hunks []hunk, trackLine string) []hunk {
+	var matches []hunk
 	for _, h := range hunks {
 		for _, ln := range h.lines {
 			if ln.op == '-' && ln.text == trackLine {
-				return h, true
+				matches = append(matches, h)
+				break
 			}
 		}
 	}
-	return hunk{}, false
+	return matches
 }
 
 // countOp counts how many lines in a hunk carry the given op byte.
@@ -272,11 +302,43 @@ func firstOp(lines []hunkLine, op byte) string {
 	return ""
 }
 
+// isOnFirstParentChain reports whether commit appears somewhere along HEAD's
+// first-parent lineage (a "primary line" ancestor reached by following ONLY
+// first-parent links from HEAD) rather than merely being reachable from HEAD
+// by some path. The distinction matters: a commit on a side branch that was
+// merged into HEAD by an ordinary (non-first-parent) merge IS reachable from
+// HEAD — `git merge-base --is-ancestor` would say yes — but is NOT on the
+// chain LineDescendants walks, and there is no dedicated git flag for "is
+// this specifically a first-parent ancestor" (`git merge-base` has no
+// --first-parent option, verified against real git). So this does the only
+// fully correct check: read HEAD's whole first-parent chain and look for an
+// exact match. One `git rev-list` process is cheap enough for a guard that
+// runs once per LineDescendants call, even over a large linear history.
+func (r *Repo) isOnFirstParentChain(commit string) (bool, error) {
+	out, err := r.git("rev-list", "--first-parent", "HEAD")
+	if err != nil {
+		return false, fmt.Errorf("read first-parent chain: %w", err)
+	}
+	for _, h := range strings.Fields(out) {
+		if h == commit {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // LineDescendants walks path's tracked line FORWARD from fromCommit along the
 // current branch's first-parent chain to HEAD, returning every later state
 // the line took (oldest first) and a note explaining why the chain ended
 // early (empty when it simply ran a rotation-free course to a deletion or to
 // HEAD unedited).
+//
+// fromCommit MUST be on HEAD's first-parent chain: SecretAdditions (the
+// usual source of a fromCommit) walks ALL parents, not just first-parent, so
+// a SecretHit can legitimately name a side-branch commit that was merged in
+// — feeding that straight into the rev-list range below would silently
+// compute a nonsensical "forward chain", not an error, so it is checked
+// explicitly up front via isOnFirstParentChain.
 //
 // The chain is stepped one commit pair at a time. Each pair's diff uses -U0
 // (zero context: the cheapest way to see EXACTLY which lines were added or
@@ -286,11 +348,23 @@ func firstOp(lines []hunkLine, op byte) string {
 // the OLD path alone defeats -M's rename pairing entirely — git has nothing
 // on the "new" side of the pathspec-filtered diff to compare against, so it
 // reports a plain file deletion instead of a rename (see
-// TestLineDescendants_followsRotationRenameAndDeletion for the concrete
-// repro). So every pair diffs the WHOLE tree, and findPathSection below
+// TestLineDescendants_rotationAfterRenameTracksNewPath, which — unlike
+// TestLineDescendants_followsRotationRenameAndDeletion's rename-then-delete
+// shape — actually distinguishes a correct rename-follow from that
+// regression). So every pair diffs the WHOLE tree, and findPathSection below
 // searches its per-file sections for the one currently tracking our path.
 func (r *Repo) LineDescendants(fromCommit, path, line string) (
 	[]model.RedactVersion, string, error) {
+	onChain, err := r.isOnFirstParentChain(fromCommit)
+	if err != nil {
+		return nil, "", err
+	}
+	if !onChain {
+		return nil, "", fmt.Errorf(
+			"commit %s is not on HEAD's first-parent chain: LineDescendants can only "+
+				"track a line forward along the primary branch line", short(fromCommit))
+	}
+
 	chain, err := r.forwardFirstParentChain(fromCommit)
 	if err != nil {
 		return nil, "", err
@@ -313,13 +387,22 @@ func (r *Repo) LineDescendants(fromCommit, path, line string) (
 		}
 		trackPath = newPath
 
-		h, hit := findRemovedLine(parseHunks(sec), trackLine)
-		if !hit {
+		matches := findRemovedLines(parseHunks(sec), trackLine)
+		switch len(matches) {
+		case 0:
 			// The path changed (a rename, or unrelated lines in it) but our
 			// tracked line itself was never removed: it survives unchanged.
 			continue
+		case 1:
+			// handled below
+		default:
+			note := fmt.Sprintf(
+				"line's content occurs more than once and changed in multiple hunks of %s; "+
+					"review that commit manually", short(b))
+			return descendants, note, nil
 		}
 
+		h := matches[0]
 		switch added := countOp(h.lines, '+'); added {
 		case 0:
 			return descendants, "", nil // deleted: chain ends, no note
@@ -377,9 +460,11 @@ func (r *Repo) GrepTree(tree, literal string) (bool, error) {
 // Output is a plain %H-per-line list (no paths, no message body), so unlike
 // the -z-delimited commands elsewhere in this file, ordinary whitespace
 // splitting is safe here — the same choice FirstParents makes for the same
-// reason.
+// reason. --no-show-signature is the same read.go convention as
+// SecretAdditions above: without it, a signed-commit repo with
+// log.showSignature=true would inject gpg lines into the hash list.
 func (r *Repo) SecretAddedFrom(rev, match string) ([]string, error) {
-	out, err := r.git("log", "--format=%H", "--full-history", "-S"+match, rev)
+	out, err := r.git("log", "--no-show-signature", "--format=%H", "--full-history", "-S"+match, rev)
 	if err != nil {
 		return nil, fmt.Errorf("secret history search %q: %w", match, err)
 	}
