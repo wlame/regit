@@ -169,28 +169,35 @@ func mergedSideBranchRepo(t *testing.T) *gitio.Repo {
 	return r
 }
 
-// corruptedObjectRepo builds a 2-commit fixture (c1 adds the secret, c2 adds
-// an unrelated file) and then removes the loose object backing c2's new
-// file from the repository's own object store. This reproduces a real (if
-// rare) git failure mode — a partial clone or a corrupted object store —
-// where commit metadata stays fully readable but a blob-content operation
-// fails outright: `rev-list`, which both of LineDescendants' first-parent
-// chain checks rely on, never reads blob content, so it keeps working; a
-// `diff` between the two commits does need the new file's content and fails
-// with a real git error. This is the only way found to drive
-// LineDescendants to a NON-sentinel error through Scan's real git plumbing —
-// any commit that is simply absent from, or off, the first-parent chain
-// always surfaces as ErrLineOffFirstParentChain instead (see
-// mergedSideBranchRepo), so that path cannot exercise this one.
+// corruptedObjectRepo builds a 2-commit fixture where c1 adds the secret to
+// cfg.yaml and c2 BOTH rotates that same line (a genuine edit LineDescendants
+// would otherwise report as a real descendant) AND adds an unrelated new
+// file, extra.txt — then removes the loose object backing extra.txt from the
+// repository's own object store. This reproduces a real (if rare) git
+// failure mode — a partial clone or a corrupted object store — where commit
+// metadata stays fully readable but a blob-content operation fails outright:
+// `rev-list`, which both of LineDescendants' first-parent chain checks rely
+// on, never reads blob content, so it keeps working; `git log -S` SCOPED to
+// cfg.yaml (via the test's Globs) never touches extra.txt either, so
+// SecretAdditions succeeds and hands cascade a real hit. LineDescendants'
+// own commit-pair diff, though, is deliberately NOT pathspec-restricted (see
+// its doc comment — full-tree diffing is what makes rename-following work),
+// so it still needs extra.txt's content to render the c1..c2 diff and fails
+// on the missing blob. This is the only way found to drive LineDescendants
+// to a NON-sentinel error through Scan's real git plumbing — any commit that
+// is simply absent from, or off, the first-parent chain always surfaces as
+// ErrLineOffFirstParentChain instead (see mergedSideBranchRepo), so that
+// path cannot exercise this one.
 func corruptedObjectRepo(t *testing.T) *gitio.Repo {
 	t.Helper()
 	r, dir := openRepo(t)
-	mustWriteFile(t, dir, "cfg.yaml", "token: sk-CORRUPT\n")
+	mustWriteFile(t, dir, "cfg.yaml", "before\ntoken: sk-CORRUPT\nafter\n")
 	gitT(t, dir, "add", ".")
 	gitT(t, dir, "commit", "-m", "c1 add secret")
+	mustWriteFile(t, dir, "cfg.yaml", "before\ntoken: sk-CORRUPT-ROTATED\nafter\n")
 	mustWriteFile(t, dir, "extra.txt", "irrelevant\n")
 	gitT(t, dir, "add", ".")
-	gitT(t, dir, "commit", "-m", "c2 unrelated add")
+	gitT(t, dir, "commit", "-m", "c2 rotate secret and add unrelated file")
 
 	blob := gitT(t, dir, "rev-parse", "HEAD:extra.txt")
 	objPath := filepath.Join(dir, ".git", "objects", blob[:2], blob[2:])
@@ -356,17 +363,40 @@ func TestScan_offFirstParentChainHitSkipsCascadeWithNote(t *testing.T) {
 // failure that is NOT the off-chain sentinel (here, a genuine git failure
 // from a missing object) must still abort Scan — the errors.Is branch in
 // cascade must not swallow it the way it swallows the sentinel case.
+//
+// Globs scopes the pickaxe search to cfg.yaml so SecretAdditions itself
+// succeeds without ever touching extra.txt's corrupted blob (verified
+// against real git: an UNSCOPED `git log -S` must read every blob any hit
+// commit changed, including extra.txt, and fails there instead) — the
+// failure under test must come from LineDescendants' own unrestricted
+// commit-pair diff, not from the pickaxe search that runs before cascade is
+// ever reached. The message-prefix check below pins that distinction so a
+// future regression that moved the failure back to SecretAdditions can't
+// silently pass this test for the wrong reason.
 func TestScan_nonSentinelCascadeErrorAborts(t *testing.T) {
 	r := corruptedObjectRepo(t)
 	eng := Engine{Repo: r}
 
-	_, err := eng.Scan(ScanOptions{Match: "sk-CORRUPT", Cascade: true})
+	_, err := eng.Scan(ScanOptions{
+		Match:   "sk-CORRUPT",
+		Globs:   []string{"cfg.yaml"},
+		Cascade: true,
+	})
 	if err == nil {
 		t.Fatal("Scan should abort when LineDescendants fails for a reason " +
 			"other than the off-chain sentinel")
 	}
 	if errors.Is(err, gitio.ErrLineOffFirstParentChain) {
 		t.Errorf("err = %v, want a genuine git failure, not the off-chain sentinel", err)
+	}
+	if !strings.HasPrefix(err.Error(), "diff ") {
+		t.Errorf("err = %q, want it to carry LineDescendants' own \"diff <a>..<b>: ...\" "+
+			"wrapper — a \"pickaxe search\" prefix here would mean the failure came from "+
+			"SecretAdditions and cascade/LineDescendants was never even reached", err)
+	}
+	if strings.Contains(err.Error(), "pickaxe search") {
+		t.Errorf("err = %q, want no \"pickaxe search\" prefix: that would mean "+
+			"SecretAdditions failed before cascade ran, not the branch this test targets", err)
 	}
 }
 
