@@ -9,11 +9,18 @@ import (
 )
 
 // redactLines applies the spec's transform to one blob's content, returning
-// the new content and whether anything changed. Content is treated as
-// \n-separated; a line's COMPARED text excludes a trailing \r (CRLF files),
-// but untouched lines keep their bytes exactly, and the file's final-newline
-// presence is preserved. Lines are the unit of change (git's own minimal
-// entity), so this is pure string surgery — no diff machinery.
+// the new content and whether the content's BYTES actually differ from the
+// input — not merely whether a target line was matched. A RedactReplace
+// whose pattern doesn't occur within a matched line reproduces that line
+// byte-for-byte and must report false here: the caller uses this signal to
+// decide whether a line was genuinely redacted, and a false "yes" here would
+// wrongly tell it (or a future reporting/verification layer) a secret was
+// removed when the rule never actually touched it. A RedactRemove match is
+// always a change: the line is gone. Content is treated as \n-separated; a
+// line's COMPARED text excludes a trailing \r (CRLF files), but untouched
+// lines keep their bytes exactly, and the file's final-newline presence is
+// preserved. Lines are the unit of change (git's own minimal entity), so
+// this is pure string surgery — no diff machinery.
 func redactLines(content string, targets []string, mode model.RedactMode,
 	rule *model.RedactRule) (string, bool, error) {
 	want := make(map[string]bool, len(targets))
@@ -36,18 +43,26 @@ func redactLines(content string, targets []string, mode model.RedactMode,
 			out = append(out, raw)
 			continue
 		}
-		changed = true
 		switch mode {
 		case model.RedactRemove:
 			// Drop the line: append nothing. Its preceding "\n" separator (or,
 			// for the first line, nothing) goes with it via the final Join below.
+			// A vanished line is always a change.
+			changed = true
 		case model.RedactReplace:
 			re, err := rule.Compile()
 			if err != nil {
 				return "", false, err
 			}
 			eol := raw[len(cmp):] // "" or "\r" — reattach after the rewrite
-			out = append(out, re.ReplaceAllString(cmp, rule.Replacement)+eol)
+			newLine := re.ReplaceAllString(cmp, rule.Replacement) + eol
+			out = append(out, newLine)
+			// A target line whose content doesn't actually contain rule.Pattern
+			// comes back byte-identical to raw; that must NOT register as a
+			// change — see the function doc for why the signal matters even
+			// though git's content-addressed blob store means an accidental
+			// rehash of identical bytes is otherwise harmless on its own.
+			changed = changed || newLine != raw
 		}
 	}
 	if !changed {
@@ -126,8 +141,10 @@ func (r *Repo) RedactBlobsInTree(tree string, spec model.RedactSpec) (string, er
 		return "", fmt.Errorf("read-tree %s: %w", short(tree), err)
 	}
 	for _, e := range edits {
-		info := fmt.Sprintf("%s,%s,%s", e.mode, e.oid, e.path)
-		if _, err := r.gitWithEnvStdin(env, "", "update-index", "--cacheinfo", info); err != nil {
+		// Three separate args (not the comma-joined "<mode>,<oid>,<path>" form):
+		// a path containing a literal comma would otherwise be ambiguous.
+		if _, err := r.gitWithEnvStdin(env, "", "update-index", "--cacheinfo",
+			e.mode, e.oid, e.path); err != nil {
 			return "", fmt.Errorf("update-index %s: %w", e.path, err)
 		}
 	}
