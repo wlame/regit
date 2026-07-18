@@ -174,7 +174,8 @@ The full keymap, grouped the same way as the in-app `?` help overlay
 
 Every interactive action has a non-interactive equivalent. Mutating commands
 **preview by default**; pass `--execute` to apply, and `--execute --force` to
-rewrite already-pushed commits. `undo` is exempt and restores immediately.
+rewrite already-pushed commits. `undo`, `install`, and `uninstall` are exempt
+and act immediately.
 
 <!-- regit:begin commands -->
 | Command | What it does |

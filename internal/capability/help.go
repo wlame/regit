@@ -26,7 +26,8 @@ func HelpTerse() string {
 		b.WriteString(fmt.Sprintf("  %-12s %s\n", c.Name, c.Summary))
 	}
 	b.WriteString("\nMutating commands preview by default; pass --execute to apply,\n")
-	b.WriteString("and --execute --force to rewrite already-pushed commits.\n")
+	b.WriteString("and --execute --force to rewrite already-pushed commits\n")
+	b.WriteString("(undo, install, and uninstall act immediately).\n")
 	return b.String()
 }
 
@@ -150,8 +151,8 @@ func LLMHelp(format string) (string, error) {
 	b.WriteString("titles/bodies. Core concepts: day-strategies × time-models (redate),\n")
 	b.WriteString("a backup ref before every apply, and the dry-run/--execute/--force gradient.\n\n")
 	b.WriteString("Convention: mutating commands PREVIEW by default; pass --execute to apply,\n")
-	b.WriteString("and --execute --force to rewrite already-pushed commits. `undo` is exempt and\n")
-	b.WriteString("restores immediately.\n")
+	b.WriteString("and --execute --force to rewrite already-pushed commits. `undo`, `install`,\n")
+	b.WriteString("and `uninstall` are exempt and act immediately.\n")
 	b.WriteString("\nInvocation: `regit <command>` and `git re <command>` are equivalent after\n")
 	b.WriteString("`regit install`. Hints and help follow whichever form was used.\n")
 	b.WriteString("Exception: git answers a bare `git re --help` itself; use `git re -h` instead.\n")

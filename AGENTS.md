@@ -291,10 +291,11 @@ error); the `--llm-help` environment section is likewise projected from
 `split` · `reword` · `squash` · `redate` · `retitle` · `reauthor` · `drop-bodies` · `purge` · `redact` · `undo` · `install` · `uninstall`
 <!-- regit:end verbs-detail -->
 
-Every mutating verb except
-`undo` **previews by default** and applies with `--execute`, requiring `--execute
---force` to rewrite already-pushed history; a dirty tree or out-of-order plan is a
-hard block. `undo` is exempt — it restores immediately; `undo --list` is read-only.
+Every mutating verb except `undo`, `install`, and `uninstall` previews by default
+and applies with `--execute`, requiring `--execute --force` to rewrite
+already-pushed history; a dirty tree or out-of-order plan is a hard block.
+`undo`, `install`, and `uninstall` are exempt — they act immediately; `undo
+--list` is read-only.
 Exit codes: `0` ok/dry-run · `1` usage error · `2` guard-blocked (dirty, pushed
 without `--force`) · `3` apply/runtime error. (`split`/`reword` keep deprecated
 `--yes`→`--execute` and no-op `--dry-run` aliases, translated by `deprecate.go`.)

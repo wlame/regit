@@ -385,7 +385,7 @@ var registry = []Command{
 		Limitations: []string{
 			"Never deletes a git-re that does not resolve to the running regit binary.",
 		},
-		ExitCodes: map[int]string{0: "ok / not installed", 3: "uninstall error (foreign git-re, or removal failed)"},
+		ExitCodes: map[int]string{0: "ok / not installed", 1: "usage error", 3: "uninstall error (foreign git-re, or removal failed)"},
 	},
 }
 
