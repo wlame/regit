@@ -123,6 +123,33 @@ var registry = []Command{
 		Run:       runSquash,
 	},
 	{
+		Name:      "linearize",
+		Summary:   "Flatten merge topology into a clean first-parent chain (trees preserved).",
+		Mutating:  true,
+		Workspace: WSNone,
+		Selection: SelActive,
+		Run:       runLinearize,
+		Params: []Param{
+			{Name: "repo", Type: ParamString, Default: ".", Help: "path to the git repository"},
+			{Name: "execute", Type: ParamBool, Default: "false", Help: "apply the linearize (default: dry-run preview)"},
+			{Name: "force", Type: ParamBool, Default: "false", Help: "allow rewriting already-pushed commits"},
+			{Name: "sign", Type: ParamBool, Default: "false", Help: "re-sign rewritten commits with your configured signing key"},
+		},
+		Examples: []Example{
+			{Cmd: "regit linearize", Why: "preview the fold table (dry-run)"},
+			{Cmd: "regit linearize --execute", Why: "fold every merge on the branch into ordinary commits"},
+			{Cmd: "regit linearize HEAD~5..HEAD", Why: "linearize takes no range; it always covers the whole branch", Bad: true},
+		},
+		Limitations: []string{
+			"Folds the whole current branch; per-merge selection and ranges are not supported.",
+			"Side-branch commits stay reachable from other branches/tags that point at them (advisory in the preview); the fold only rewrites the current branch.",
+			"Octopus merges fold all non-first parents into the one landing commit.",
+			"Side authorship is preserved as Co-authored-by trailers, not as separate commits.",
+			"Previously signed commits lose their signatures unless --sign re-signs them.",
+		},
+		ExitCodes: map[int]string{0: "ok / nothing to linearize", 1: "usage error", 2: "guard blocked", 3: "apply error"},
+	},
+	{
 		Name:      "redate",
 		Summary:   "Spread commit/author dates across a calendar using a strategy.",
 		Mutating:  true,

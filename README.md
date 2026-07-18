@@ -183,6 +183,7 @@ and act immediately.
 | `regit split` | Split one commit into 2–4 semantic commits using an LLM. |
 | `regit reword` | Regenerate commit message(s) with an LLM (one proposal headless). |
 | `regit squash` | Squash consecutive commits into one per chain (LLM-summarized message). |
+| `regit linearize` | Flatten merge topology into a clean first-parent chain (trees preserved). |
 | `regit redate --strategy=…` | Spread commit/author dates across a calendar using a strategy. |
 | `regit retitle --match=…` | Rewrite commit subjects with a regex across a range. |
 | `regit reauthor` | Rewrite the author (and by default committer) identity of commits. |
