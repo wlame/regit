@@ -58,8 +58,9 @@ var actionCompat = map[capability.SelectionMode]map[selKind]bool{
 // or disabled reason, and the Run closure from featureBindings.
 type panelRow struct {
 	Title   string
+	Desc    string // static "what it does" phrase (grey), from the binding
 	Verb    string
-	Detail  string
+	Detail  string // dynamic status (e.g. "3 → 1 commit(s)") or disabled reason
 	Enabled bool
 	Run     func(Model) (tea.Model, tea.Cmd)
 }
@@ -144,6 +145,7 @@ func (m Model) panelRows() []panelRow {
 		}
 		out = append(out, panelRow{
 			Title:   b.Title,
+			Desc:    b.Desc,
 			Verb:    c.Name,
 			Detail:  detail,
 			Enabled: enabled,
@@ -173,6 +175,70 @@ func panelWindowStart(cursor, total, shown int) int {
 	return start
 }
 
+// panelColumns holds the visible-cell width of each action-row column. Widths
+// are derived from the panel width so the row uses the whole line instead of
+// clustering on the left, and every cell is rendered through a lipgloss style
+// with a fixed .Width() — which pads by VISIBLE width, ANSI-aware — so a
+// coloured (selected/dimmed) cell keeps the same column span as a plain one.
+// Padding with fmt's %-Ns instead counts the invisible colour bytes and makes
+// the styled row's columns shift, which is the jitter this replaces.
+type panelColumns struct {
+	title int
+	desc  int
+	verb  int
+}
+
+const (
+	panelMarkerWidth = 2  // "▸ " / "  "
+	panelTitleWidth  = 20 // widest title ("Purge from history") + a little slack
+	panelVerbWidth   = 12 // widest verb ("drop-bodies")
+	panelColGap      = 1  // one blank cell between columns
+	panelDescMin     = 20 // keep the description legible on a narrow panel
+)
+
+// computePanelColumns splits the panel's inner width across the columns, giving
+// the flexible description column whatever the fixed columns leave.
+func computePanelColumns(width int) panelColumns {
+	inner := width - 4 // the paneActive frame spends 2 cols of border + 2 padding
+	desc := inner - panelMarkerWidth - panelTitleWidth - panelVerbWidth - 2*panelColGap
+	if desc < panelDescMin {
+		desc = panelDescMin
+	}
+	return panelColumns{title: panelTitleWidth, desc: desc, verb: panelVerbWidth}
+}
+
+// renderPanelRow lays out one action row as fixed-width, visible-width-padded
+// cells: "▸ Title   description/status   verb". The title takes the row's
+// accent when selected or dims when disabled; the middle column shows the
+// dynamic Detail (status like "3 → 1 commit(s)", or the reason a disabled
+// action can't run) when there is one, else the static Desc — so every row
+// carries an explanation, and a disabled row explains why in place.
+func (m Model) renderPanelRow(r panelRow, selected bool, cols panelColumns) string {
+	marker := "  "
+	titleStyle := lipgloss.NewStyle()
+	switch {
+	case selected:
+		marker = m.st.selected.Render("▸ ")
+		titleStyle = m.st.selected
+	case !r.Enabled:
+		titleStyle = m.st.dim
+	}
+
+	middle, middleStyle := r.Desc, m.st.dim
+	if r.Detail != "" {
+		middle = r.Detail
+		if !r.Enabled {
+			middleStyle = m.st.statusWarn // the reason an action can't run
+		}
+	}
+
+	gap := strings.Repeat(" ", panelColGap)
+	return marker +
+		titleStyle.Width(cols.title).MaxWidth(cols.title).Render(r.Title) + gap +
+		middleStyle.Width(cols.desc).MaxWidth(cols.desc).Render(middle) + gap +
+		m.st.help.Width(cols.verb).MaxWidth(cols.verb).Render(r.Verb)
+}
+
 // viewActionPanel renders the bottom panel at the given full terminal width.
 // The body above stays visible — the panel is a region, not an overlay. Rows
 // are windowed to m.panelWindowRows so the rendered height never exceeds the
@@ -199,20 +265,11 @@ func (m Model) viewActionPanel(width int) string {
 	if kind != selKindCursor {
 		scope = fmt.Sprintf("%d selected commit(s)", len(m.affectedCommits()))
 	}
+	cols := computePanelColumns(width)
 	var b strings.Builder
 	b.WriteString(m.st.modalTitle.Render("ACTIONS · "+scope) + "\n")
 	for i := start; i < start+displayRows && i < len(rows); i++ {
-		r := rows[i]
-		marker, title := "  ", r.Title
-		if i == m.panel.cursor {
-			marker = m.st.selected.Render("▸ ")
-			title = m.st.selected.Render(r.Title)
-		} else if !r.Enabled {
-			title = m.st.dim.Render(r.Title)
-		}
-		line := fmt.Sprintf("%s%-22s %-34s %s",
-			marker, title, m.st.dim.Render(r.Detail), m.st.help.Render(r.Verb))
-		b.WriteString(line + "\n")
+		b.WriteString(m.renderPanelRow(rows[i], i == m.panel.cursor, cols) + "\n")
 	}
 	if showIndicator {
 		hidden := len(rows) - displayRows

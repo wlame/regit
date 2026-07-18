@@ -83,6 +83,43 @@ func TestPanelViewShowsVerbAndReason(t *testing.T) {
 	}
 }
 
+// TestPanelRows_everyRowHasDescription: the panel must never show a bare row —
+// every action carries a static grey "what it does" phrase, so the menu is not
+// half-explained (some rows blank, some not).
+func TestPanelRows_everyRowHasDescription(t *testing.T) {
+	m := newTestModel(t)
+	for _, r := range m.panelRows() {
+		if strings.TrimSpace(r.Desc) == "" {
+			t.Fatalf("panel row %q (%s) has no description", r.Title, r.Verb)
+		}
+	}
+}
+
+// TestRenderPanelRow_columnsAlignRegardlessOfSelection: the selected row is
+// colour-styled; padding it with a byte-counting format verb (the old bug)
+// under-pads the visible text and shifts the columns. Rendering through
+// lipgloss .Width() cells keeps the visible width identical whether or not the
+// row is selected — so the verb column never jumps as the cursor moves.
+func TestRenderPanelRow_columnsAlignRegardlessOfSelection(t *testing.T) {
+	m := newTestModel(t)
+	cols := computePanelColumns(120)
+	row := panelRow{Title: "Purge from history", Desc: "Erase a file from all of history",
+		Verb: "purge", Enabled: true}
+
+	plain := m.renderPanelRow(row, false, cols)
+	sel := m.renderPanelRow(row, true, cols)
+	if lipgloss.Width(plain) != lipgloss.Width(sel) {
+		t.Fatalf("selected row width %d != unselected %d — columns shift on selection",
+			lipgloss.Width(sel), lipgloss.Width(plain))
+	}
+	// And a disabled row (dim title + amber reason) must line up too.
+	disabled := m.renderPanelRow(panelRow{Title: "Squash commits", Verb: "squash",
+		Detail: "select 2+ consecutive commits", Enabled: false}, false, cols)
+	if lipgloss.Width(disabled) != lipgloss.Width(plain) {
+		t.Fatalf("disabled row width %d != enabled %d", lipgloss.Width(disabled), lipgloss.Width(plain))
+	}
+}
+
 // TestPanelOpenPreservesSelection: the spec's core invariant — opening,
 // navigating, and closing the panel never mutates an explicit selection.
 func TestPanelOpenPreservesSelection(t *testing.T) {
