@@ -61,7 +61,9 @@ git re redact --help
 help automatically show whichever form you used. `regit install` refuses to
 overwrite a foreign `git-re` (pass `--force` to replace it), and
 `regit uninstall` removes the link — never touching a `git-re` that isn't
-regit's. One git quirk: a bare `git re --help` is answered by git itself (man-page lookup) — use `git re -h` for the command list. On Windows, creating symlinks may require elevated privileges.
+regit's. One git quirk: a bare `git re --help` is answered by git itself
+(man-page lookup) — use `git re -h` for the command list. On Windows, creating
+symlinks may require elevated privileges.
 
 ## Usage
 
