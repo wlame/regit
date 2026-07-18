@@ -13,7 +13,27 @@ import (
 // break uses a trailing backslash.
 const wrapWidth = 76
 
-// Render produces the exact, runnable `regit <verb> …` command for an action,
+// invocation is the command-line prefix every hint and help surface renders.
+// It defaults to "regit" and is switched to ["git", "re"] at startup when the
+// process was launched through the git-re shim, so hints always teach the form
+// the user actually typed. Set once in main before any rendering; not mutex-
+// guarded because nothing writes it after startup.
+var invocation = []string{"regit"}
+
+// SetInvocation sets the rendered prefix ("regit" or "git re"). An empty or
+// blank prefix resets to the default rather than rendering unrunnable hints.
+func SetInvocation(prefix string) {
+	fields := strings.Fields(prefix)
+	if len(fields) == 0 {
+		fields = []string{"regit"}
+	}
+	invocation = fields
+}
+
+// Invocation returns the active prefix as one string, e.g. "regit" or "git re".
+func Invocation() string { return strings.Join(invocation, " ") }
+
+// Render produces the exact, runnable `regit <verb> …` (or `git re <verb> …`) command for an action,
 // from the SAME Param definitions the parser consumes — so the result always
 // round-trips through Parse (see render_test.go). Flags whose value equals the
 // Param.Default are omitted. A "_positional" key supplies positional args.
@@ -21,7 +41,7 @@ const wrapWidth = 76
 func Render(name string, argMap map[string]string) string {
 	c, ok := Lookup(name)
 	if !ok {
-		return "regit " + name
+		return Invocation() + " " + name
 	}
 	defaults := map[string]string{}
 	for _, p := range c.Params {
@@ -29,7 +49,8 @@ func Render(name string, argMap map[string]string) string {
 	}
 
 	var parts []string
-	parts = append(parts, "regit", c.Name)
+	parts = append(parts, invocation...)
+	parts = append(parts, c.Name)
 	if pos := termsafe.Line(argMap["_positional"]); pos != "" {
 		parts = append(parts, pos)
 	}

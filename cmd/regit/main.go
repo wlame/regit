@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -39,6 +40,19 @@ func wantsVersion(args []string) bool {
 	}
 	return false
 }
+
+// invokedAsGitRe reports whether the process was launched through the git-re
+// shim: git's external-command protocol execs the `git-re` executable for
+// `git re`, so argv[0] carries that name (possibly a full path, and .exe on
+// Windows). Hints and help then teach the `git re` form the user typed.
+func invokedAsGitRe(argv0 string) bool {
+	base := strings.TrimSuffix(filepath.Base(argv0), ".exe")
+	return base == gitShimBase
+}
+
+// gitShimBase mirrors capability's shim name; kept as a constant here because
+// main only needs the basename comparison.
+const gitShimBase = "git-re"
 
 // wantsHelp reports whether args (the args after the verb) contain --help or -h.
 func wantsHelp(args []string) bool {
@@ -121,6 +135,12 @@ func unknownCommand(args []string) (verb string, reject bool) {
 }
 
 func run() error {
+	// Detect launch-through-git first so every surface (hints, help, errors)
+	// renders the invocation form the user actually used.
+	if invokedAsGitRe(os.Args[0]) {
+		capability.SetInvocation("git re")
+	}
+
 	// Handle `regit --version` before anything else.
 	if wantsVersion(os.Args[1:]) {
 		fmt.Println("regit", version)

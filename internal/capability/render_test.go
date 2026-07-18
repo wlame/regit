@@ -267,3 +267,39 @@ func TestRender_sanitizesControlBytes(t *testing.T) {
 		t.Fatalf("positional slot leaked an escape byte: %q", pos)
 	}
 }
+
+// TestRender_GitReInvocation verifies the footer prefix follows SetInvocation
+// and that the rendered line still round-trips through tokenize with the
+// two-token "git re" prefix stripped.
+func TestRender_GitReInvocation(t *testing.T) {
+	SetInvocation("git re")
+	defer SetInvocation("regit")
+
+	line := Render("undo", map[string]string{"list": "true"})
+	if !strings.HasPrefix(line, "git re undo") {
+		t.Fatalf("Render = %q, want git re prefix", line)
+	}
+	tokens := tokenize(line)
+	if len(tokens) < 3 || tokens[0] != "git" || tokens[1] != "re" || tokens[2] != "undo" {
+		t.Fatalf("tokens = %v, want [git re undo …]", tokens)
+	}
+}
+
+// TestRender_UnknownVerbUsesInvocation covers the Lookup-miss fallback path.
+func TestRender_UnknownVerbUsesInvocation(t *testing.T) {
+	SetInvocation("git re")
+	defer SetInvocation("regit")
+	if got := Render("nosuch", nil); got != "git re nosuch" {
+		t.Fatalf("Render fallback = %q, want %q", got, "git re nosuch")
+	}
+}
+
+// TestSetInvocation_EmptyResetsToDefault guards against a blank prefix wiping
+// the hint line entirely.
+func TestSetInvocation_EmptyResetsToDefault(t *testing.T) {
+	SetInvocation("")
+	defer SetInvocation("regit")
+	if got := Invocation(); got != "regit" {
+		t.Fatalf("Invocation() = %q, want regit", got)
+	}
+}

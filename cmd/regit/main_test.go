@@ -198,3 +198,22 @@ func TestDispatch_InstallOutsideRepo(t *testing.T) {
 		t.Fatal("uninstall should refuse a link owned by a different binary")
 	}
 }
+
+// TestInvokedAsGitRe covers the argv[0] shapes git and shells produce.
+func TestInvokedAsGitRe(t *testing.T) {
+	cases := []struct {
+		argv0 string
+		want  bool
+	}{
+		{"/usr/local/bin/git-re", true},
+		{"git-re", true},
+		{"git-re.exe", true},
+		{"/usr/local/bin/regit", false},
+		{"regit", false},
+	}
+	for _, c := range cases {
+		if got := invokedAsGitRe(c.argv0); got != c.want {
+			t.Errorf("invokedAsGitRe(%q) = %v, want %v", c.argv0, got, c.want)
+		}
+	}
+}
