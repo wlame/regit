@@ -46,6 +46,23 @@ go install github.com/wlame/regit/cmd/regit@latest
 
 Requires the `git` binary on your `PATH` and Go 1.26+ to build.
 
+## Install as `git re`
+
+regit can register itself as a native-feeling git subcommand:
+
+```sh
+regit install     # links git-re next to the regit binary on your PATH
+git re            # → launches the regit TUI
+git re redact --help
+```
+
+`git re <command>` and `regit <command>` are fully equivalent — git finds the
+`git-re` symlink through its external-command protocol, and regit's hints and
+help automatically show whichever form you used. `regit install` refuses to
+overwrite a foreign `git-re` (pass `--force` to replace it), and
+`regit uninstall` removes the link — never touching a `git-re` that isn't
+regit's. One git quirk: a bare `git re --help` is answered by git itself (man-page lookup) — use `git re -h` for the command list. On Windows, creating symlinks may require elevated privileges.
+
 ## Usage
 
 Run inside any git repository:
@@ -170,6 +187,8 @@ rewrite already-pushed commits. `undo` is exempt and restores immediately.
 | `regit purge` | Remove files or directories from branch history as if never added. |
 | `regit redact --match=…` | Remove or replace a literal secret across branch history. |
 | `regit undo` | Restore the branch to the most recent regit backup ref. |
+| `regit install` | Register regit as the `git re` subcommand (symlink git-re on PATH). |
+| `regit uninstall` | Remove the `git re` integration (the git-re symlink). |
 <!-- regit:end commands -->
 
 ```bash
