@@ -599,3 +599,70 @@ func TestE2E_Redact_ReplaceMode(t *testing.T) {
 		t.Errorf("HEAD:cfg.yaml = %v, want [%q]", got, "token: READONLY")
 	}
 }
+
+// TestE2E_GitReIntegration exercises the full chain with the built binary:
+// regit install links git-re on a controlled PATH, git's external-command
+// protocol routes `git re` to it, help renders the git re form (via -h — git
+// swallows a bare --help for external commands, per-verb --help passes
+// through), and `git re uninstall` removes the link again.
+func TestE2E_GitReIntegration(t *testing.T) {
+	bin := regitBin(t)
+	pathDir := t.TempDir()
+	if err := os.Symlink(bin, filepath.Join(pathDir, "regit")); err != nil {
+		t.Fatal(err)
+	}
+	// Prepend the temp dir so its regit/git-re win every PATH lookup while
+	// git and go stay reachable.
+	env := append(os.Environ(), "PATH="+pathDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	runCmd := func(name string, args ...string) (string, error) {
+		cmd := exec.Command(name, args...)
+		cmd.Dir = t.TempDir() // not a git repo — install/uninstall must not care
+		cmd.Env = env
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+
+	out, err := runCmd(filepath.Join(pathDir, "regit"), "install")
+	if err != nil {
+		t.Fatalf("regit install: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Installed:") {
+		t.Fatalf("install output: %q", out)
+	}
+
+	out, err = runCmd("git", "re", "-h")
+	if err != nil {
+		t.Fatalf("git re -h: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "git re <command> [flags]") {
+		t.Fatalf("git re -h should teach the git re form:\n%s", out)
+	}
+
+	out, err = runCmd("git", "re", "undo", "--help")
+	if err != nil {
+		t.Fatalf("git re undo --help: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "git re undo") {
+		t.Fatalf("per-verb help should render the git re form:\n%s", out)
+	}
+
+	out, err = runCmd("git", "re", "install")
+	if err != nil {
+		t.Fatalf("git re install (idempotent): %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Already installed") {
+		t.Fatalf("second install output: %q", out)
+	}
+
+	out, err = runCmd("git", "re", "uninstall")
+	if err != nil {
+		t.Fatalf("git re uninstall: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Removed") {
+		t.Fatalf("uninstall output: %q", out)
+	}
+	if _, err := os.Lstat(filepath.Join(pathDir, "git-re")); !os.IsNotExist(err) {
+		t.Fatalf("git-re still on PATH after uninstall: %v", err)
+	}
+}

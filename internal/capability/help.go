@@ -154,6 +154,7 @@ func LLMHelp(format string) (string, error) {
 	b.WriteString("restores immediately.\n")
 	b.WriteString("\nInvocation: `regit <command>` and `git re <command>` are equivalent after\n")
 	b.WriteString("`regit install`. Hints and help follow whichever form was used.\n")
+	b.WriteString("Exception: git answers a bare `git re --help` itself; use `git re -h` instead.\n")
 
 	for _, c := range Registry() {
 		b.WriteString(h2(c.Name))

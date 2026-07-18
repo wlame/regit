@@ -60,7 +60,7 @@ func TestInstall_FreshCreatesSymlink(t *testing.T) {
 	if !strings.Contains(out.String(), "Installed:") {
 		t.Fatalf("output missing Installed banner: %q", out.String())
 	}
-	if !strings.Contains(out.String(), "git re --help") {
+	if !strings.Contains(out.String(), "git re -h") {
 		t.Fatalf("output missing teaching hint: %q", out.String())
 	}
 }

@@ -135,7 +135,7 @@ func runInstallEnv(env installEnv, ctx *RunContext, a ParsedArgs) error {
 		}
 	}
 
-	fmt.Fprintf(ctx.Stdout, "Installed: %s → %s\ntry: git re --help\n", link, pathBin)
+	fmt.Fprintf(ctx.Stdout, "Installed: %s → %s\ntry: git re -h\n", link, pathBin)
 	return nil
 }
 

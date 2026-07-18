@@ -367,6 +367,7 @@ var registry = []Command{
 		Limitations: []string{
 			"Writes only the git-re symlink in the PATH directory containing regit; never touches any repository.",
 			"Windows: creating symlinks may require elevated privileges; no copy/shim fallback is provided.",
+			"git intercepts a bare `git re --help` (man-page lookup); use `git re -h` or `git re <command> --help`.",
 		},
 		ExitCodes: map[int]string{0: "ok / already installed", 1: "usage error", 3: "install error (regit not on PATH, unwritable directory, or foreign git-re without --force)"},
 	},
