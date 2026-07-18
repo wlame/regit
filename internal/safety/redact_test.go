@@ -326,6 +326,68 @@ func TestApplyRedact_partialSelectionPreciseTierAbortsOnSurvivor(t *testing.T) {
 	}
 }
 
+// TestApplyRedact_globalTierAbortsOnSurvivorOutsideTargets isolates tier 2
+// (GLOBAL) with a construction where tier 1 (PRECISE) genuinely PASSES
+// first: the literal "sk-SHARED" lives in TWO files, but spec.Targets names
+// only cfg.yaml (simulating a scan/selection that covered only one
+// location). The redact genuinely, successfully strips the targeted line
+// from cfg.yaml — RedactBlobsInTree only ever touches paths present in
+// spec.Targets (see its doc comment), so other.txt is never even looked at
+// and rides forward byte-for-byte, literal intact. By construction:
+//   - Tier 1 loops spec.Targets = {cfg.yaml}; cfg.yaml's target line is
+//     genuinely gone from the new tree, so redactLineSurvives returns false
+//     and tier 1 returns nil cleanly — a REAL pass, not a vacuous one (the
+//     check runs and the redaction it inspects actually worked).
+//   - Tier 2 (armed by allSelected=true) re-scans the ENTIRE rewritten
+//     head — not spec.Targets — via SecretAddedFrom, which still finds the
+//     literal reachable through other.txt's untouched content, and aborts.
+//
+// This is the ONLY tier that can catch a survivor entirely outside
+// spec.Targets — the highest-value guarantee the absence check provides,
+// and the one a future regression in tier 1's scoping could otherwise leave
+// completely unpinned by the test suite.
+func TestApplyRedact_globalTierAbortsOnSurvivorOutsideTargets(t *testing.T) {
+	repo := newRedactRepo(t, []map[string]string{
+		{
+			"cfg.yaml":  "token: sk-SHARED\n",
+			"other.txt": "backup: sk-SHARED\n",
+		},
+	})
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := repo.ReadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldHead := state.HeadHash
+	spec := model.RedactSpec{
+		Match: "sk-SHARED", Mode: model.RedactRemove,
+		Targets: map[string][]string{"cfg.yaml": {"token: sk-SHARED"}},
+	}
+
+	mgr := NewManager(repo)
+	_, err = mgr.ApplyRedact(commits, spec, true, state,
+		ApplyOptions{Sign: gitio.DropSignatures, UnixTimestamp: 1, ExpectedHead: oldHead})
+	if err == nil {
+		t.Fatal("a survivor outside spec.Targets must abort via the GLOBAL tier, not silently succeed")
+	}
+	const wantSubstr = `"sk-SHARED" still reachable from the rewritten head's history`
+	if !strings.Contains(err.Error(), wantSubstr) {
+		t.Errorf("error should be the exact GLOBAL-tier wording %q, got: %v", wantSubstr, err)
+	}
+
+	newHead, herr := repo.ResolveRef("HEAD")
+	if herr != nil {
+		t.Fatal(herr)
+	}
+	if newHead != oldHead {
+		t.Errorf("a GLOBAL-tier abort must not move the branch: %s -> %s",
+			shortHash(oldHead), shortHash(newHead))
+	}
+}
+
 func TestApplyRedact_mergeInRangeBlocks(t *testing.T) {
 	repo := redactRotationRepo(t)
 	commits, err := repo.ReadCommits()
@@ -482,7 +544,7 @@ func TestVerifyRedactAbsence_replaceLiteralCheckIgnoresUnselectedLineOnSamePath(
 // correct gitio.ApplyRedact rewrite but then hands back a DELIBERATELY WRONG
 // expectation — claiming other.txt changed in c1's pair, though c1 (the
 // first commit in redactRotationRepo) never contained other.txt at all. If
-// the generic verify() stage every stopped catching a wrong expectation for
+// the generic verify() stage ever stopped catching a wrong expectation for
 // ANY reason (a future refactor bug, say), this is what would catch it: the
 // apply must error, and the branch ref must be byte-for-byte unmoved.
 func TestApplyRedact_verifyStageAbortsOnWrongExpectationRefUnmoved(t *testing.T) {

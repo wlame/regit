@@ -2,6 +2,7 @@ package safety
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/wlame/regit/internal/gitio"
@@ -226,8 +227,8 @@ func (m *Manager) verifyRedactAbsence(
 	newHead string, spec model.RedactSpec, allSelected bool, expectations []model.Expectation,
 ) error {
 	for _, e := range expectations {
-		for path, lines := range spec.Targets {
-			for _, line := range lines {
+		for _, path := range sortedTargetPaths(spec.Targets) {
+			for _, line := range sortedTargetLines(spec.Targets[path]) {
 				survived, err := m.redactLineSurvives(e.NewCommit, path, line)
 				if err != nil {
 					return fmt.Errorf("verify redact absence: %w", err)
@@ -311,8 +312,8 @@ func redactReplacedLineStillHasMatch(spec model.RedactSpec) error {
 	if err != nil {
 		return fmt.Errorf("verify redact absence: %w", err)
 	}
-	for path, lines := range spec.Targets {
-		for _, line := range lines {
+	for _, path := range sortedTargetPaths(spec.Targets) {
+		for _, line := range sortedTargetLines(spec.Targets[path]) {
 			replaced := rule.ReplaceAllString(line, spec.Rule.Replacement)
 			if strings.Contains(replaced, spec.Match) {
 				return fmt.Errorf(
@@ -322,4 +323,30 @@ func redactReplacedLineStillHasMatch(spec model.RedactSpec) error {
 		}
 	}
 	return nil
+}
+
+// sortedTargetPaths returns spec.Targets' paths in sorted order. Both
+// verifyRedactAbsence's precise sub-checks range over spec.Targets, a map —
+// without sorting, an abort message naming the FIRST offending path/line
+// would name a different one from run to run (Go deliberately randomizes map
+// iteration order), which this codebase avoids elsewhere for the same reason
+// (see emptyExpectations in verify.go). This does not change WHETHER a
+// commit aborts, only which offending path/line a multi-survivor abort names
+// first, so it is deterministic to test against.
+func sortedTargetPaths(targets map[string][]string) []string {
+	paths := make([]string, 0, len(targets))
+	for path := range targets {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+// sortedTargetLines returns a sorted COPY of lines — the caller's own
+// spec.Targets[path] slice is never mutated by sorting it in place, since
+// that slice may be shared or reused by the caller after this call returns.
+func sortedTargetLines(lines []string) []string {
+	sorted := append([]string(nil), lines...)
+	sort.Strings(sorted)
+	return sorted
 }

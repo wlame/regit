@@ -496,12 +496,12 @@ func newRedactRepoWithSideHistoryPocket(t *testing.T) *gitio.Repo {
 // second parent) remain reachable no matter what the main-line rewrite does —
 // so safety.Manager.ApplyRedact's own GLOBAL absence tier (armed here since
 // headless always sets allSelected=true) independently re-derives the exact
-// same signal from the rewritten head and correctly aborts, LATE, exactly as
-// ApplyRedact's doc comment describes. That late abort is a SEPARATE,
-// legitimate apply/verification failure (exit 3) — not this test's concern.
-// What this test pins is run_redact's own contract: the advisory prints, and
-// the exit code is NOT 2 — this package's own code never pre-emptively
-// refuses the attempt.
+// same signal from the rewritten head and correctly, DETERMINISTICALLY
+// aborts, LATE, exactly as ApplyRedact's doc comment describes. That late
+// abort is a SEPARATE, legitimate apply/verification failure (exit 3, pinned
+// below) — this test's PRIMARY concern is run_redact's own contract: the
+// advisory prints, and the exit code is NOT 2 — this package's own code
+// never pre-emptively refuses the attempt.
 func TestRunRedact_sideHistoryAdvisoryPrintedNotGuardBlocked(t *testing.T) {
 	repo := newRedactRepoWithSideHistoryPocket(t)
 	var out bytes.Buffer
@@ -521,11 +521,23 @@ func TestRunRedact_sideHistoryAdvisoryPrintedNotGuardBlocked(t *testing.T) {
 	if got := ExitCode(err); got == 2 {
 		t.Fatalf("side-branch history must not be hard-blocked by run_redact's own guard (got exit 2): %v", err)
 	}
-	after, _ := repo.ReadState()
-	if err == nil && before.HeadHash == after.HeadHash {
-		t.Error("a reported success should have moved HEAD")
+	// The pocket's side branch stays fully intact and reachable (only the
+	// merge's own SECOND parent carries it, and regit never rewrites that),
+	// so safety.Manager.ApplyRedact's GLOBAL absence tier deterministically
+	// aborts on this fixture, every run — pinned here rather than accepted
+	// as one of two possible outcomes, so a future regression that silently
+	// let this fixture "succeed" (which would mean the literal quietly
+	// stayed reachable from a MOVED branch) fails this test outright.
+	if err == nil {
+		t.Fatal("the pocket fixture's side-branch history must deterministically abort via the " +
+			"GLOBAL absence tier, not report success")
 	}
-	if err != nil && before.HeadHash != after.HeadHash {
+	const wantSubstr = `"sk-SHARED" still reachable from the rewritten head's history`
+	if !strings.Contains(err.Error(), wantSubstr) {
+		t.Errorf("error should be the GLOBAL tier's wording %q, got: %v", wantSubstr, err)
+	}
+	after, _ := repo.ReadState()
+	if before.HeadHash != after.HeadHash {
 		t.Error("an aborted redact must not move HEAD")
 	}
 }
