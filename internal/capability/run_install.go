@@ -88,7 +88,7 @@ func runInstallEnv(env installEnv, ctx *RunContext, a ParsedArgs) error {
 	pathBin, err := env.lookPath("regit")
 	if err != nil {
 		return runtimeErr(
-			"regit is not on your $PATH; put the binary on PATH first "+
+			"regit is not on your $PATH; put the binary on PATH first " +
 				"(e.g. `just install`), then re-run `regit install`")
 	}
 	pathBin, err = filepath.Abs(pathBin)
