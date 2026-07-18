@@ -87,7 +87,9 @@ func runInstallEnv(env installEnv, ctx *RunContext, a ParsedArgs) error {
 	// without us guessing at (or verifying) a separate install location.
 	pathBin, err := env.lookPath("regit")
 	if err != nil {
-		return runtimeErr("regit is not on your $PATH; put the binary on PATH first (e.g. `just install`), then re-run `regit install`")
+		return runtimeErr(
+			"regit is not on your $PATH; put the binary on PATH first "+
+				"(e.g. `just install`), then re-run `regit install`")
 	}
 	pathBin, err = filepath.Abs(pathBin)
 	if err != nil {
@@ -110,7 +112,9 @@ func runInstallEnv(env installEnv, ctx *RunContext, a ParsedArgs) error {
 		return nil
 	case shimForeign:
 		if !a.Bool("force") {
-			return runtimeErr("%s already exists and does not point at regit; re-run with --force to replace it", link)
+			return runtimeErr(
+				"%s already exists and does not point at regit; re-run with --force to replace it",
+				link)
 		}
 		if err := os.Remove(link); err != nil {
 			return runtimeErr("replace %s: %v", link, err)
@@ -118,7 +122,8 @@ func runInstallEnv(env installEnv, ctx *RunContext, a ParsedArgs) error {
 	}
 
 	if err := os.Symlink(pathBin, link); err != nil {
-		return runtimeErr("create %s: %v (is %s writable? try sudo, or move regit to a user-writable PATH directory)",
+		return runtimeErr(
+			"create %s: %v (is %s writable? try sudo, or move regit to a user-writable PATH directory)",
 			link, err, filepath.Dir(pathBin))
 	}
 
