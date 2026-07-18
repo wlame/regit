@@ -33,10 +33,11 @@ func SetInvocation(prefix string) {
 // Invocation returns the active prefix as one string, e.g. "regit" or "git re".
 func Invocation() string { return strings.Join(invocation, " ") }
 
-// Render produces the exact, runnable `regit <verb> …` (or `git re <verb> …`) command for an action,
-// from the SAME Param definitions the parser consumes — so the result always
-// round-trips through Parse (see render_test.go). Flags whose value equals the
-// Param.Default are omitted. A "_positional" key supplies positional args.
+// Render produces the exact, runnable `regit <verb> …` (or `git re <verb> …`)
+// command for an action, from the SAME Param definitions the parser consumes —
+// so the result always round-trips through Parse (see render_test.go). Flags
+// whose value equals the Param.Default are omitted. A "_positional" key
+// supplies positional args.
 // Boolean flags are emitted bare (--execute) only when their value is "true".
 func Render(name string, argMap map[string]string) string {
 	c, ok := Lookup(name)
