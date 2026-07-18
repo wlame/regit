@@ -106,6 +106,7 @@ func (r *Repo) ApplyLinearize(
 	}
 
 	for i := firstAffected; i < len(commits); i++ {
+		// Commits before firstAffected are absent from remap: they kept their original hashes.
 		c := commits[i]
 		if f, ok := foldBy[c.Hash]; ok {
 			hash, err := r.commitFold(c, f.NewTitle, f.NewBody, prevNew, sign)

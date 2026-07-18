@@ -160,9 +160,130 @@ func TestApplyLinearize_foldsMergePreservingEveryTree(t *testing.T) {
 		!strings.Contains(foldMsg, "Co-authored-by: Alice <alice@example.com>") {
 		t.Fatalf("fold message wrong:\n%s", foldMsg)
 	}
-	// The fold keeps the merge's committer date.
-	if git("log", "-1", "--format=%cI", remap.Folded[mergeHash]) !=
-		git("log", "-1", "--format=%cI", mergeHash) {
-		t.Fatal("fold must keep the merge's committer date")
+	// The fold keeps all merge metadata: author/committer identities and dates.
+	merged := remap.Folded[mergeHash]
+	for _, fmt := range []string{"%an", "%ae", "%cn", "%ce", "%cI", "%aI"} {
+		if git("log", "-1", "--format="+fmt, merged) !=
+			git("log", "-1", "--format="+fmt, mergeHash) {
+			t.Fatalf("fold %s: metadata %s differs from merge", short(merged), fmt)
+		}
+	}
+}
+
+func TestApplyLinearize_twoFoldsThreadParents(t *testing.T) {
+	dir := t.TempDir()
+	run := func(env []string, args ...string) string {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = gittest.Env(dir, env...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	commit := func(msg string, extraEnv ...string) {
+		run(nil, "add", "-A")
+		env := append([]string{
+			"GIT_AUTHOR_DATE=2026-06-05T14:00:00+00:00",
+			"GIT_COMMITTER_DATE=2026-06-05T14:00:00+00:00",
+		}, extraEnv...)
+		run(env, "commit", "-q", "--allow-empty", "-m", msg)
+	}
+	run(nil, "init", "-q")
+	run(nil, "symbolic-ref", "HEAD", "refs/heads/main")
+	run(nil, "config", "user.name", "Int")
+	run(nil, "config", "user.email", "int@ex.com")
+	run(nil, "config", "commit.gpgsign", "false")
+	commit("Base.")
+	// First side branch and merge.
+	run(nil, "checkout", "-q", "-b", "feat-a")
+	commit("A1.")
+	run(nil, "checkout", "-q", "main")
+	run([]string{"GIT_AUTHOR_DATE=2026-06-05T15:00:00+00:00",
+		"GIT_COMMITTER_DATE=2026-06-05T15:00:00+00:00"},
+		"merge", "-q", "--no-ff", "feat-a", "-m", "Merge feat-a")
+	m1 := run(nil, "rev-parse", "HEAD")
+	// Second side branch and merge.
+	run(nil, "checkout", "-q", "-b", "feat-b")
+	commit("B1.")
+	run(nil, "checkout", "-q", "main")
+	run([]string{"GIT_AUTHOR_DATE=2026-06-05T16:00:00+00:00",
+		"GIT_COMMITTER_DATE=2026-06-05T16:00:00+00:00"},
+		"merge", "-q", "--no-ff", "feat-b", "-m", "Merge feat-b")
+	m2 := run(nil, "rev-parse", "HEAD")
+	// Follow-up on main.
+	commit("Post.")
+	repo, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	git := func(args ...string) string {
+		out, err := repo.git(args...)
+		if err != nil {
+			t.Fatalf("git %v: %v", args, err)
+		}
+		return strings.TrimSpace(out)
+	}
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// commits is [Base, M1, M2, Post]; find side commits for both merges.
+	side1, err := repo.SideCommits(m1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	side2, err := repo.SideCommits(m2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := model.BuildLinearizePlan(commits, map[string][]model.SideCommit{
+		m1: side1,
+		m2: side2,
+	})
+	newHead, remap, err := repo.ApplyLinearize(commits, plan, DropSignatures)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// No merges in the new chain.
+	if got := git("rev-list", "--min-parents=2", "--count", newHead); got != "0" {
+		t.Fatalf("new chain has %s merge(s), want 0", got)
+	}
+	// Second fold's parent is first fold's new hash.
+	if git("rev-parse", remap.Folded[m2]+"^") != remap.Folded[m1] {
+		t.Fatalf("second fold's parent %s != first fold %s",
+			git("rev-parse", remap.Folded[m2]+"^"), remap.Folded[m1])
+	}
+	// Both folds preserve trees.
+	for _, mergeHash := range []string{m1, m2} {
+		if git("rev-parse", mergeHash+"^{tree}") != git("rev-parse", remap.Folded[mergeHash]+"^{tree}") {
+			t.Fatalf("fold %s changed tree", short(mergeHash))
+		}
+	}
+}
+
+func TestApplyLinearize_errorBranches(t *testing.T) {
+	repo, _ := mergeRepo(t)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Empty plan → error.
+	_, _, err = repo.ApplyLinearize(commits, model.LinearizePlan{}, DropSignatures)
+	if err == nil || !strings.Contains(err.Error(), "no folds") {
+		t.Fatalf("empty plan error = %v, want 'no folds'", err)
+	}
+	// Plan with unknown merge hash → error.
+	badPlan := model.LinearizePlan{
+		Folds: []model.LinearizeFold{{
+			Merge:    model.Commit{Hash: "deadbeef", IsMerge: true},
+			NewTitle: "Fold",
+			NewBody:  "",
+		}},
+	}
+	_, _, err = repo.ApplyLinearize(commits, badPlan, DropSignatures)
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("unknown merge error = %v, want 'not found'", err)
 	}
 }
