@@ -10,6 +10,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/wlame/regit/internal/capability"
 	"github.com/wlame/regit/internal/gittest"
 )
 
@@ -402,5 +403,199 @@ func TestE2E_purgePreviewExecuteUndo(t *testing.T) {
 	}
 	if headOf(t, dir) != before {
 		t.Errorf("undo did not restore the original head")
+	}
+}
+
+// e2eRedactRepo builds the four-commit rotation fixture the redact e2e test
+// exercises: c0 adds cfg.yaml carrying "token: sk-OLD"; c1 adds an unrelated
+// other.txt (cfg.yaml rides along unmodified); c2 rotates ONLY the secret
+// line to "token: sk-NEW" (other.txt untouched) — a rotation-only commit
+// that must collapse structurally once both the introduction and its
+// cascade descendant are redacted; c3 edits other.txt again (the rotated
+// line rides along, untouched). Mirrors internal/capability's
+// redactRotationFiles fixture exactly, adapted to e2eRepo's git conventions
+// (single shared timestamp, gittest.Env) so headless behavior observed here
+// can be cross-checked against that package's in-process coverage.
+func e2eRedactRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	git := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = gittest.Env(dir,
+			"GIT_AUTHOR_DATE=2026-06-05T14:00:00+00:00",
+			"GIT_COMMITTER_DATE=2026-06-05T14:00:00+00:00")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	git("init", "-q")
+	git("symbolic-ref", "HEAD", "refs/heads/main")
+	git("config", "commit.gpgsign", "false")
+	commits := []struct {
+		subject string
+		files   map[string]string
+	}{
+		{"c0 adds the secret", map[string]string{"cfg.yaml": "a\ntoken: sk-OLD\n"}},
+		{"c1 unrelated file", map[string]string{"other.txt": "unrelated-v1\n"}},
+		{"c2 rotates the secret", map[string]string{"cfg.yaml": "a\ntoken: sk-NEW\n"}},
+		{"c3 unrelated edit", map[string]string{"other.txt": "unrelated-v2\n"}},
+	}
+	for _, c := range commits {
+		for name, content := range c.files {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		git("add", "-A")
+		git("commit", "-q", "-m", c.subject)
+	}
+	return dir
+}
+
+// e2eRedactFreshRepo builds a one-commit repo carrying "token: sk-XXX" for
+// the --mode=replace e2e test: a clean, single-secret history keeps that
+// test's assertion — the exact post-apply blob content at HEAD — unambiguous,
+// independent of the rotation fixture's cascade/drop mechanics above.
+func e2eRedactFreshRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	git := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = gittest.Env(dir,
+			"GIT_AUTHOR_DATE=2026-06-05T14:00:00+00:00",
+			"GIT_COMMITTER_DATE=2026-06-05T14:00:00+00:00")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	git("init", "-q")
+	git("symbolic-ref", "HEAD", "refs/heads/main")
+	git("config", "commit.gpgsign", "false")
+	cfgPath := filepath.Join(dir, "cfg.yaml")
+	if err := os.WriteFile(cfgPath, []byte("token: sk-XXX\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "-A")
+	git("commit", "-q", "-m", "add token")
+	return dir
+}
+
+// TestE2E_Redact drives redact's full lifecycle through the built binary on
+// the rotation fixture: a usage error (exit 1), a dry-run preview naming
+// both the introduction and its cascade descendant (exit 0, HEAD unmoved), a
+// dirty-tree guard block (exit 2), the real --execute --force apply (both
+// the original and rotated secret values gone from history, the
+// rotation-only commit dropped, the hygiene warning printed), and finally
+// undo restoring the original head byte-for-byte. Mirrors
+// TestE2E_purgePreviewExecuteUndo's shape for purge.
+func TestE2E_Redact(t *testing.T) {
+	dir := e2eRedactRepo(t)
+	before := headOf(t, dir)
+
+	// 0. Usage error: --mode=replace without --replace-pattern is rejected
+	// at Parse time (Required + AppliesIf) before any repo access — exit 1.
+	if out, code := runRegit(t, dir, "redact", "--match=sk-OLD", "--mode=replace"); code != 1 {
+		t.Errorf("--mode=replace without --replace-pattern: exit %d, want 1\n%s", code, out)
+	}
+
+	// 1. Dry-run preview: exit 0, HEAD unmoved, and the output names BOTH
+	// the introduction (c0's "token: sk-OLD") and its cascade descendant
+	// (c2's rotated "token: sk-NEW"), tracked forward by LineDescendants.
+	out, code := runRegit(t, dir, "redact", "--match=sk-OLD")
+	if code != 0 {
+		t.Fatalf("preview: exit %d\n%s", code, out)
+	}
+	if !strings.Contains(out, "token: sk-OLD") {
+		t.Errorf("expected the preview to name the introduction:\n%s", out)
+	}
+	if !strings.Contains(out, "cascades to") || !strings.Contains(out, "token: sk-NEW") {
+		t.Errorf("expected the preview to name the cascaded rotation:\n%s", out)
+	}
+	if headOf(t, dir) != before {
+		t.Fatal("preview moved HEAD")
+	}
+
+	// 2. Guard block: a dirty working tree refuses --execute with exit 2,
+	// before any rewrite is attempted.
+	cfgPath := filepath.Join(dir, "cfg.yaml")
+	origCfg, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfgPath, []byte("dirty\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, code = runRegit(t, dir, "redact", "--match=sk-OLD", "--execute")
+	if code != 2 {
+		t.Errorf("dirty-tree execute: exit %d, want 2\n%s", code, out)
+	}
+	if headOf(t, dir) != before {
+		t.Error("guard-blocked redact moved HEAD")
+	}
+	if err := os.WriteFile(cfgPath, origCfg, 0o644); err != nil {
+		t.Fatal(err) // restore the working tree before the real apply below
+	}
+
+	// 3. --execute --force applies: both the original and rotated secret
+	// values are gone from main's history, the rotation-only commit (c2) is
+	// dropped structurally, and the hygiene warning prints.
+	beforeLog := gitLines(t, dir, "log", "--oneline", "main")
+	out, code = runRegit(t, dir, "redact", "--match=sk-OLD", "--execute", "--force")
+	if code != 0 {
+		t.Fatalf("execute: exit %d\n%s", code, out)
+	}
+	rewritten := headOf(t, dir)
+	if rewritten == before {
+		t.Fatal("--execute did not move HEAD")
+	}
+	if !strings.Contains(out, capability.HygieneWarning) {
+		t.Errorf("expected the hygiene warning:\n%s", out)
+	}
+	if lines := gitLines(t, dir, "log", "--oneline", "-Ssk-OLD", "main"); len(lines) != 0 {
+		t.Errorf("sk-OLD should have no history left on main, got: %v", lines)
+	}
+	if lines := gitLines(t, dir, "log", "--oneline", "-Ssk-NEW", "main"); len(lines) != 0 {
+		t.Errorf("sk-NEW (the cascaded rotation) should have no history left on main, got: %v", lines)
+	}
+	afterLog := gitLines(t, dir, "log", "--oneline", "main")
+	if len(afterLog) != len(beforeLog)-1 {
+		t.Errorf("main has %d commit(s) after redact, want %d (rotation-only commit dropped)",
+			len(afterLog), len(beforeLog)-1)
+	}
+	for _, ln := range afterLog {
+		if strings.Contains(ln, "c2 rotates the secret") {
+			t.Errorf("the rotation-only commit should be gone from the log:\n%v", afterLog)
+		}
+	}
+
+	// 4. undo restores the original head byte-for-byte.
+	out, code = runRegit(t, dir, "undo")
+	if code != 0 {
+		t.Fatalf("undo: exit %d\n%s", code, out)
+	}
+	if headOf(t, dir) != before {
+		t.Errorf("undo did not restore the original head")
+	}
+}
+
+// TestE2E_Redact_ReplaceMode exercises --mode=replace on a fresh,
+// single-secret fixture: the matched substring within the target line is
+// rewritten in place (keeping the rest of the line), applied straight
+// through --execute --force.
+func TestE2E_Redact_ReplaceMode(t *testing.T) {
+	dir := e2eRedactFreshRepo(t)
+
+	out, code := runRegit(t, dir,
+		"redact", "--match=sk-XXX", "--mode=replace",
+		"--replace-pattern=sk-\\w+", "--replace-with=READONLY", "--execute", "--force")
+	if code != 0 {
+		t.Fatalf("replace execute: exit %d\n%s", code, out)
+	}
+
+	got := gitLines(t, dir, "show", "HEAD:cfg.yaml")
+	if len(got) != 1 || got[0] != "token: READONLY" {
+		t.Errorf("HEAD:cfg.yaml = %v, want [%q]", got, "token: READONLY")
 	}
 }

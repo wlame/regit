@@ -5,6 +5,8 @@ current git branch. Built for the common situation where a burst of work — oft
 AI-assisted, or a recreated/squashed history — leaves every commit stamped on the
 same day. `regit` lets you spread those commits across a calendar with a rich set
 of strategies, edit messages, and apply the change with strong safety guarantees.
+It can also purge files or redact leaked secrets from that same history — see
+Commands below.
 
 ```
 ┌ regit · myrepo · main · 24 commits ───────────────────────────────────────────┐

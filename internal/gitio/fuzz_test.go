@@ -83,3 +83,66 @@ func FuzzBuildMessage(f *testing.F) {
 		}
 	})
 }
+
+// FuzzRedactLines fuzzes the pure line-transform redactLines with arbitrary
+// content, a single random target line, and both modes: it must never panic,
+// and the two invariants RedactBlobsInTree's caller relies on must always
+// hold — a reported non-change means byte-identical output (see
+// redactLines' doc comment on why a false "yes" here would be dangerous),
+// and a reported REMOVE-mode change means the target line no longer survives
+// as a whole line anywhere in the output.
+func FuzzRedactLines(f *testing.F) {
+	f.Add("a\ntoken: sk-123\nb\n", "token: sk-123", uint8(0), "sk-\\d+", "READONLY")
+	f.Add("a\ntoken: sk-123\nb\n", "token: sk-123", uint8(1), "sk-\\d+", "READONLY")
+	f.Add("keep\r\ntoken: sk-123\r\nlast-no-eol", "token: sk-123", uint8(0), "", "")
+	f.Add("", "anything", uint8(0), "", "")
+	f.Add("dup\nx\ndup\n", "dup", uint8(0), "", "")
+	f.Add("a\nb\nc", "zzz", uint8(1), "zzz-\\d+", "X")
+
+	f.Fuzz(func(t *testing.T, content, target string, modeSeed uint8, pattern, replacement string) {
+		mode := model.RedactRemove
+		if modeSeed%2 == 1 {
+			mode = model.RedactReplace
+		}
+		rule := model.RedactRule{Pattern: pattern, Replacement: replacement}
+
+		got, changed, err := redactLines(content, []string{target}, mode, &rule)
+		if err != nil {
+			// A fuzzer-generated pattern that fails to compile as RE2 is a
+			// legitimate input error the caller rejects before a scan ever
+			// reaches here (model.RedactSpec.Validate / redact.Engine.Plan) —
+			// not a redactLines invariant violation.
+			return
+		}
+
+		if !changed {
+			if got != content {
+				t.Fatalf("changed=false but output != input: %q -> %q", content, got)
+			}
+			return
+		}
+
+		if mode == model.RedactRemove {
+			for _, line := range redactLinesOf(got) {
+				if strings.TrimSuffix(line, "\r") == target {
+					t.Fatalf("target line %q survives after a reported REMOVE change: %q -> %q",
+						target, content, got)
+				}
+			}
+		}
+	})
+}
+
+// redactLinesOf splits content into the same "lines" redactLines itself
+// reasons about: "" is zero lines (not one empty line — see redactLines'
+// doc comment), and a trailing "\n" is a terminator, not a line of its own.
+// A naive strings.Split(content, "\n") gets both of those wrong — it
+// reports one spurious empty line for "" and a second spurious trailing
+// empty line whenever content ends in "\n" — so FuzzRedactLines' survival
+// check reuses this exact convention rather than re-deriving it by hand.
+func redactLinesOf(content string) []string {
+	if content == "" {
+		return nil
+	}
+	return strings.Split(strings.TrimSuffix(content, "\n"), "\n")
+}

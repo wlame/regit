@@ -6,8 +6,9 @@ Read this before touching code; update it when the shape of the project changes.
 ## What regit does
 
 `regit` is a terminal UI for **safely rewriting commit and author dates** on the
-current git branch, and for **splitting and rewording commits** using an LLM.
-Three independent features share a common safety/gitio core:
+current git branch, for **splitting and rewording commits** using an LLM, and for
+**purging files or redacting secrets** from that same history.
+Four independent feature areas share a common safety/gitio core:
 
 1. **Date spreading** — spread a burst of commits across a calendar using
    configurable strategies (Even Spread, Manual Pin, Rate Fill, …), edit
@@ -19,6 +20,24 @@ Three independent features share a common safety/gitio core:
    an interactive picker in the TUI (via the `m` action panel) and a headless
    dry-run/`--execute` flow on the CLI (one proposal, previewed by default,
    applied with `--execute` — no interactive prompt).
+4. **History hygiene** (`regit purge`, `regit redact`) — branch-scoped,
+   preview-first rewrites keyed on repo-wide content rather than an explicit
+   commit selection. `purge` removes an exact path (file or directory) from
+   every commit that ever touched it, as if it were never added. `redact`
+   scans history for a literal secret (`git log -S`), follows each hit's line
+   forward through later rotations or renames (the cascade), and lets the
+   TUI's occurrence picker veto individual hits before applying — headless
+   redacts everything `Scan` found; the matched line is either dropped
+   whole or has a regex substring replaced within it, per `--mode`. Both
+   verbs apply through the same guarded pipeline as every other rewrite: a
+   per-commit change-set verifier proves the transform touched exactly the
+   paths it predicted, then a post-rewrite absence check re-scans the new
+   head to prove the target is actually gone. Side-branch history is a hard
+   block for `purge` (it can never guarantee removal there); for `redact` it
+   is only an advisory note printed before the apply — regit rewrites just
+   the first-parent chain, so if that side-branch content really is
+   reachable, the absence check independently rediscovers it after the
+   rewrite and aborts anyway, just later.
 
 A complete, **registry-driven headless CLI** mirrors the TUI: every action is
 also a flat verb, all projected from one capability registry (see "The

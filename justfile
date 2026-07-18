@@ -126,6 +126,7 @@ fuzz time="20s":
     go test ./internal/capability -fuzz='^FuzzRenderParseRoundTrip$' -fuzztime={{time}}
     go test ./internal/gitio      -fuzz='^FuzzParseDiff$'            -fuzztime={{time}}
     go test ./internal/gitio      -fuzz='^FuzzBuildMessage$'         -fuzztime={{time}}
+    go test ./internal/gitio      -fuzz='^FuzzRedactLines$'          -fuzztime={{time}}
     go test ./internal/docs       -fuzz='^FuzzSpliceBlocks$'         -fuzztime={{time}}
 
 # Full pre-push battery: CI gates + end-to-end + docs drift + a fuzz burst.
