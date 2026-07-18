@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestWantsVersion(t *testing.T) {
 	cases := []struct {
@@ -163,5 +167,34 @@ func TestUnknownCommand(t *testing.T) {
 				t.Errorf("unknownCommand(%v) = (%q, %v), want (%q, %v)", tc.args, verb, reject, tc.wantVerb, tc.wantReject)
 			}
 		})
+	}
+}
+
+// TestDispatch_InstallOutsideRepo proves the NoRepo path end to end in-process:
+// dispatch must not open a git repository for install, and the run must create
+// the git-re symlink next to the PATH-resolved regit. PATH is pinned to a temp
+// dir holding a fake regit binary, so nothing outside the test tree is touched.
+func TestDispatch_InstallOutsideRepo(t *testing.T) {
+	bin := t.TempDir()
+	fake := filepath.Join(bin, "regit")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+
+	// repoDir points at a plain temp dir that is NOT a git repo; with NoRepo
+	// wired this must succeed anyway. (The differing-binary warning goes to
+	// os.Stderr via defaultInstallEnv — harmless test noise.)
+	if err := dispatch("install", t.TempDir(), nil); err != nil {
+		t.Fatalf("dispatch install: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(bin, "git-re")); err != nil {
+		t.Fatalf("git-re not created: %v", err)
+	}
+
+	if err := dispatch("uninstall", t.TempDir(), nil); err == nil {
+		// The fake regit is not the running test binary, so uninstall must
+		// refuse to delete it (foreign link) — that refusal is the pass.
+		t.Fatal("uninstall should refuse a link owned by a different binary")
 	}
 }

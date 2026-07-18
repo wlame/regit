@@ -71,6 +71,7 @@ type Command struct {
 	Name        string                              // verb: "redate", "split", "retitle", "undo"
 	Summary     string                              // one-line purpose → terse --help
 	Mutating    bool                                // false = read-only; true = writes the repo
+	NoRepo      bool                                // true = runs without opening a git repository (install/uninstall)
 	Positional  *PositionalSpec                     // positional-arg slot; nil = none accepted
 	Params      []Param                             // typed flags
 	Examples    []Example                           // correct AND incorrect, annotated

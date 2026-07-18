@@ -41,9 +41,15 @@ func dispatch(verb string, repoDir string, args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	repo, err := gitio.Open(repoDir)
-	if err != nil {
-		return err
+	// Environment-level verbs (install/uninstall) declare NoRepo in the
+	// registry: they configure the machine, not a repository, so they must work
+	// outside any git repo. RunContext.Repo stays nil for them.
+	var repo *gitio.Repo
+	if !c.NoRepo {
+		repo, err = gitio.Open(repoDir)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Guard against a registry row whose Run was never wired up.

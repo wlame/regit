@@ -348,6 +348,44 @@ var registry = []Command{
 		},
 		ExitCodes: map[int]string{0: "ok / nothing to undo", 1: "usage error", 2: "guard blocked (backup from another branch, or HEAD moved past the backup without --force)", 3: "restore error"},
 	},
+	{
+		Name:      "install",
+		Summary:   "Register regit as the `git re` subcommand (symlink git-re on PATH).",
+		Mutating:  true,
+		NoRepo:    true,
+		Workspace: WSNone,
+		Selection: SelGlobal,
+		Run:       runInstall,
+		Params: []Param{
+			{Name: "force", Type: ParamBool, Default: "false", Help: "replace an existing git-re that does not point at regit"},
+		},
+		Examples: []Example{
+			{Cmd: "regit install", Why: "link git-re next to the regit binary on PATH (applies immediately)"},
+			{Cmd: "regit install --force", Why: "replace a foreign git-re file with the regit link"},
+			{Cmd: "regit install --execute", Why: "install takes no --execute; it applies immediately and regit uninstall reverses it", Bad: true},
+		},
+		Limitations: []string{
+			"Writes only the git-re symlink in the PATH directory containing regit; never touches any repository.",
+			"Windows: creating symlinks may require elevated privileges; no copy/shim fallback is provided.",
+		},
+		ExitCodes: map[int]string{0: "ok / already installed", 1: "usage error", 3: "install error (regit not on PATH, unwritable directory, or foreign git-re without --force)"},
+	},
+	{
+		Name:      "uninstall",
+		Summary:   "Remove the `git re` integration (the git-re symlink).",
+		Mutating:  true,
+		NoRepo:    true,
+		Workspace: WSNone,
+		Selection: SelGlobal,
+		Run:       runUninstall,
+		Examples: []Example{
+			{Cmd: "regit uninstall", Why: "remove the git-re link if it points at this regit binary"},
+		},
+		Limitations: []string{
+			"Never deletes a git-re that does not resolve to the running regit binary.",
+		},
+		ExitCodes: map[int]string{0: "ok / not installed", 3: "uninstall error (foreign git-re, or removal failed)"},
+	},
 }
 
 // Registry returns the ordered command table.
