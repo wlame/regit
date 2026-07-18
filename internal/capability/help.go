@@ -13,13 +13,15 @@ import (
 // HelpTerse renders the top-level usage: the verb list with one-line summaries
 // and a note on the dry-run/--execute convention. Projected from the registry.
 func HelpTerse() string {
+	inv := Invocation()
 	var b strings.Builder
 	b.WriteString("regit — safely rewrite commit dates, split, reword, and restructure history.\n\n")
-	b.WriteString("Usage:\n  regit [--repo=PATH]                 launch the interactive TUI\n")
-	b.WriteString("  regit <command> [flags]             run a command headlessly\n")
-	b.WriteString("  regit <command> --help              flags for one command\n")
-	b.WriteString("  regit --llm-help                    full agent-facing documentation\n\n")
-	b.WriteString("Commands:\n")
+	b.WriteString("Usage:\n")
+	b.WriteString(fmt.Sprintf("  %-35s launch the interactive TUI\n", inv+" [--repo=PATH]"))
+	b.WriteString(fmt.Sprintf("  %-35s run a command headlessly\n", inv+" <command> [flags]"))
+	b.WriteString(fmt.Sprintf("  %-35s flags for one command\n", inv+" <command> --help"))
+	b.WriteString(fmt.Sprintf("  %-35s full agent-facing documentation\n", inv+" --llm-help"))
+	b.WriteString("\nCommands:\n")
 	for _, c := range Registry() {
 		b.WriteString(fmt.Sprintf("  %-12s %s\n", c.Name, c.Summary))
 	}
@@ -28,10 +30,11 @@ func HelpTerse() string {
 	return b.String()
 }
 
-// usageLine renders "regit <verb> [<positional>…] [flags]" from the command's
-// PositionalSpec, so every help surface shows the same arity Validate enforces.
+// usageLine renders "<invocation> <verb> [<positional>…] [flags]" from the
+// command's PositionalSpec, so every help surface shows the same arity
+// Validate enforces and respects the active invocation prefix.
 func usageLine(c Command) string {
-	s := "regit " + c.Name
+	s := Invocation() + " " + c.Name
 	if p := c.Positional; p != nil {
 		arg := "<" + p.Name + ">"
 		if p.Variadic {
@@ -43,6 +46,16 @@ func usageLine(c Command) string {
 		s += " " + arg
 	}
 	return s + " [flags]"
+}
+
+// exampleCmd rewrites a canonical registry example ("regit …") to the active
+// invocation prefix at render time. Registry data stays canonical — one source
+// of truth, N projections — so this is the only place examples are rewritten.
+func exampleCmd(cmd string) string {
+	if rest, ok := strings.CutPrefix(cmd, "regit "); ok {
+		return Invocation() + " " + rest
+	}
+	return cmd
 }
 
 // positionalHelp renders the one-line positional description, or "" when the
@@ -58,7 +71,9 @@ func positionalHelp(c Command) string {
 // type hint, default, help).
 func HelpCommand(c Command) string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("regit %s — %s\n\nUsage:\n  %s\n", c.Name, c.Summary, usageLine(c)))
+	inv := Invocation()
+	b.WriteString(fmt.Sprintf("%s %s — %s\n\nUsage:\n  %s\n", inv, c.Name,
+		c.Summary, usageLine(c)))
 	if ph := positionalHelp(c); ph != "" {
 		b.WriteString("\nArguments:\n" + ph)
 	}
@@ -137,6 +152,8 @@ func LLMHelp(format string) (string, error) {
 	b.WriteString("Convention: mutating commands PREVIEW by default; pass --execute to apply,\n")
 	b.WriteString("and --execute --force to rewrite already-pushed commits. `undo` is exempt and\n")
 	b.WriteString("restores immediately.\n")
+	b.WriteString("\nInvocation: `regit <command>` and `git re <command>` are equivalent after\n")
+	b.WriteString("`regit install`. Hints and help follow whichever form was used.\n")
 
 	for _, c := range Registry() {
 		b.WriteString(h2(c.Name))
@@ -164,7 +181,7 @@ func LLMHelp(format string) (string, error) {
 				if e.Bad {
 					tag = "BAD"
 				}
-				b.WriteString(fmt.Sprintf("  [%s] %s\n        # %s\n", tag, e.Cmd, e.Why))
+				b.WriteString(fmt.Sprintf("  [%s] %s\n        # %s\n", tag, exampleCmd(e.Cmd), e.Why))
 			}
 		}
 		if len(c.Limitations) > 0 {

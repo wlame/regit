@@ -117,3 +117,57 @@ func TestLLMHelp_envSectionIsProjected(t *testing.T) {
 		t.Errorf("--llm-help missing the tool-wide REGIT_LLM_API_KEY")
 	}
 }
+
+// TestHelp_GitReInvocation checks every help surface swaps its prefix when the
+// process was launched as git-re: terse usage lines, per-command usage, and
+// example lines (which stay canonical "regit …" in the registry data).
+func TestHelp_GitReInvocation(t *testing.T) {
+	SetInvocation("git re")
+	defer SetInvocation("regit")
+
+	terse := HelpTerse()
+	if !strings.Contains(terse, "git re <command> [flags]") {
+		t.Fatalf("HelpTerse missing git re usage line:\n%s", terse)
+	}
+	if strings.Contains(terse, "regit <command>") {
+		t.Fatalf("HelpTerse still shows regit usage line:\n%s", terse)
+	}
+
+	c, _ := Lookup("undo")
+	hc := HelpCommand(c)
+	if !strings.Contains(hc, "git re undo") {
+		t.Fatalf("HelpCommand missing git re prefix:\n%s", hc)
+	}
+
+	doc, err := LLMHelp("text")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(doc, "[ok ] git re undo") {
+		t.Fatalf("LLMHelp examples not rewritten to git re:\n%s", doc)
+	}
+}
+
+// TestLLMHelp_MentionsBothForms pins the dual-invocation note under the
+// default prefix, so agents learn about `git re` from `regit --llm-help` too.
+func TestLLMHelp_MentionsBothForms(t *testing.T) {
+	doc, err := LLMHelp("text")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(doc, "git re <command>") {
+		t.Fatalf("LLMHelp missing the git re equivalence note:\n%s", doc)
+	}
+}
+
+// TestExampleCmd_RewritesOnlyCanonicalPrefix guards the substitution helper.
+func TestExampleCmd_RewritesOnlyCanonicalPrefix(t *testing.T) {
+	SetInvocation("git re")
+	defer SetInvocation("regit")
+	if got := exampleCmd("regit undo --list"); got != "git re undo --list" {
+		t.Fatalf("exampleCmd = %q", got)
+	}
+	if got := exampleCmd("some other text"); got != "some other text" {
+		t.Fatalf("exampleCmd should leave non-canonical text alone, got %q", got)
+	}
+}
