@@ -43,7 +43,12 @@ type featureBinding struct {
 	// rather than derived from the registry's Summary because the Summary is a
 	// full help sentence — too long for the panel's compact description column.
 	Desc string
-	Run  func(m Model) (tea.Model, tea.Cmd)
+	// Key is the panel hotkey: pressing this letter while the panel is open
+	// runs the row exactly like enter. One lowercase letter, unique across
+	// bindings, never a panel navigation key — all pinned by
+	// TestFeatureBindings_hotkeysUniqueAndOffReservedKeys.
+	Key string
+	Run func(m Model) (tea.Model, tea.Cmd)
 }
 
 // featureBindings maps a capability command Name to its interactive
@@ -53,44 +58,44 @@ type featureBinding struct {
 // mutation path (the safety contract is unchanged); "redate" opens the redate
 // flow (flow.go).
 var featureBindings = map[string]featureBinding{
-	"redate": {Title: "Date/time spread", Desc: "Spread commit dates across the calendar", Run: func(m Model) (tea.Model, tea.Cmd) {
+	"redate": {Title: "Date/time spread", Desc: "Spread commit dates across the calendar", Key: "d", Run: func(m Model) (tea.Model, tea.Cmd) {
 		m.enterRedateFlow()
 		return m, nil
 	}},
-	"split": {Title: "Split commit", Desc: "Break one commit into several", Run: func(m Model) (tea.Model, tea.Cmd) {
+	"split": {Title: "Split commit", Desc: "Break one commit into several", Key: "s", Run: func(m Model) (tea.Model, tea.Cmd) {
 		model, cmd, _ := m.beginSplit()
 		return model, cmd
 	}},
-	"reword": {Title: "Reword message", Desc: "Rewrite a commit's message", Run: func(m Model) (tea.Model, tea.Cmd) {
+	"reword": {Title: "Reword message", Desc: "Rewrite a commit's message", Key: "w", Run: func(m Model) (tea.Model, tea.Cmd) {
 		model, cmd, _ := m.beginReword()
 		return model, cmd
 	}},
-	"squash": {Title: "Squash commits", Desc: "Combine consecutive commits into one", Run: func(m Model) (tea.Model, tea.Cmd) {
+	"squash": {Title: "Squash commits", Desc: "Combine consecutive commits into one", Key: "q", Run: func(m Model) (tea.Model, tea.Cmd) {
 		model, cmd, _ := m.beginSquash()
 		return model, cmd
 	}},
-	"linearize": {Title: "Linearize history", Desc: "Fold merges into a first-parent chain", Run: func(m Model) (tea.Model, tea.Cmd) {
+	"linearize": {Title: "Linearize history", Desc: "Fold merges into a first-parent chain", Key: "l", Run: func(m Model) (tea.Model, tea.Cmd) {
 		model, cmd, _ := m.beginLinearize()
 		return model, cmd
 	}},
-	"retitle": {Title: "Retitle (regex)", Desc: "Rewrite subjects with a regex rule", Run: func(m Model) (tea.Model, tea.Cmd) {
+	"retitle": {Title: "Retitle (regex)", Desc: "Rewrite subjects with a regex rule", Key: "t", Run: func(m Model) (tea.Model, tea.Cmd) {
 		m.retitle = newRetitleState(computeLayout(m.width, m.height).inputWidth)
 		m.mode = modeRetitle
 		return m, nil
 	}},
-	"drop-bodies": {Title: "Drop bodies", Desc: "Remove message bodies, keep the titles", Run: func(m Model) (tea.Model, tea.Cmd) {
+	"drop-bodies": {Title: "Drop bodies", Desc: "Remove message bodies, keep the titles", Key: "b", Run: func(m Model) (tea.Model, tea.Cmd) {
 		m.mode = modeDropBodies
 		return m, nil
 	}},
-	"reauthor": {Title: "Change author", Desc: "Rewrite the author / committer identity", Run: func(m Model) (tea.Model, tea.Cmd) {
+	"reauthor": {Title: "Change author", Desc: "Rewrite the author / committer identity", Key: "a", Run: func(m Model) (tea.Model, tea.Cmd) {
 		model, cmd, _ := m.beginReauthor()
 		return model, cmd
 	}},
-	"purge": {Title: "Purge from history", Desc: "Erase a file from all of history", Run: func(m Model) (tea.Model, tea.Cmd) {
+	"purge": {Title: "Purge from history", Desc: "Erase a file from all of history", Key: "p", Run: func(m Model) (tea.Model, tea.Cmd) {
 		model, cmd, _ := m.beginPurge()
 		return model, cmd
 	}},
-	"redact": {Title: "Redact secret", Desc: "Erase a secret line from all of history", Run: func(m Model) (tea.Model, tea.Cmd) {
+	"redact": {Title: "Redact secret", Desc: "Erase a secret line from all of history", Key: "r", Run: func(m Model) (tea.Model, tea.Cmd) {
 		m.enterRedactFlow()
 		return m, nil
 	}},

@@ -58,6 +58,7 @@ var actionCompat = map[capability.SelectionMode]map[selKind]bool{
 // or disabled reason, and the Run closure from featureBindings.
 type panelRow struct {
 	Title   string
+	Key     string // the binding's hotkey letter, rendered as a [d] prefix
 	Desc    string // static "what it does" phrase (grey), from the binding
 	Verb    string
 	Detail  string // dynamic status (e.g. "3 → 1 commit(s)") or disabled reason
@@ -157,6 +158,7 @@ func (m Model) panelRows() []panelRow {
 		}
 		out = append(out, panelRow{
 			Title:   b.Title,
+			Key:     b.Key,
 			Desc:    b.Desc,
 			Verb:    c.Name,
 			Detail:  detail,
@@ -326,6 +328,22 @@ func (m Model) updateActionPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return r.Run(m)
 	case "left", "right", "[", "]":
 		return m, nil // reserved: option-row value cycling lands in Phase 2b
+	}
+	// Single-letter hotkeys: pressing a row's [key] is exactly enter on that
+	// row. The loop sits AFTER the switch so navigation keys keep priority,
+	// and anything unmatched still falls through to the swallow-all return —
+	// which is what keeps global actions paused while the panel is open.
+	for i, r := range rows {
+		if msg.String() != r.Key {
+			continue
+		}
+		m.panel.cursor = i
+		if !r.Enabled {
+			m.setStatus(r.Detail, statusWarn)
+			return m, nil
+		}
+		m.panel.open = false
+		return r.Run(m)
 	}
 	return m, nil
 }
