@@ -180,7 +180,8 @@ func redateTestRepoWithMerge(t *testing.T) (string, *gitio.Repo) {
 		run("add", ".")
 		run("commit", "-q", "-m", "commit "+name)
 	}
-	run("init", "-q", "-b", "main")
+	run("init", "-q")
+	run("symbolic-ref", "HEAD", "refs/heads/main")
 	run("config", "commit.gpgsign", "false")
 	commit("a")
 	run("branch", "feature")
@@ -331,7 +332,8 @@ func redateScopedTestRepo(t *testing.T) (*gitio.Repo, []model.Commit) {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
-	run(nil, "init", "-q", "-b", "main")
+	run(nil, "init", "-q")
+	run(nil, "symbolic-ref", "HEAD", "refs/heads/main")
 	run(nil, "config", "commit.gpgsign", "false")
 	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	for i := 0; i < 4; i++ {

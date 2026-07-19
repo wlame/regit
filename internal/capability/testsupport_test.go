@@ -34,7 +34,8 @@ func newTestRepo(t *testing.T, n int) (string, *gitio.Repo) {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
-	run("init", "-q", "-b", "main")
+	run("init", "-q")
+	run("symbolic-ref", "HEAD", "refs/heads/main")
 	for i := 0; i < n; i++ {
 		f := filepath.Join(dir, "f.txt")
 		if err := os.WriteFile(f, []byte{byte('a' + i)}, 0o644); err != nil {
@@ -67,7 +68,8 @@ func newSplittableCapabilityRepo(t *testing.T) (string, *gitio.Repo) {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
-	run("init", "-q", "-b", "main")
+	run("init", "-q")
+	run("symbolic-ref", "HEAD", "refs/heads/main")
 	run("config", "commit.gpgsign", "false")
 
 	// Parent commit: two files.

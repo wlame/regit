@@ -14,7 +14,8 @@ import (
 func purgeTestRepo(t *testing.T) (*Repo, string) {
 	t.Helper()
 	dir := t.TempDir()
-	gitT(t, dir, "init", "-b", "main")
+	gitT(t, dir, "init", "-q")
+	gitT(t, dir, "symbolic-ref", "HEAD", "refs/heads/main")
 	mustWriteFile(t, dir, "keep.txt", "keep")
 	mustWriteFile(t, dir, "junk.log", "junk")
 	mustWriteFile(t, dir, "dir/a.txt", "a")

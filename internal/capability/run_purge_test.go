@@ -33,7 +33,8 @@ func newPurgeRepo(t *testing.T, commitFiles []map[string]string) (*gitio.Repo, s
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
-	run("init", "-q", "-b", "main")
+	run("init", "-q")
+	run("symbolic-ref", "HEAD", "refs/heads/main")
 	for i, files := range commitFiles {
 		for name, content := range files {
 			full := filepath.Join(dir, name)
@@ -87,7 +88,8 @@ func newPurgeRepoWithPush(t *testing.T, commitFiles []map[string]string, pushedC
 	if out, err := exec.Command("git", "init", "-q", "--bare", origin).CombinedOutput(); err != nil {
 		t.Fatalf("init bare: %v\n%s", err, out)
 	}
-	run("init", "-q", "-b", "main")
+	run("init", "-q")
+	run("symbolic-ref", "HEAD", "refs/heads/main")
 	run("remote", "add", "origin", origin)
 	for i, files := range commitFiles {
 		for name, content := range files {
@@ -334,7 +336,8 @@ func newPurgeRepoWithMergeInPrefix(t *testing.T) *gitio.Repo {
 			t.Fatal(err)
 		}
 	}
-	run("init", "-q", "-b", "main")
+	run("init", "-q")
+	run("symbolic-ref", "HEAD", "refs/heads/main")
 	write("keep.txt", "v1")
 	run("add", ".")
 	run("commit", "-q", "-m", "c0 keep only")
@@ -442,7 +445,8 @@ func newPurgeRepoWithPocket(t *testing.T) *gitio.Repo {
 			t.Fatal(err)
 		}
 	}
-	run("init", "-q", "-b", "main")
+	run("init", "-q")
+	run("symbolic-ref", "HEAD", "refs/heads/main")
 	write("keep.txt", "v1")
 	run("add", ".")
 	run("commit", "-q", "-m", "c0 keep only")

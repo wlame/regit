@@ -48,7 +48,8 @@ func mustWriteFile(t *testing.T, dir, name, content string) {
 func openRepo(t *testing.T) (*gitio.Repo, string) {
 	t.Helper()
 	dir := t.TempDir()
-	gitT(t, dir, "init", "-q", "-b", "main")
+	gitT(t, dir, "init", "-q")
+	gitT(t, dir, "symbolic-ref", "HEAD", "refs/heads/main")
 	r, err := gitio.Open(dir)
 	if err != nil {
 		t.Fatalf("gitio.Open: %v", err)

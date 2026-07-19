@@ -34,7 +34,9 @@ func regitBin(t *testing.T) string {
 			return
 		}
 		e2eBin = filepath.Join(dir, "regit")
-		cmd := exec.Command("go", "build", "-o", e2eBin, ".")
+		// -buildvcs=false: the throwaway test binary needs no VCS stamp, and
+		// stamping breaks where git metadata is unavailable (e.g. CI containers).
+		cmd := exec.Command("go", "build", "-buildvcs=false", "-o", e2eBin, ".")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			e2eBuildErr = fmt.Errorf("go build: %v\n%s", err, out)
 		}

@@ -406,7 +406,8 @@ func newRefsTestRepo(t *testing.T) *Repo {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
-	run("init", "-q", "-b", "main")
+	run("init", "-q")
+	run("symbolic-ref", "HEAD", "refs/heads/main")
 	run("config", "commit.gpgsign", "false")
 	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("x\n"), 0o644); err != nil {
 		t.Fatal(err)

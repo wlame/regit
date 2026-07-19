@@ -31,7 +31,8 @@ func newRedactRepo(t *testing.T, commitFiles []map[string]string) (*gitio.Repo, 
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
-	run("init", "-q", "-b", "main")
+	run("init", "-q")
+	run("symbolic-ref", "HEAD", "refs/heads/main")
 	for i, files := range commitFiles {
 		for name, content := range files {
 			full := filepath.Join(dir, name)
@@ -304,7 +305,8 @@ func newRedactRepoWithMerge(t *testing.T) *gitio.Repo {
 			t.Fatal(err)
 		}
 	}
-	run("init", "-q", "-b", "main")
+	run("init", "-q")
+	run("symbolic-ref", "HEAD", "refs/heads/main")
 	write("cfg.yaml", "token: sk-OLD\n")
 	run("add", ".")
 	run("commit", "-q", "-m", "c0 adds the secret")
@@ -363,7 +365,8 @@ func newRedactRepoWithPush(t *testing.T, commitFiles []map[string]string, pushed
 	if out, err := exec.Command("git", "init", "-q", "--bare", origin).CombinedOutput(); err != nil {
 		t.Fatalf("init bare: %v\n%s", err, out)
 	}
-	run("init", "-q", "-b", "main")
+	run("init", "-q")
+	run("symbolic-ref", "HEAD", "refs/heads/main")
 	run("remote", "add", "origin", origin)
 	for i, files := range commitFiles {
 		for name, content := range files {
@@ -461,7 +464,8 @@ func newRedactRepoWithSideHistoryPocket(t *testing.T) *gitio.Repo {
 			t.Fatal(err)
 		}
 	}
-	run("init", "-q", "-b", "main")
+	run("init", "-q")
+	run("symbolic-ref", "HEAD", "refs/heads/main")
 	write("keep.txt", "v1")
 	run("add", ".")
 	run("commit", "-q", "-m", "c0 keep only")

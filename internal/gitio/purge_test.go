@@ -595,7 +595,8 @@ func TestApplyPurge_preservesPreExistingEmptyCommit(t *testing.T) {
 func purgeTestRepoEmpty(t *testing.T) (*Repo, string) {
 	t.Helper()
 	dir := t.TempDir()
-	gitT(t, dir, "init", "-b", "main")
+	gitT(t, dir, "init", "-q")
+	gitT(t, dir, "symbolic-ref", "HEAD", "refs/heads/main")
 	r, err := Open(dir)
 	if err != nil {
 		t.Fatal(err)

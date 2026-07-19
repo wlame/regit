@@ -175,7 +175,8 @@ func newSplittableRepoWithPushedParent(t *testing.T) (string, *gitio.Repo) {
 	if out, err := exec.Command("git", "init", "-q", "--bare", origin).CombinedOutput(); err != nil {
 		t.Fatalf("init bare: %v\n%s", err, out)
 	}
-	run("init", "-q", "-b", "main")
+	run("init", "-q")
+	run("symbolic-ref", "HEAD", "refs/heads/main")
 	run("config", "commit.gpgsign", "false")
 	run("remote", "add", "origin", origin)
 
@@ -227,7 +228,8 @@ func newSplittableRepoWithPushedTarget(t *testing.T) (string, *gitio.Repo) {
 	if out, err := exec.Command("git", "init", "-q", "--bare", origin).CombinedOutput(); err != nil {
 		t.Fatalf("init bare: %v\n%s", err, out)
 	}
-	run("init", "-q", "-b", "main")
+	run("init", "-q")
+	run("symbolic-ref", "HEAD", "refs/heads/main")
 	run("config", "commit.gpgsign", "false")
 	run("remote", "add", "origin", origin)
 

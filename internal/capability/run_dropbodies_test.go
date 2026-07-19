@@ -45,7 +45,8 @@ func TestDropBodiesMixedSkipsBodilessCommits(t *testing.T) {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
-	git("init", "-q", "-b", "main")
+	git("init", "-q")
+	git("symbolic-ref", "HEAD", "refs/heads/main")
 	write := func(name, content string) {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 			t.Fatal(err)
@@ -89,7 +90,8 @@ func TestDropBodiesDryRun(t *testing.T) {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
-	git("init", "-q", "-b", "main")
+	git("init", "-q")
+	git("symbolic-ref", "HEAD", "refs/heads/main")
 	os.WriteFile(filepath.Join(dir, "f"), []byte("x"), 0o644)
 	git("add", ".")
 	git("commit", "-q", "-m", "Subject line\n\nA body paragraph.")
