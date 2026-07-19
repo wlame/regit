@@ -126,7 +126,7 @@ var registry = []Command{
 		Name:      "linearize",
 		Summary:   "Flatten merge topology into a clean first-parent chain (trees preserved).",
 		Mutating:  true,
-		Workspace: WSNone,
+		Workspace: WSRestructure,
 		Selection: SelActive,
 		Run:       runLinearize,
 		Params: []Param{

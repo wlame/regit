@@ -116,6 +116,18 @@ var panelDetail = map[string]func(m Model) (detail string, enabled bool, reason 
 	"redate": func(m Model) (string, bool, string) {
 		return "opens calendar", true, ""
 	},
+	"linearize": func(m Model) (string, bool, string) {
+		merges := 0
+		for _, c := range m.plan.Active() {
+			if c.IsMerge {
+				merges++
+			}
+		}
+		if merges == 0 {
+			return "", false, "no merge commits"
+		}
+		return fmt.Sprintf("%d merge(s) → fold", merges), true, ""
+	},
 }
 
 // panelRows projects the registry into panel rows in registry order. A command

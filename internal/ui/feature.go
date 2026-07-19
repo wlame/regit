@@ -69,6 +69,10 @@ var featureBindings = map[string]featureBinding{
 		model, cmd, _ := m.beginSquash()
 		return model, cmd
 	}},
+	"linearize": {Title: "Linearize history", Desc: "Fold merges into a first-parent chain", Run: func(m Model) (tea.Model, tea.Cmd) {
+		model, cmd, _ := m.beginLinearize()
+		return model, cmd
+	}},
 	"retitle": {Title: "Retitle (regex)", Desc: "Rewrite subjects with a regex rule", Run: func(m Model) (tea.Model, tea.Cmd) {
 		m.retitle = newRetitleState(computeLayout(m.width, m.height).inputWidth)
 		m.mode = modeRetitle
