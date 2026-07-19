@@ -3,9 +3,12 @@ package capability
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/wlame/regit/internal/model"
 	"github.com/wlame/regit/internal/safety"
+	"github.com/wlame/regit/internal/termsafe"
 )
 
 // runLinearize folds every merge on the current branch's first-parent chain
@@ -86,24 +89,40 @@ func runLinearize(ctx *RunContext, a ParsedArgs) error {
 
 // printLinearizePlan renders the fold table and, per fold whose side commits
 // remain reachable from other refs, a non-blocking advisory naming those refs
-// (the redact side-history voice: predict, don't block).
+// (the redact side-history voice: predict, don't block). History-derived text
+// (the synthesized title) is sanitized through termsafe before it reaches the
+// terminal, since a hostile commit subject could otherwise smuggle control
+// bytes into the output.
 func printLinearizePlan(ctx *RunContext, plan model.LinearizePlan, branch string) {
 	fmt.Fprintf(ctx.Stdout, "Linearize: %d merge(s) fold into ordinary commits\n\n", len(plan.Folds))
 	for _, f := range plan.Folds {
 		fmt.Fprintf(ctx.Stdout, "  %s  %-50s  %d commit(s) folded, %d co-author(s)\n",
-			Short(f.Merge.Hash), f.NewTitle, len(f.Side), len(f.CoAuthors))
+			Short(f.Merge.Hash), termsafe.Line(f.NewTitle), len(f.Side), len(f.CoAuthors))
 	}
 	for _, f := range plan.Folds {
-		if len(f.Side) == 0 {
+		if len(f.Side) == 0 || len(f.Merge.ParentHashes) < 2 {
 			continue
 		}
-		tip := f.Side[len(f.Side)-1].Hash
-		refs, err := ctx.Repo.RefsContaining(tip, branch)
-		if err != nil || len(refs) == 0 {
-			continue // advisory only; a lookup failure never blocks the preview
+		refSet := map[string]bool{}
+		for _, parent := range f.Merge.ParentHashes[1:] {
+			refs, err := ctx.Repo.RefsContaining(parent, branch)
+			if err != nil {
+				continue // advisory only; a lookup failure never blocks the preview
+			}
+			for _, ref := range refs {
+				refSet[ref] = true
+			}
 		}
+		if len(refSet) == 0 {
+			continue
+		}
+		refs := make([]string, 0, len(refSet))
+		for ref := range refSet {
+			refs = append(refs, ref)
+		}
+		sort.Strings(refs)
 		fmt.Fprintf(ctx.Stdout,
-			"  note: %d folded commit(s) of %s remain reachable from: %v\n",
-			len(f.Side), Short(f.Merge.Hash), refs)
+			"  note: %d folded commit(s) of %s remain reachable from: %s\n",
+			len(f.Side), Short(f.Merge.Hash), strings.Join(refs, ", "))
 	}
 }

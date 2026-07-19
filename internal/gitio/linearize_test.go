@@ -263,6 +263,154 @@ func TestApplyLinearize_twoFoldsThreadParents(t *testing.T) {
 	}
 }
 
+// octopusRepo builds: main c1 — feat-a (A1) and feat-b (B1, then a nested
+// --no-ff merge of feat-b-sub's Sub1) — an octopus merge of feat-a and feat-b
+// into main — a follow-up commit on main. Exercises SideCommits' "including
+// nested merges" claim and ApplyLinearize's fold-to-single-parent behavior
+// on a merge with more than two parents. Returns the repo and the octopus
+// merge hash.
+func octopusRepo(t *testing.T) (*Repo, string) {
+	t.Helper()
+	dir := t.TempDir()
+	run := func(env []string, args ...string) string {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = gittest.Env(dir, env...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	commit := func(msg, date string, extraEnv ...string) {
+		run(nil, "add", "-A")
+		env := append([]string{
+			"GIT_AUTHOR_DATE=" + date,
+			"GIT_COMMITTER_DATE=" + date,
+		}, extraEnv...)
+		run(env, "commit", "-q", "--allow-empty", "-m", msg)
+	}
+	merge := func(date string, args ...string) string {
+		env := []string{"GIT_AUTHOR_DATE=" + date, "GIT_COMMITTER_DATE=" + date}
+		run(env, args...)
+		return run(nil, "rev-parse", "HEAD")
+	}
+	run(nil, "init", "-q")
+	run(nil, "symbolic-ref", "HEAD", "refs/heads/main")
+	run(nil, "config", "user.name", "Integrator")
+	run(nil, "config", "user.email", "int@example.com")
+	run(nil, "config", "commit.gpgsign", "false")
+	commit("Base commit.", "2026-06-05T10:00:00+00:00")
+
+	run(nil, "checkout", "-q", "-b", "feat-a")
+	commit("Add A1.", "2026-06-05T11:00:00+00:00")
+
+	run(nil, "checkout", "-q", "main")
+	run(nil, "checkout", "-q", "-b", "feat-b")
+	commit("Add B1.", "2026-06-05T11:30:00+00:00")
+
+	run(nil, "checkout", "-q", "-b", "feat-b-sub")
+	commit("Add Sub1.", "2026-06-05T11:45:00+00:00")
+
+	run(nil, "checkout", "-q", "feat-b")
+	merge("2026-06-05T12:00:00+00:00",
+		"merge", "-q", "--no-ff", "feat-b-sub", "-m", "Merge branch 'feat-b-sub'")
+
+	run(nil, "checkout", "-q", "main")
+	octopusHash := merge("2026-06-05T13:00:00+00:00",
+		"merge", "-q", "--no-ff", "feat-a", "feat-b",
+		"-m", "Merge branches 'feat-a' and 'feat-b'")
+
+	commit("Post.", "2026-06-05T14:00:00+00:00")
+
+	repo, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return repo, octopusHash
+}
+
+// TestSideCommits_octopusAndNestedMerges pins the doc comment's "including
+// nested merges" claim: an octopus merge's side set must contain every commit
+// unique to EACH non-first parent, and a nested --no-ff merge inside one of
+// those branches must contribute both its own merge commit and the sub-branch
+// commit it merged in, while the octopus merge itself is excluded.
+func TestSideCommits_octopusAndNestedMerges(t *testing.T) {
+	repo, octopusHash := octopusRepo(t)
+	side, err := repo.SideCommits(octopusHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(side) != 4 {
+		t.Fatalf("side = %d commits, want 4: %+v", len(side), side)
+	}
+	wantSubjects := map[string]bool{
+		"Add A1.":                   false,
+		"Add B1.":                   false,
+		"Add Sub1.":                 false,
+		"Merge branch 'feat-b-sub'": false,
+	}
+	for _, s := range side {
+		if s.Hash == octopusHash {
+			t.Fatal("the octopus merge itself must be excluded from its side set")
+		}
+		if _, ok := wantSubjects[s.Subject]; !ok {
+			t.Fatalf("unexpected side commit %+v", s)
+		}
+		wantSubjects[s.Subject] = true
+	}
+	for subj, found := range wantSubjects {
+		if !found {
+			t.Fatalf("side set missing expected commit %q: %+v", subj, side)
+		}
+	}
+}
+
+// TestApplyLinearize_octopusFoldsToSingleParent folds an octopus merge (three
+// parents) into an ordinary commit and pins the same guarantees the two-way
+// case gets: the fold has exactly one parent, its tree matches the octopus
+// merge's tree, and the resulting chain has no merges left.
+func TestApplyLinearize_octopusFoldsToSingleParent(t *testing.T) {
+	repo, octopusHash := octopusRepo(t)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	side, err := repo.SideCommits(octopusHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := model.BuildLinearizePlan(commits, map[string][]model.SideCommit{octopusHash: side})
+
+	newHead, remap, err := repo.ApplyLinearize(commits, plan, DropSignatures)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	git := func(args ...string) string {
+		out, err := repo.git(args...)
+		if err != nil {
+			t.Fatalf("git %v: %v", args, err)
+		}
+		return strings.TrimSpace(out)
+	}
+
+	fold := remap.Folded[octopusHash]
+	if fold == "" {
+		t.Fatalf("remap missing fold for octopus merge: %+v", remap)
+	}
+	parents := strings.Fields(git("log", "-1", "--format=%P", fold))
+	if len(parents) != 1 {
+		t.Fatalf("fold %s has %d parent(s) %v, want exactly 1", short(fold), len(parents), parents)
+	}
+	if git("rev-parse", fold+"^{tree}") != git("rev-parse", octopusHash+"^{tree}") {
+		t.Fatal("fold's tree must equal the octopus merge's tree")
+	}
+	if got := git("rev-list", "--min-parents=2", "--count", newHead); got != "0" {
+		t.Fatalf("new chain still has %s merge(s)", got)
+	}
+}
+
 func TestApplyLinearize_errorBranches(t *testing.T) {
 	repo, _ := mergeRepo(t)
 	commits, err := repo.ReadCommits()

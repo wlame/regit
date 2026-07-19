@@ -8,6 +8,7 @@ import (
 	"github.com/wlame/regit/internal/capability"
 	"github.com/wlame/regit/internal/model"
 	"github.com/wlame/regit/internal/safety"
+	"github.com/wlame/regit/internal/termsafe"
 )
 
 // linearizeChange is the staged linearize mutation for the apply pipeline.
@@ -63,12 +64,16 @@ func (c linearizeChange) guard(state model.RepoState) safety.Guard {
 	return safety.Guard{}
 }
 
-// preview lists one line per fold: "merge  N → 1  <new title>".
+// preview lists one line per fold: "merge  N → 1  <new title>". NewTitle is
+// history-derived (synthesized from a merged branch's commit subjects), so it
+// is sanitized through termsafe.Line before rendering — the same convention
+// list.go, purge.go, pipeline.go, and detail.go use for every repo-derived
+// string that reaches the screen.
 func (c linearizeChange) preview(st styles) previewModel {
 	lines := make([]string, 0, len(c.plan.Folds))
 	for _, f := range c.plan.Folds {
 		lines = append(lines, fmt.Sprintf("%s  %d → 1  %s",
-			short(f.Merge.Hash), len(f.Side)+1, f.NewTitle))
+			short(f.Merge.Hash), len(f.Side)+1, termsafe.Line(f.NewTitle)))
 	}
 	return previewModel{title: c.title(), lines: lines}
 }

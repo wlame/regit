@@ -26,6 +26,12 @@ func (m *Manager) ApplyLinearize(
 			if state.IsDirty {
 				return fmt.Errorf("rewrite blocked: working tree is dirty")
 			}
+			// commits is the FULL history (ApplyLinearize needs it to locate the
+			// folds), but gitio.Repo.ApplyLinearize only ever re-emits the suffix
+			// from the earliest fold's merge onward — everything before that keeps
+			// its original hash. RewrittenCommits narrows to that suffix so an
+			// unrelated, untouched pushed commit earlier in history cannot
+			// over-flag this linearize.
 			if model.AnyPushed(plan.RewrittenCommits(commits)) && !opts.Confirmed {
 				return fmt.Errorf("confirmation required: commits are already pushed")
 			}
