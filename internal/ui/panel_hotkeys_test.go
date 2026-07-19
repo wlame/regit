@@ -1,6 +1,9 @@
 package ui
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // TestFeatureBindings_hotkeysUniqueAndOffReservedKeys pins the hotkey table:
 // every binding carries exactly one lowercase letter, no two bindings share
@@ -103,5 +106,68 @@ func TestUpdateActionPanel_unmappedLetterSwallowedGlobalsPaused(t *testing.T) {
 	}
 	if mm.statusMsg != wantStatus {
 		t.Fatalf("unmapped letter produced status %q — a global action fired", mm.statusMsg)
+	}
+}
+
+// TestUpdateActionPanel_uppercaseGlobalDoesNotLeak: "z" (above) is a no-op
+// everywhere, so it can't tell a swallowed key apart from one that leaked
+// through and simply did nothing. "U" is the global undo key (wired in
+// globalAction, not a lowercase hotkey), and here it has something real to
+// undo — applyStrategyInPane + apply move HEAD, giving doUndo an actual
+// restore to perform if the key ever reached it. Pressing "U" while the panel
+// is open must leave the panel open, HEAD untouched, and the status message
+// unchanged; a leak would move HEAD back and set the "Undid last apply —
+// restored ..." status.
+func TestUpdateActionPanel_uppercaseGlobalDoesNotLeak(t *testing.T) {
+	m := newTestModel(t)
+	origHead, _ := m.repo.ResolveRef("HEAD")
+
+	m = applyStrategyInPane(m) // stage an edit (tab tab enter)
+	m = send(m, "A", "enter")  // preview, then apply
+	if m.statusKind == statusErr {
+		t.Fatalf("setup: apply errored: %s", m.statusMsg)
+	}
+	appliedHead, _ := m.repo.ResolveRef("HEAD")
+	if appliedHead == origHead {
+		t.Fatal("setup: apply should have moved HEAD")
+	}
+
+	m.panel.open = true
+	wantStatus := m.statusMsg
+
+	mm := send(m, "U")
+
+	if !mm.panel.open {
+		t.Fatal("panel closed on the global undo key")
+	}
+	if mm.statusMsg != wantStatus {
+		t.Fatalf("global undo key leaked through the panel: status = %q", mm.statusMsg)
+	}
+	head, _ := mm.repo.ResolveRef("HEAD")
+	if head != appliedHead {
+		t.Fatalf("global undo key leaked through the panel: HEAD moved from %s to %s", appliedHead, head)
+	}
+}
+
+// TestViewActionPanel_rendersHotkeyPrefixes: the letters pinned by the
+// invariant test above must actually be VISIBLE on the panel — this renders
+// the open panel and checks the [key] prefix appears in the title cell, on
+// both an enabled row (redate, "d") and a disabled one (linearize, "l", on
+// the merge-free newTestModel fixture — dimming is style-level and invisible
+// to a plain string assertion, but the prefix text itself must still be
+// there). The footer hint must also spell out the new hotkey affordance.
+func TestViewActionPanel_rendersHotkeyPrefixes(t *testing.T) {
+	m := newTestModel(t) // linear history: linearize stays disabled but still shows its prefix
+	m.panel.open = true
+
+	out := m.viewActionPanel(120)
+
+	for _, want := range []string{"[d] Date/time spread", "[l] Linearize history"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("panel view missing %q:\n%s", want, out)
+		}
+	}
+	if !strings.Contains(out, "[letter] run") {
+		t.Fatalf("panel footer missing the hotkey hint:\n%s", out)
 	}
 }

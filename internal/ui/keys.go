@@ -103,7 +103,7 @@ var keymap = []keyBinding{
 	{Key: "R", Scope: scopeAction, Desc: "reset all pending edits", Bar: "[R]eset"},
 	{Key: "L", Scope: scopeAction, Desc: "toggle the command-log footer (read-only)", Bar: "[L]og"},
 	{Key: "m", Scope: scopeAction, Desc: "open the action panel for the current selection", Bar: "[m]actions"},
-	{Key: "↑/↓ · enter · esc", Scope: scopeAction, Ctx: ctxPanel, Desc: "action panel: move · run · close", Bar: "↑/↓ move · enter run · esc close"},
+	{Key: "↑/↓ · enter · [letter] · esc", Scope: scopeAction, Ctx: ctxPanel, Desc: "action panel: move · run · run by hotkey · close", Bar: "↑/↓ move · enter run · [letter] run · esc close"},
 
 	// Commit list (focused)
 	{Key: "d", Scope: scopeList, Ctx: ctxList, Desc: "toggle date grouping in the commit list", Bar: "[d]ates"},

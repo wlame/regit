@@ -107,7 +107,7 @@ The full keymap, grouped the same way as the in-app `?` help overlay
 | `R` | reset all pending edits |
 | `L` | toggle the command-log footer (read-only) |
 | `m` | open the action panel for the current selection |
-| `↑/↓ · enter · esc` | action panel: move · run · close |
+| `↑/↓ · enter · [letter] · esc` | action panel: move · run · run by hotkey · close |
 
 **COMMIT LIST (focused)**
 

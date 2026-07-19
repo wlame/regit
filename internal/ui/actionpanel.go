@@ -204,7 +204,7 @@ type panelColumns struct {
 
 const (
 	panelMarkerWidth = 2  // "▸ " / "  "
-	panelTitleWidth  = 20 // widest title ("Purge from history") + a little slack
+	panelTitleWidth  = 24 // "[x] " prefix + widest title ("Purge from history") + a little slack
 	panelVerbWidth   = 12 // widest verb ("drop-bodies")
 	panelColGap      = 1  // one blank cell between columns
 	panelDescMin     = 20 // keep the description legible on a narrow panel
@@ -247,8 +247,9 @@ func (m Model) renderPanelRow(r panelRow, selected bool, cols panelColumns) stri
 	}
 
 	gap := strings.Repeat(" ", panelColGap)
+	title := "[" + r.Key + "] " + r.Title
 	return marker +
-		titleStyle.Width(cols.title).MaxWidth(cols.title).Render(r.Title) + gap +
+		titleStyle.Width(cols.title).MaxWidth(cols.title).Render(title) + gap +
 		middleStyle.Width(cols.desc).MaxWidth(cols.desc).Render(middle) + gap +
 		m.st.help.Width(cols.verb).MaxWidth(cols.verb).Render(r.Verb)
 }
@@ -289,7 +290,7 @@ func (m Model) viewActionPanel(width int) string {
 		hidden := len(rows) - displayRows
 		b.WriteString(m.st.dim.Render(fmt.Sprintf("… +%d more", hidden)) + "\n")
 	}
-	b.WriteString(m.st.help.Render("↑/↓ move · enter run · esc close"))
+	b.WriteString(m.st.help.Render("↑/↓ move · enter run · [letter] run · esc close"))
 	frame := m.st.paneActive.Width(max(20, width-2))
 	return frame.Render(lipglossMaxWidth(b.String(), max(16, width-4)))
 }
