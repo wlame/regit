@@ -203,6 +203,9 @@ func TestWarnDroppedSignatures_silentWhenNoneSigned(t *testing.T) {
 // unexported in that package. Skips gracefully when ssh-keygen is unavailable.
 func signedCommitCapabilityRepo(t *testing.T) (string, *gitio.Repo) {
 	t.Helper()
+	if !gittest.SupportsSSHSigning() {
+		t.Skip("git too old for gpg.format=ssh (needs 2.34+)")
+	}
 	if _, err := exec.LookPath("ssh-keygen"); err != nil {
 		t.Skip("ssh-keygen not available")
 	}

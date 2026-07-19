@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -177,6 +178,9 @@ func TestUnknownCommand(t *testing.T) {
 func TestDispatch_InstallOutsideRepo(t *testing.T) {
 	bin := t.TempDir()
 	fake := filepath.Join(bin, "regit")
+	if runtime.GOOS == "windows" {
+		fake += ".exe" // PATH lookup on Windows needs a PATHEXT extension
+	}
 	if err := os.WriteFile(fake, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}

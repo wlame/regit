@@ -543,9 +543,14 @@ func TestGitDir_returnsAbsolutePath(t *testing.T) {
 	if !filepath.IsAbs(gitDir) {
 		t.Errorf("GitDir = %q, want an absolute path", gitDir)
 	}
+	// Compare by directory identity, not string equality: on Windows git
+	// reports forward slashes and long names while the temp dir may carry
+	// backslashes and 8.3 short names (RUNNER~1) for the same location.
 	want := filepath.Join(dir, ".git")
-	if gitDir != want {
-		t.Errorf("GitDir = %q, want %q", gitDir, want)
+	gotInfo, gotErr := os.Stat(gitDir)
+	wantInfo, wantErr := os.Stat(want)
+	if gotErr != nil || wantErr != nil || !os.SameFile(gotInfo, wantInfo) {
+		t.Errorf("GitDir = %q, want the same directory as %q (stat errs: %v, %v)", gitDir, want, gotErr, wantErr)
 	}
 }
 

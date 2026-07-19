@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -181,6 +182,9 @@ func TestInstall_PathCopyDiffersWarnsButProceeds(t *testing.T) {
 }
 
 func TestInstall_UnwritableDirErrors(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("directory write bits are not enforced on Windows")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores directory write permissions")
 	}

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -33,7 +34,11 @@ func regitBin(t *testing.T) string {
 			e2eBuildErr = err
 			return
 		}
-		e2eBin = filepath.Join(dir, "regit")
+		name := "regit"
+		if runtime.GOOS == "windows" {
+			name += ".exe" // Windows resolves executables by PATHEXT extension
+		}
+		e2eBin = filepath.Join(dir, name)
 		// -buildvcs=false: the throwaway test binary needs no VCS stamp, and
 		// stamping breaks where git metadata is unavailable (e.g. CI containers).
 		cmd := exec.Command("go", "build", "-buildvcs=false", "-o", e2eBin, ".")
@@ -610,8 +615,12 @@ func TestE2E_Redact_ReplaceMode(t *testing.T) {
 func TestE2E_GitReIntegration(t *testing.T) {
 	bin := regitBin(t)
 	pathDir := t.TempDir()
-	if err := os.Symlink(bin, filepath.Join(pathDir, "regit")); err != nil {
-		t.Fatal(err)
+	linkName := "regit"
+	if runtime.GOOS == "windows" {
+		linkName = "regit.exe"
+	}
+	if err := os.Symlink(bin, filepath.Join(pathDir, linkName)); err != nil {
+		t.Skipf("symlink not available: %v", err)
 	}
 	// Prepend the temp dir so its regit/git-re win every PATH lookup while
 	// git and go stay reachable.
@@ -625,7 +634,7 @@ func TestE2E_GitReIntegration(t *testing.T) {
 		return string(out), err
 	}
 
-	out, err := runCmd(filepath.Join(pathDir, "regit"), "install")
+	out, err := runCmd(filepath.Join(pathDir, linkName), "install")
 	if err != nil {
 		t.Fatalf("regit install: %v\n%s", err, out)
 	}

@@ -91,6 +91,12 @@ func TestPushedDetection_failsClosedOnBrokenRemoteRef(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(brokenDir, "main"), []byte("notahash\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// Old gits (e.g. 2.25) silently skip a broken loose ref instead of failing
+	// rev-list, so the fail-closed property is unobservable there: probe the
+	// exact command pushedHashes runs and skip when this git tolerates it.
+	if _, err := repo.gitRaw("rev-list", "--remotes"); err == nil {
+		t.Skip("this git silently ignores broken remote-tracking refs")
+	}
 	if _, err := repo.ReadCommits(); err == nil {
 		t.Fatal("ReadCommits must fail when pushed detection fails, not report everything unpushed")
 	}

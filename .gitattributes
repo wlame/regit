@@ -1,0 +1,4 @@
+# Check out every text file with LF on all platforms. Windows checkouts with
+# core.autocrlf=true would otherwise rewrite README.md/AGENTS.md to CRLF and
+# trip the generated-docs drift check, which compares against LF renderers.
+* text=auto eol=lf

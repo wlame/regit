@@ -6,12 +6,17 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/wlame/regit/internal/gittest"
 )
 
 // configureSSHSigning generates a throwaway SSH key and points git at it for
 // commit signing — no gpg-agent/daemon needed, unlike GPG.
 func configureSSHSigning(t *testing.T, dir string) {
 	t.Helper()
+	if !gittest.SupportsSSHSigning() {
+		t.Skip("git too old for gpg.format=ssh (needs 2.34+)")
+	}
 	if _, err := exec.LookPath("ssh-keygen"); err != nil {
 		t.Skip("ssh-keygen not available")
 	}

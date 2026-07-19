@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -509,6 +510,9 @@ func TestRunPurge_pocketExitsGuardBlocked(t *testing.T) {
 // "OSC window-title spoof removed" case), so "PWNED" must be gone entirely
 // while the legitimate text on either side of it survives.
 func TestRunPurge_searchSanitizesEscapeSequences(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("control characters are invalid in Windows filenames")
+	}
 	evil := "evil\x1b]0;PWNED\x07.txt"
 	repo, _ := newPurgeRepo(t, []map[string]string{{evil: "x"}})
 	var out bytes.Buffer

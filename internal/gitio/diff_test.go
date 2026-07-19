@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -31,6 +32,10 @@ func twoCommitRepo(t *testing.T) (*Repo, string, string) {
 	t.Helper()
 	dir := t.TempDir()
 	gitT(t, dir, "init", "-q")
+	// Repo-local, so it also governs product-code invocations (worktree
+	// checkouts), which run with the ambient env where a Windows host's
+	// system config may set autocrlf=true and rewrite blobs to CRLF.
+	gitT(t, dir, "config", "core.autocrlf", "false")
 	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\ntwo\nthree\n"), 0o644)
 	os.WriteFile(filepath.Join(dir, "b.txt"), []byte("keep\n"), 0o644)
 	gitT(t, dir, "add", "-A")
@@ -298,6 +303,9 @@ func TestHunks_rename(t *testing.T) {
 // TestHunks_modeOnlyChange verifies that a chmod-only change (no content diff)
 // produces at least one Hunk so the mode change is not silently dropped.
 func TestHunks_modeOnlyChange(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no executable bit on Windows filesystems — chmod is a no-op")
+	}
 	dir, repo := initRepo(t)
 
 	os.WriteFile(filepath.Join(dir, "script.sh"), []byte("#!/bin/sh\necho hi\n"), 0o644)
