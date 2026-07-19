@@ -673,7 +673,7 @@ func TestE2E_GitReIntegration(t *testing.T) {
 	if !strings.Contains(out, "Removed") {
 		t.Fatalf("uninstall output: %q", out)
 	}
-	if _, err := os.Lstat(filepath.Join(pathDir, "git-re")); !os.IsNotExist(err) {
+	if _, err := os.Lstat(filepath.Join(pathDir, shimFileName())); !os.IsNotExist(err) {
 		t.Fatalf("git-re still on PATH after uninstall: %v", err)
 	}
 }

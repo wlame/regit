@@ -21,7 +21,7 @@ func TestUninstall_RemovesOwnLink(t *testing.T) {
 	if err := runUninstallEnv(env, ctx, newParsedArgs(nil, nil)); err != nil {
 		t.Fatalf("uninstall: %v", err)
 	}
-	if _, err := os.Lstat(filepath.Join(bin, "git-re")); !os.IsNotExist(err) {
+	if _, err := os.Lstat(filepath.Join(bin, gitShimName)); !os.IsNotExist(err) {
 		t.Fatalf("git-re still present: %v", err)
 	}
 	if !strings.Contains(out.String(), "Removed") {
@@ -33,7 +33,7 @@ func TestUninstall_ForeignLinkRefused(t *testing.T) {
 	bin := t.TempDir()
 	regit := filepath.Join(bin, "regit")
 	writeFakeBinary(t, regit)
-	foreign := filepath.Join(bin, "git-re")
+	foreign := filepath.Join(bin, gitShimName)
 	writeFakeBinary(t, foreign)
 
 	ctx, _, _ := installCtx()

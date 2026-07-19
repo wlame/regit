@@ -19,7 +19,7 @@ func runUninstallEnv(env installEnv, ctx *RunContext, _ ParsedArgs) error {
 	}
 	link, err := env.lookPath(gitShimName)
 	if err != nil {
-		fmt.Fprintln(ctx.Stdout, "Not installed: no git-re on $PATH.")
+		fmt.Fprintf(ctx.Stdout, "Not installed: no %s on $PATH.\n", gitShimName)
 		return nil
 	}
 	// Only ever delete a git-re that provably resolves to THIS regit binary; a

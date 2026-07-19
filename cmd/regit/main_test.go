@@ -192,7 +192,7 @@ func TestDispatch_InstallOutsideRepo(t *testing.T) {
 	if err := dispatch("install", t.TempDir(), nil); err != nil {
 		t.Fatalf("dispatch install: %v", err)
 	}
-	if _, err := os.Lstat(filepath.Join(bin, "git-re")); err != nil {
+	if _, err := os.Lstat(filepath.Join(bin, shimFileName())); err != nil {
 		t.Fatalf("git-re not created: %v", err)
 	}
 
@@ -201,6 +201,15 @@ func TestDispatch_InstallOutsideRepo(t *testing.T) {
 		// refuse to delete it (foreign link) — that refusal is the pass.
 		t.Fatal("uninstall should refuse a link owned by a different binary")
 	}
+}
+
+// shimFileName mirrors capability's platform-dependent git-re shim name for
+// filesystem assertions (the .exe suffix on Windows).
+func shimFileName() string {
+	if runtime.GOOS == "windows" {
+		return "git-re.exe"
+	}
+	return "git-re"
 }
 
 // TestInvokedAsGitRe covers the argv[0] shapes git and shells produce.

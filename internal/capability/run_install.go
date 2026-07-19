@@ -5,11 +5,20 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 )
 
 // gitShimName is the executable name git's external-command protocol looks up
 // when the user types `git re`: git searches $PATH for `git-<subcommand>`.
-const gitShimName = "git-re"
+// On Windows both git and exec.LookPath resolve executables by extension, so
+// the shim must carry .exe there — an extensionless link would install fine
+// but be invisible to every later lookup (including our own uninstall).
+var gitShimName = func() string {
+	if runtime.GOOS == "windows" {
+		return "git-re.exe"
+	}
+	return "git-re"
+}()
 
 // installEnv abstracts the process and $PATH lookups the installer performs, so
 // unit tests can point it at temp directories instead of the real environment.

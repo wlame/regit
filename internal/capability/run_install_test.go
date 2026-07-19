@@ -49,7 +49,7 @@ func TestInstall_FreshCreatesSymlink(t *testing.T) {
 	if err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	link := filepath.Join(bin, "git-re")
+	link := filepath.Join(bin, gitShimName)
 	resolved, err := filepath.EvalSymlinks(link)
 	if err != nil {
 		t.Fatalf("git-re not created: %v", err)
@@ -89,7 +89,7 @@ func TestInstall_ForeignFileRefusedWithoutForce(t *testing.T) {
 	bin := t.TempDir()
 	regit := filepath.Join(bin, "regit")
 	writeFakeBinary(t, regit)
-	foreign := filepath.Join(bin, "git-re")
+	foreign := filepath.Join(bin, gitShimName)
 	writeFakeBinary(t, foreign) // a real file, not our symlink
 
 	ctx, _, _ := installCtx()
@@ -110,14 +110,14 @@ func TestInstall_ForceReplacesForeignFile(t *testing.T) {
 	bin := t.TempDir()
 	regit := filepath.Join(bin, "regit")
 	writeFakeBinary(t, regit)
-	writeFakeBinary(t, filepath.Join(bin, "git-re"))
+	writeFakeBinary(t, filepath.Join(bin, gitShimName))
 
 	ctx, _, _ := installCtx()
 	args := newParsedArgs(map[string]any{"force": true}, nil)
 	if err := runInstallEnv(fakeInstallEnv(regit, bin), ctx, args); err != nil {
 		t.Fatalf("install --force: %v", err)
 	}
-	resolved, err := filepath.EvalSymlinks(filepath.Join(bin, "git-re"))
+	resolved, err := filepath.EvalSymlinks(filepath.Join(bin, gitShimName))
 	wantTarget, _ := filepath.EvalSymlinks(regit)
 	if err != nil || resolved != wantTarget {
 		t.Fatalf("git-re not replaced by link: %s %v", resolved, err)
@@ -128,7 +128,7 @@ func TestInstall_DanglingSymlinkIsForeign(t *testing.T) {
 	bin := t.TempDir()
 	regit := filepath.Join(bin, "regit")
 	writeFakeBinary(t, regit)
-	if err := os.Symlink(filepath.Join(bin, "gone"), filepath.Join(bin, "git-re")); err != nil {
+	if err := os.Symlink(filepath.Join(bin, "gone"), filepath.Join(bin, gitShimName)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -174,7 +174,7 @@ func TestInstall_PathCopyDiffersWarnsButProceeds(t *testing.T) {
 		t.Fatalf("expected differing-binary warning, got %q", errBuf.String())
 	}
 	// The link must point at the PATH copy, not the running binary.
-	resolved, _ := filepath.EvalSymlinks(filepath.Join(bin, "git-re"))
+	resolved, _ := filepath.EvalSymlinks(filepath.Join(bin, gitShimName))
 	wantTarget, _ := filepath.EvalSymlinks(pathCopy)
 	if resolved != wantTarget {
 		t.Fatalf("git-re resolves to %s, want PATH copy %s", resolved, wantTarget)
