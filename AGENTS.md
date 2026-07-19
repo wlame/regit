@@ -111,7 +111,8 @@ dimmed with its disabled reason shown in place of a detail string — the panel
 teaches the selection model instead of hiding actions. Enabled rows also show
 the CLI verb they correspond to (the same name `capability.Render` logs), so
 the panel doubles as a lookup from UI action to headless command. Navigation
-is arrow-first (`↑/↓` move, `enter` runs, `esc`/`m` close); rows are windowed
+is arrow-first (`↑/↓` move, `enter` runs, a row's `[letter]` hotkey runs it
+directly, `esc`/`m` close); rows are windowed
 to the terminal height (`panelWindowRows`, capped at `panelMaxRows` = 10)
 rather than growing the frame past the screen. The always-visible keybar is
 similarly context-filtered: `currentKeyCtx` maps focus state (panel open >
@@ -621,7 +622,7 @@ internal/ui/
   feature.go            SelectionMode aliases, featureBindings (action panel = projection of capability.Registry())
   flow.go               flowID + enterRedateFlow/exitFlow (the flow zone's occupant)
   workspace.go          viewFlowZone: renders the flow zone (detail by default, active flow's widget otherwise) + the AUTHORS pane
-  actionpanel.go        The `m` action panel: panelRows projection, selectionKind/actionCompat, arrow-nav, row windowing
+  actionpanel.go        The `m` action panel: panelRows projection, selectionKind/actionCompat, arrow-nav + letter hotkeys, row windowing
   ws_dates.go           Redate flow widget (calendar + strategy form)
   selection.go          Commit-list selection model: Single/Range/Set/Active/Global + visual-mode range, set toggling
   pipeline.go           Apply pipeline: pendingChange interface + planChange/splitChange + the preview overlay
