@@ -60,3 +60,7 @@ desktop.ini
 .env
 .env.local
 *.local
+
+# ---- Docs site build output ----
+site/
+.cache/

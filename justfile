@@ -166,6 +166,14 @@ docs-sync:
 docs-check:
     go run ./cmd/docgen --check
 
+# Build the docs site (strict — fails on any warning).
+docs-build:
+    uv run --no-project --with-requirements=requirements-docs.txt mkdocs build --strict
+
+# Serve the docs locally with live reload.
+docs-serve:
+    uv run --no-project --with-requirements=requirements-docs.txt mkdocs serve
+
 # --- Versioning & release ----------------------------------------------------
 
 # Validates X.Y.Z, requires a clean tree on main, runs the full CI gates,
