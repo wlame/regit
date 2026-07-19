@@ -42,7 +42,9 @@ func TestLinearizeChange_guardMirrorsSafety(t *testing.T) {
 	pushedMerge := model.Commit{Hash: "merge1", IsMerge: true, IsPushed: true}
 	pushed := linearizeChange{
 		commits: []model.Commit{pushedMerge},
-		plan:    model.LinearizePlan{Folds: []model.LinearizeFold{{Merge: pushedMerge, NewTitle: "Merge x"}}},
+		plan: model.LinearizePlan{
+			Folds: []model.LinearizeFold{{Merge: pushedMerge, NewTitle: "Merge x"}},
+		},
 	}
 	g2 := pushed.guard(model.RepoState{Branch: "main"})
 	if !g2.NeedsConfirmation || g2.Blocked || g2.ConfirmWord != "main" {
@@ -53,7 +55,9 @@ func TestLinearizeChange_guardMirrorsSafety(t *testing.T) {
 	cleanMerge := model.Commit{Hash: "merge2", IsMerge: true}
 	dirty := linearizeChange{
 		commits: []model.Commit{cleanMerge},
-		plan:    model.LinearizePlan{Folds: []model.LinearizeFold{{Merge: cleanMerge, NewTitle: "Merge y"}}},
+		plan: model.LinearizePlan{
+			Folds: []model.LinearizeFold{{Merge: cleanMerge, NewTitle: "Merge y"}},
+		},
 	}
 	if g3 := dirty.guard(model.RepoState{Branch: "main", IsDirty: true}); !g3.Blocked {
 		t.Error("a dirty working tree should block a linearize")
