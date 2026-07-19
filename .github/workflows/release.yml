@@ -34,7 +34,10 @@ jobs:
           cache: true
 
       - name: Install just
-        uses: extractions/setup-just@v2
+        # Third-party action pinned to a commit SHA (v2.0.0): this workflow's
+        # token has contents:write, so a mutable tag would be a supply-chain
+        # risk for the release assets.
+        uses: extractions/setup-just@dd310ad5a97d8e7b41793f8ef055398d51ad4de6 # v2.0.0
 
       - name: Cross-compile all platforms
         run: just build-all
