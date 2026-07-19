@@ -207,7 +207,8 @@ const (
 	panelTitleWidth  = 24 // "[x] " prefix + widest title ("Purge from history") + a little slack
 	panelVerbWidth   = 12 // widest verb ("drop-bodies")
 	panelColGap      = 1  // one blank cell between columns
-	panelDescMin     = 20 // keep the description legible on a narrow panel
+	panelDescMin     = 20 // keep the description legible on a narrow panel;
+	// reached ~4 columns sooner since panelTitleWidth grew for the [x] prefixes
 )
 
 // computePanelColumns splits the panel's inner width across the columns, giving

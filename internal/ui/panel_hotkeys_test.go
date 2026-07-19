@@ -162,7 +162,13 @@ func TestViewActionPanel_rendersHotkeyPrefixes(t *testing.T) {
 
 	out := m.viewActionPanel(120)
 
-	for _, want := range []string{"[d] Date/time spread", "[l] Linearize history"} {
+	for _, want := range []string{
+		"[d] Date/time spread",
+		"[l] Linearize history",
+		// The widest prefixed title (22 chars): pins panelTitleWidth against
+		// wrap regressions at the tightest fit, not just the typical case.
+		"[p] Purge from history",
+	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("panel view missing %q:\n%s", want, out)
 		}
