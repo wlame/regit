@@ -666,3 +666,68 @@ func TestE2E_GitReIntegration(t *testing.T) {
 		t.Fatalf("git-re still on PATH after uninstall: %v", err)
 	}
 }
+
+// TestE2E_LinearizeFoldsAndUndoes drives the built binary: a merge-y repo is
+// previewed (head unmoved), linearized (no merges remain, end tree identical),
+// and undone (original head restored byte-for-byte).
+func TestE2E_LinearizeFoldsAndUndoes(t *testing.T) {
+	bin := regitBin(t)
+	dir := t.TempDir()
+	git := func(args ...string) string {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = gittest.Env(dir,
+			"GIT_AUTHOR_DATE=2026-06-05T14:00:00+00:00",
+			"GIT_COMMITTER_DATE=2026-06-05T14:00:00+00:00")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git("init", "-q")
+	git("symbolic-ref", "HEAD", "refs/heads/main")
+	git("config", "user.name", "wlame")
+	git("config", "user.email", "vvlame@gmail.com")
+	git("config", "commit.gpgsign", "false")
+	git("commit", "-q", "--allow-empty", "-m", "Base commit.")
+	git("checkout", "-q", "-b", "feature/login")
+	git("commit", "-q", "--allow-empty", "-m", "Add login form.")
+	git("checkout", "-q", "main")
+	git("merge", "-q", "--no-ff", "feature/login", "-m", "Merge branch 'feature/login'")
+	oldHead := git("rev-parse", "HEAD")
+	oldTree := git("rev-parse", "HEAD^{tree}")
+
+	regit := func(args ...string) (string, error) {
+		cmd := exec.Command(bin, append([]string{"--repo=" + dir}, args...)...)
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+
+	out, err := regit("linearize")
+	if err != nil {
+		t.Fatalf("preview: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "dry run") || git("rev-parse", "HEAD") != oldHead {
+		t.Fatalf("preview must not move HEAD:\n%s", out)
+	}
+
+	out, err = regit("linearize", "--execute")
+	if err != nil {
+		t.Fatalf("execute: %v\n%s", err, out)
+	}
+	if got := git("rev-list", "--min-parents=2", "--count", "HEAD"); got != "0" {
+		t.Fatalf("merges remain: %s\n%s", got, out)
+	}
+	if git("rev-parse", "HEAD^{tree}") != oldTree {
+		t.Fatal("end tree must be byte-identical after linearize")
+	}
+
+	out, err = regit("undo")
+	if err != nil {
+		t.Fatalf("undo: %v\n%s", err, out)
+	}
+	if git("rev-parse", "HEAD") != oldHead {
+		t.Fatal("undo must restore the original merge head")
+	}
+}
