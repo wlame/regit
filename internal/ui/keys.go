@@ -8,11 +8,10 @@ import (
 )
 
 // keys.go is the single source of truth for the keymap. The help overlay (the
-// '?' screen), the compact keybar hint, and the README's Keys section (via
-// DocSections and internal/docs) are all GENERATED from the keymap table, so
-// the documentation can never drift from the keys the code actually handles —
-// there is one table, not a hand-maintained help slice plus a
-// separately hard-coded keybar string.
+// '?' screen), the compact keybar hint, and the DocSections projection are all
+// GENERATED from the keymap table, so the documentation can never drift from
+// the keys the code actually handles — there is one table, not a
+// hand-maintained help slice plus a separately hard-coded keybar string.
 
 // keyScope groups a binding by the context it applies in, so the generated help
 // can section bindings and the keybar can show a curated subset.

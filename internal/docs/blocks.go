@@ -1,7 +1,7 @@
 // Package docs renders regit's generated documentation blocks and splices them
 // into the marked regions of README.md and AGENTS.md. Every block is a pure
-// projection of in-code data (the capability registry, the ui keymap, the
-// strategy/time-model names, the config env-override table), so the docs
+// projection of in-code data (the capability registry, the strategy/time-model
+// names, the config env-override table), so the docs
 // cannot drift from the code: cmd/docgen rewrites the files (`just docs-sync`)
 // and drift_test.go fails CI whenever they differ.
 package docs
@@ -13,14 +13,12 @@ import (
 	"github.com/wlame/regit/internal/capability"
 	"github.com/wlame/regit/internal/config"
 	"github.com/wlame/regit/internal/strategy"
-	"github.com/wlame/regit/internal/ui"
 )
 
 // Blocks renders every generated block, keyed by marker name. Files() assigns
 // each name to the file that carries it.
 func Blocks() map[string]string {
 	return map[string]string{
-		"keys":           keysBlock(),
 		"commands":       commandsBlock(),
 		"strategies":     nameLine(strategyNames()),
 		"time-models":    nameLine(timeModelNames()),
@@ -29,23 +27,6 @@ func Blocks() map[string]string {
 		"verbs-detail":   verbsLine(),
 		"runfiles-map":   runFilesLine(),
 	}
-}
-
-// keysBlock renders the full keymap grouped by scope — the README mirror of
-// the in-app '?' overlay, one markdown table per scope section.
-func keysBlock() string {
-	var b strings.Builder
-	for i, sec := range ui.DocSections() {
-		if i > 0 {
-			b.WriteString("\n")
-		}
-		fmt.Fprintf(&b, "**%s**\n\n", sec.Title)
-		b.WriteString("| Key | Action |\n|-----|--------|\n")
-		for _, k := range sec.Bindings {
-			fmt.Fprintf(&b, "| `%s` | %s |\n", k.Key, k.Desc)
-		}
-	}
-	return strings.TrimRight(b.String(), "\n")
 }
 
 // commandsBlock renders one row per registry verb. The usage column shows only

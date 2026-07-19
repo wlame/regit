@@ -8,16 +8,13 @@ import (
 )
 
 // malformedReadme carries a well-formed marker pair for every README block
-// except "keys", whose begin marker has trailing text after "-->". Per spec,
-// a malformed/orphan marker must FAIL LOUDLY rather than silently skip the
-// block (as a bare strings.Contains presence check would allow).
+// except "commands", whose begin marker has trailing text after "-->". Per
+// spec, a malformed/orphan marker must FAIL LOUDLY rather than silently skip
+// the block (as a bare strings.Contains presence check would allow).
 const malformedReadme = `# Title
 
-<!-- regit:begin keys --> trailing
+<!-- regit:begin commands --> trailing
 stale
-<!-- regit:end keys -->
-
-<!-- regit:begin commands -->
 <!-- regit:end commands -->
 
 <!-- regit:begin strategies -->
@@ -56,13 +53,13 @@ func TestCheck_failsLoudlyOnMalformedMarker(t *testing.T) {
 
 	// Check may legitimately also want to report drift for the well-formed
 	// files (their content doesn't match the live registry); we only assert
-	// that the malformed "keys" marker in README.md fails loudly rather than
-	// being silently skipped.
+	// that the malformed "commands" marker in README.md fails loudly rather
+	// than being silently skipped.
 	_, err := Check(root)
 	if err == nil {
 		t.Fatal("Check returned no error for a malformed begin marker, want a loud failure")
 	}
-	for _, want := range []string{"README.md", `missing markers for block "keys"`} {
+	for _, want := range []string{"README.md", `missing markers for block "commands"`} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("err = %q, want it to contain %q", err, want)
 		}

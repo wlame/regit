@@ -129,11 +129,12 @@ func TestREADME_documentsEveryConfigKey(t *testing.T) {
 	}
 }
 
-// TestREADME_mentionsEveryInternalPackage keeps the Development section's
-// package map complete as packages are added.
-func TestREADME_mentionsEveryInternalPackage(t *testing.T) {
+// TestAGENTS_mentionsEveryInternalPackage keeps the AGENTS.md package map
+// complete as packages are added. (The README deliberately carries no package
+// map — the codebase walkthrough lives in AGENTS.md.)
+func TestAGENTS_mentionsEveryInternalPackage(t *testing.T) {
 	root := driftRoot(t)
-	raw, err := os.ReadFile(filepath.Join(root, "README.md"))
+	raw, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +144,7 @@ func TestREADME_mentionsEveryInternalPackage(t *testing.T) {
 	}
 	for _, e := range entries {
 		if e.IsDir() && !strings.Contains(string(raw), "internal/"+e.Name()) {
-			t.Errorf("README.md does not mention internal/%s", e.Name())
+			t.Errorf("AGENTS.md does not mention internal/%s", e.Name())
 		}
 	}
 }

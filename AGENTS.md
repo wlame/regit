@@ -586,6 +586,8 @@ internal/reword/
   cache.go              promptcache instantiation (.git/regit/cache/reword/)
   types.go              Result, Variant, Selection, DefaultSelection, Options, Request
   prompt.go             BuildMessages, BuildScanMessages, SchemaJSON, ParseVariants
+internal/redact/
+  engine.go             Redact engine: pickaxe scan, line cascade, plan → RedactSpec
 internal/llm/
   backend.go            Backend interface (generic Generate), FewShot
   http.go               HTTPBackend (OpenAI-compatible)
@@ -598,8 +600,11 @@ internal/safety/
   guards.go             CheckGuards, Guard
 internal/config/
   config.go             Config, Load, REGIT_* overrides, RewordConfig
+internal/gittest/
+  env.go                Hermetic git env for test fixtures (private HOME, no inherited GIT_*)
+  version.go            Git feature probes for fixtures (e.g. SSH-signing support)
 internal/docs/
-  blocks.go             Generated doc blocks: keys/commands/strategies/env-vars/verbs renderers
+  blocks.go             Generated doc blocks: commands/strategies/env-vars/verbs renderers
   markers.go            SpliceBlocks — replaces content between regit:begin/end marker lines
   files.go              File→blocks table, FindRoot, Sync/Check (cmd/docgen and drift tests use these)
   drift_test.go         Fails CI when README.md/AGENTS.md disagree with the code

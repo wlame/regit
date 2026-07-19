@@ -18,7 +18,7 @@ type DocFile struct {
 // Files returns the documentation files under drift control.
 func Files() []DocFile {
 	return []DocFile{
-		{Path: "README.md", Blocks: []string{"keys", "commands", "strategies", "time-models", "env-vars"}},
+		{Path: "README.md", Blocks: []string{"commands", "strategies", "time-models", "env-vars"}},
 		{Path: "AGENTS.md", Blocks: []string{"verbs-overview", "verbs-detail", "runfiles-map"}},
 	}
 }
