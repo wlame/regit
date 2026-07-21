@@ -1,6 +1,7 @@
 package gittest
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"fmt"
 	"os"
@@ -127,12 +128,22 @@ func Snap(t *testing.T, dir string) Snapshot {
 }
 
 // snapGit runs one git command under the hermetic Env and returns stdout.
+// stderr is captured separately (never merged into the returned stdout, which
+// callers parse) and folded into the error so a Snap failure names git's
+// actual complaint instead of a bare "exit status 1".
 func snapGit(t *testing.T, dir string, args ...string) (string, error) {
 	t.Helper()
+	var stderr bytes.Buffer
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	cmd.Env = Env(dir)
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
+	if err != nil {
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return string(out), fmt.Errorf("%w: %s", err, msg)
+		}
+	}
 	return string(out), err
 }
 

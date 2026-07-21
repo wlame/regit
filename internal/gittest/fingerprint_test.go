@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -119,6 +120,70 @@ func (r *recorder) Errorf(format string, args ...any) {
 	r.msgs = append(r.msgs, fmt.Sprintf(format, args...))
 }
 
+// TestAssertAbortedCleanly_rejectsRealMutations is the reject-direction pairing
+// for TestAssertAbortedCleanly_toleratesOnlyAddedBackupRefs. That test only
+// proves the assertion stays quiet on the one change it should tolerate; this
+// one proves it actually fires on everything else. AssertAbortedCleanly is the
+// strongest claim regit makes about a failed rewrite (the repository was left
+// untouched), so a silent-pass here would be caught by nothing downstream.
+// Each subtest starts from a fresh fixture and asserts on the recorder's
+// captured message, not merely that it is non-empty, so a failure names the
+// offending path or ref and stays diagnosable.
+func TestAssertAbortedCleanly_rejectsRealMutations(t *testing.T) {
+	t.Run("tracked working-tree file mutated", func(t *testing.T) {
+		dir := initRepo(t)
+		before := Snap(t, dir)
+
+		writeFile(t, dir, "a.txt", "mutated\n")
+
+		rec := &recorder{}
+		AssertAbortedCleanly(rec, before, Snap(t, dir))
+		if len(rec.msgs) == 0 {
+			t.Fatal("AssertAbortedCleanly reported 0 failures, want the mutated a.txt reported")
+		}
+		if !strings.Contains(rec.msgs[0], "a.txt") {
+			t.Errorf("failure message = %q, want it to name a.txt", rec.msgs[0])
+		}
+	})
+
+	t.Run("current branch ref moved", func(t *testing.T) {
+		dir := initRepo(t)
+		before := Snap(t, dir)
+
+		writeFile(t, dir, "a.txt", "moved\n")
+		runGit(t, dir, "commit", "-q", "-am", "Moved.")
+
+		rec := &recorder{}
+		AssertAbortedCleanly(rec, before, Snap(t, dir))
+		if len(rec.msgs) == 0 {
+			t.Fatal("AssertAbortedCleanly reported 0 failures, want the moved branch ref reported")
+		}
+		if !strings.Contains(rec.msgs[0], "refs/heads/main") {
+			t.Errorf("failure message = %q, want it to name refs/heads/main", rec.msgs[0])
+		}
+	})
+
+	t.Run("non-backup ref added", func(t *testing.T) {
+		dir := initRepo(t)
+		before := Snap(t, dir)
+
+		// An aborted apply must never record an applied ref: safety.runApply
+		// calls RecordAppliedHead only after the compare-and-swap succeeds. A ref
+		// under this prefix surviving an abort would mean that guard ran too
+		// early, so isBackupRefAdded must not tolerate it.
+		runGit(t, dir, "update-ref", "refs/regit/applied/main/1-0", "HEAD")
+
+		rec := &recorder{}
+		AssertAbortedCleanly(rec, before, Snap(t, dir))
+		if len(rec.msgs) == 0 {
+			t.Fatal("AssertAbortedCleanly reported 0 failures, want the applied ref reported")
+		}
+		if !strings.Contains(rec.msgs[0], "refs/regit/applied/main/1-0") {
+			t.Errorf("failure message = %q, want it to name refs/regit/applied/main/1-0", rec.msgs[0])
+		}
+	})
+}
+
 // TestAssertAppliedCleanly_allowsBranchMoveAndDeclaredChanges proves the happy
 // path stays quiet: a real commit that moves the branch ref and changes one
 // tracked file, declared via matching Declared entries for the index and
@@ -199,4 +264,67 @@ func TestAssertUndoRestores_toleratesAccumulatedRegitRefs(t *testing.T) {
 	if len(rec2.msgs) == 0 {
 		t.Error("AssertUndoRestores reported 0 failures, want the moved branch ref reported")
 	}
+}
+
+// TestSnap_detectsSymlinkRetargetToByteIdenticalContent is the regression test
+// for hashing a symlink's target path (os.Readlink) instead of following it:
+// "one.txt" and "two.txt" hold identical bytes, so a content-based hash of the
+// link would see no change at all when the link is re-pointed from one to the
+// other. Only hashing the target STRING catches the retarget.
+func TestSnap_detectsSymlinkRetargetToByteIdenticalContent(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires elevated privileges on Windows")
+	}
+	dir := initRepo(t)
+
+	writeFile(t, dir, "one.txt", "same\n")
+	writeFile(t, dir, "two.txt", "same\n")
+	linkPath := filepath.Join(dir, "link")
+	if err := os.Symlink("one.txt", linkPath); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, dir, "add", "-A")
+	runGit(t, dir, "commit", "-q", "-m", "Add tracked symlink.")
+	before := Snap(t, dir)
+
+	if err := os.Remove(linkPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("two.txt", linkPath); err != nil {
+		t.Fatal(err)
+	}
+
+	d := before.Diff(Snap(t, dir))
+	if d.IsEmpty() {
+		t.Fatal("Diff did not detect the symlink retarget to byte-identical content")
+	}
+	if !strings.Contains(d.String(), "link") {
+		t.Errorf("Diff = %s, want it to name link", d)
+	}
+}
+
+// TestSnap_handlesEmptyRepoAndDetachedHead exercises the two sentinel paths
+// Snap folds into values instead of treating as errors: a repository with no
+// commits yet (HeadHash stays "") and a detached HEAD (Head becomes
+// "detached").
+func TestSnap_handlesEmptyRepoAndDetachedHead(t *testing.T) {
+	t.Run("empty repository", func(t *testing.T) {
+		dir := t.TempDir()
+		runGit(t, dir, "init", "-q")
+
+		s := Snap(t, dir)
+		if s.HeadHash != "" {
+			t.Errorf("HeadHash = %q, want empty in a repository with no commits", s.HeadHash)
+		}
+	})
+
+	t.Run("detached HEAD", func(t *testing.T) {
+		dir := initRepo(t)
+		runGit(t, dir, "checkout", "-q", "--detach", "HEAD")
+
+		s := Snap(t, dir)
+		if s.Head != "detached" {
+			t.Errorf("Head = %q, want detached", s.Head)
+		}
+	})
 }
