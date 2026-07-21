@@ -400,6 +400,12 @@ func TestE2E_purgePreviewExecuteUndo(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "junk.log")); err != nil {
 		t.Errorf("junk.log should still exist on disk (working tree untouched): %v", err)
 	}
+	// The user-visible contract. junk.log stays on disk by design, so status must
+	// report it as UNTRACKED, never staged: a staged entry means the purged file
+	// is one `git commit` from returning to history.
+	if got := gitLines(t, dir, "status", "--porcelain"); len(got) != 1 || got[0] != "?? junk.log" {
+		t.Errorf("git status after purge = %v, want exactly [\"?? junk.log\"]", got)
+	}
 
 	// 4. undo restores the pre-purge head. undo takes no --execute — it acts
 	// immediately (the registry's undo entry lists "regit undo --execute" as
@@ -565,6 +571,19 @@ func TestE2E_Redact(t *testing.T) {
 	}
 	if lines := gitLines(t, dir, "log", "--oneline", "-Ssk-NEW", "main"); len(lines) != 0 {
 		t.Errorf("sk-NEW (the cascaded rotation) should have no history left on main, got: %v", lines)
+	}
+	// After a redact the checkout must be CLEAN and the secret gone from disk.
+	// Leaving it staged, or merely on disk, defeats the command entirely — the
+	// operator is told the secret is removed while it sits in the working tree.
+	if got := gitLines(t, dir, "status", "--porcelain"); len(got) != 0 {
+		t.Errorf("git status after redact = %v, want clean", got)
+	}
+	body, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "sk-OLD") {
+		t.Errorf("sk-OLD still present in the working-tree copy of cfg.yaml:\n%s", body)
 	}
 	afterLog := gitLines(t, dir, "log", "--oneline", "main")
 	if len(afterLog) != len(beforeLog)-1 {

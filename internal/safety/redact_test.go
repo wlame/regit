@@ -87,12 +87,22 @@ func TestApplyRedact_endToEndRemoveVerifies(t *testing.T) {
 		Targets: map[string][]string{"cfg.yaml": {"token: sk-OLD"}},
 	}
 
+	snapBefore := gittest.Snap(t, repo.Root())
+
 	mgr := NewManager(repo)
 	res, err := mgr.ApplyRedact(commits, spec, true, state,
 		ApplyOptions{Sign: gitio.DropSignatures, UnixTimestamp: 1717689600, ExpectedHead: oldHead})
 	if err != nil {
 		t.Fatalf("ApplyRedact: %v", err)
 	}
+
+	// This fixture's secret lives in an ancestor and was already rotated away by
+	// the tip, so the tip tree is identical after the redact — nothing in the
+	// checkout may move. Declaring nothing is the honest assertion here; the
+	// checkout-sync behavior is proven by the test below, whose secret IS in the
+	// tip.
+	gittest.AssertAppliedCleanly(t, snapBefore, gittest.Snap(t, repo.Root()))
+
 	if res.NewHead == oldHead {
 		t.Error("redact should have produced a new head")
 	}
@@ -133,6 +143,54 @@ func TestApplyRedact_endToEndRemoveVerifies(t *testing.T) {
 	}
 	if head != oldHead {
 		t.Errorf("HEAD after undo = %s, want original %s", shortHash(head), shortHash(oldHead))
+	}
+}
+
+// TestApplyRedact_syncsTheCheckoutWhenTheTipChanges pins the working-tree half
+// of the redact contract. A redaction that scrubs history but leaves the secret
+// sitting in the operator's checkout has removed nothing they care about — and
+// worse, leaves it staged, one commit from returning. The fixture puts the
+// secret in a path the TIP still carries, so the rewrite genuinely changes the
+// tip tree and the checkout must follow it.
+func TestApplyRedact_syncsTheCheckoutWhenTheTipChanges(t *testing.T) {
+	repo := newRedactRepo(t, []map[string]string{
+		{"cfg.yaml": "a\ntoken: sk-LIVE\n"},
+		{"other.txt": "unrelated\n"},
+	})
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := repo.ReadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := model.RedactSpec{
+		Match: "sk-LIVE", Mode: model.RedactRemove,
+		Targets: map[string][]string{"cfg.yaml": {"token: sk-LIVE"}},
+	}
+
+	snapBefore := gittest.Snap(t, repo.Root())
+	mgr := NewManager(repo)
+	if _, err := mgr.ApplyRedact(commits, spec, true, state, ApplyOptions{
+		Sign: gitio.DropSignatures, UnixTimestamp: 1717689600, ExpectedHead: state.HeadHash,
+	}); err != nil {
+		t.Fatalf("ApplyRedact: %v", err)
+	}
+
+	// Both halves are promises: the index entry must change AND the file on disk
+	// must change. Today the second never happens.
+	gittest.AssertAppliedCleanly(t, snapBefore, gittest.Snap(t, repo.Root()),
+		gittest.Declared{Kind: "index", Op: "changed", Path: "cfg.yaml"},
+		gittest.Declared{Kind: "worktree", Op: "changed", Path: "cfg.yaml"})
+
+	// Independently of the delta, the secret must be gone from the real file.
+	body, err := os.ReadFile(filepath.Join(repo.Root(), "cfg.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "sk-LIVE") {
+		t.Errorf("sk-LIVE still present in the working-tree copy of cfg.yaml:\n%s", body)
 	}
 }
 

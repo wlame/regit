@@ -82,12 +82,23 @@ func TestApplyPurge_endToEnd_removesPathAndSupportsUndo(t *testing.T) {
 	}
 	oldHead := state.HeadHash
 
+	snapBefore := gittest.Snap(t, repo.Root())
+
 	mgr := NewManager(repo)
 	res, err := mgr.ApplyPurge(commits, spec, affected, state,
 		ApplyOptions{Sign: gitio.DropSignatures, UnixTimestamp: 1717689600, ExpectedHead: oldHead})
 	if err != nil {
 		t.Fatalf("ApplyPurge: %v", err)
 	}
+
+	// A purge declares exactly ONE thing about the checkout: junk.log leaves the
+	// INDEX. It deliberately stays on disk as an untracked file, so its worktree
+	// entry must survive untouched. Anything else moving is a defect — and today
+	// this fails, because nothing refreshes the index at all and junk.log is left
+	// staged for re-addition.
+	gittest.AssertAppliedCleanly(t, snapBefore, gittest.Snap(t, repo.Root()),
+		gittest.Declared{Kind: "index", Op: "removed", Path: "junk.log"})
+
 	if res.NewHead == oldHead {
 		t.Error("purge should have produced a new head")
 	}
@@ -118,6 +129,8 @@ func TestApplyPurge_endToEnd_removesPathAndSupportsUndo(t *testing.T) {
 	if head != oldHead {
 		t.Errorf("HEAD after undo = %s, want original %s", shortHash(head), shortHash(oldHead))
 	}
+
+	gittest.AssertUndoRestores(t, snapBefore, gittest.Snap(t, repo.Root()))
 }
 
 func TestApplyPurge_dirtyTreeBlocks(t *testing.T) {
