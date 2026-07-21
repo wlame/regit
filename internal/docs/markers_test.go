@@ -113,3 +113,20 @@ func TestFindRoot_errorsWhenNoGoModAbove(t *testing.T) {
 		t.Errorf("error = %q, want it to name the missing go.mod", err)
 	}
 }
+
+// TestParseMarker_emptyNameDoesNotPanic pins the bounds guard. The prefix and
+// the suffix OVERLAP when a marker carries no name: "<!-- regit:end -->" is 18
+// bytes, but len(endPrefix)+len(markerSuffix) is 19, so slicing between them
+// inverts the indices. Both marker kinds are affected. Found by FuzzSpliceBlocks.
+func TestParseMarker_emptyNameDoesNotPanic(t *testing.T) {
+	for _, tc := range []struct{ line, prefix string }{
+		{"<!-- regit:end -->", endPrefix},
+		{"<!-- regit:begin -->", beginPrefix},
+	} {
+		name, ok := parseMarker(tc.line, tc.prefix)
+		if ok {
+			t.Errorf("parseMarker(%q) = (%q, true), want ok=false — a nameless marker is not a marker",
+				tc.line, name)
+		}
+	}
+}

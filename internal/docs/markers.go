@@ -22,7 +22,17 @@ func EndMarker(name string) string { return endPrefix + name + markerSuffix }
 
 // parseMarker extracts the block name when line is exactly one marker of the
 // given kind (ignoring surrounding whitespace handled by the caller).
+//
+// The length check is load-bearing, not defensive noise: HasPrefix and HasSuffix
+// can BOTH be true while the two overlap, which happens for a marker with an
+// empty name ("<!-- regit:end -->" is one byte shorter than prefix+suffix). The
+// slice below would then run backwards and panic. A nameless marker is not a
+// marker, so reporting ok=false is also the semantically right answer — the
+// caller emits its "unknown block" error instead of crashing.
 func parseMarker(line, prefix string) (string, bool) {
+	if len(line) < len(prefix)+len(markerSuffix) {
+		return "", false
+	}
 	if !strings.HasPrefix(line, prefix) || !strings.HasSuffix(line, markerSuffix) {
 		return "", false
 	}
