@@ -304,8 +304,20 @@ func AssertAbortedCleanly(t testingT, before, after Snapshot) {
 // Declaring changes explicitly is the point: a test that passes a bare list of
 // paths it expects to move will fail the moment an operation touches anything
 // else, which is exactly how the purge/redact working-tree defect surfaces.
+//
+// A declaration is also a PROMISE, not merely a permission: this assertion
+// additionally fails if any declared change never shows up in the delta. A
+// delta-only check can only ever flag changes that DID happen, so it is
+// structurally blind to an absence — an operation that silently fails to make
+// a change it should have (e.g. moving a branch ref without refreshing the
+// index to match) produces no Change for that path at all, and a purely
+// negative assertion has nothing to flag. Requiring every declaration to fire
+// turns the oracle from "did you do anything you didn't say" into "did you do
+// everything you said," which is what makes it capable of catching a
+// working-tree-sync defect like regit purge leaving a removed file staged.
 func AssertAppliedCleanly(t testingT, before, after Snapshot, declared ...Declared) {
 	t.Helper()
+	fulfilled := make([]bool, len(declared))
 	var unexpected []Change
 	for _, c := range before.Diff(after).Changes {
 		// regit bookkeeping refs are the expected residue of a successful apply.
@@ -323,25 +335,56 @@ func AssertAppliedCleanly(t testingT, before, after Snapshot, declared ...Declar
 		if c.Kind == "ref" && c.Op == "changed" && c.Path == before.Head {
 			continue
 		}
-		if matchesDeclared(c, declared) {
+		if markMatchingDeclared(c, declared, fulfilled) {
 			continue
 		}
 		unexpected = append(unexpected, c)
 	}
+
+	var unfulfilled []Declared
+	for i, d := range declared {
+		if !fulfilled[i] {
+			unfulfilled = append(unfulfilled, d)
+		}
+	}
+
+	// Both checks run to completion and both are reported: short-circuiting
+	// after the first would let a test with one of each failure learn about
+	// only whichever check happened to run first.
 	if len(unexpected) > 0 {
 		t.Errorf("apply changed more than it declared:%s\ndeclared: %v",
 			Delta{Changes: unexpected}, declared)
 	}
+	if len(unfulfilled) > 0 {
+		t.Errorf("apply promised %d declared change(s) that never happened:%s",
+			len(unfulfilled), declaredList(unfulfilled))
+	}
 }
 
-// matchesDeclared reports whether c matches any of the declared changes exactly.
-func matchesDeclared(c Change, declared []Declared) bool {
-	for _, d := range declared {
+// markMatchingDeclared marks every entry in declared that matches c as
+// fulfilled (there is normally at most one, since Kind+Op+Path is unique
+// within one Diff, but a caller passing a duplicate declaration should not
+// leave one copy looking unfulfilled) and reports whether any matched.
+func markMatchingDeclared(c Change, declared []Declared, fulfilled []bool) bool {
+	matched := false
+	for i, d := range declared {
 		if d.matches(c) {
-			return true
+			fulfilled[i] = true
+			matched = true
 		}
 	}
-	return false
+	return matched
+}
+
+// declaredList renders unfulfilled declarations for a failure message, one per
+// line in the same style as Delta.String, so each promised-but-absent change
+// is individually named rather than dumped as an opaque struct slice.
+func declaredList(declared []Declared) string {
+	lines := make([]string, len(declared))
+	for i, d := range declared {
+		lines[i] = fmt.Sprintf("%s %s: %s", d.Kind, d.Op, d.Path)
+	}
+	return "\n  " + strings.Join(lines, "\n  ")
 }
 
 // AssertUndoRestores fails unless after is identical to before apart from the

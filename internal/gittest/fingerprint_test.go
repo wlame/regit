@@ -237,6 +237,101 @@ func TestAssertAppliedCleanly_rejectsSiblingPathSharingAPrefix(t *testing.T) {
 	}
 }
 
+// TestAssertAppliedCleanly_fulfilledDeclarationsPass proves the promise check
+// added alongside the existing undeclared-change check stays quiet when every
+// declaration actually fires: a real commit that changes a tracked file's
+// index and worktree entries, both declared, records zero failures.
+func TestAssertAppliedCleanly_fulfilledDeclarationsPass(t *testing.T) {
+	dir := initRepo(t)
+	before := Snap(t, dir)
+
+	writeFile(t, dir, "a.txt", "changed\n")
+	runGit(t, dir, "commit", "-q", "-am", "Second.")
+
+	rec := &recorder{}
+	AssertAppliedCleanly(rec, before, Snap(t, dir),
+		Declared{Kind: "index", Op: "changed", Path: "a.txt"},
+		Declared{Kind: "worktree", Op: "changed", Path: "a.txt"},
+	)
+	if len(rec.msgs) != 0 {
+		t.Errorf("AssertAppliedCleanly reported %d failure(s), want 0: %v", len(rec.msgs), rec.msgs)
+	}
+}
+
+// TestAssertAppliedCleanly_unfulfilledDeclarationFails is the regression test
+// for the design flaw this change fixes: AssertAppliedCleanly used to be
+// purely negative, only flagging changes that were NOT declared, so a
+// declaration that never fired was silently accepted. That made a declaration
+// a permission rather than a promise, and it meant a test declaring
+// Declared{Kind: "index", Op: "removed", Path: "junk.log"} would pass whether
+// or not the index change actually happened — exactly how regit purge's
+// stale-index defect (moving the branch ref without refreshing the index)
+// went undetected. Nothing here touches junk.log at all, so the declaration
+// for it must be reported as unfulfilled.
+func TestAssertAppliedCleanly_unfulfilledDeclarationFails(t *testing.T) {
+	dir := initRepo(t)
+	before := Snap(t, dir)
+
+	writeFile(t, dir, "a.txt", "changed\n")
+	runGit(t, dir, "commit", "-q", "-am", "Second.")
+
+	rec := &recorder{}
+	AssertAppliedCleanly(rec, before, Snap(t, dir),
+		Declared{Kind: "index", Op: "changed", Path: "a.txt"},
+		Declared{Kind: "worktree", Op: "changed", Path: "a.txt"},
+		Declared{Kind: "index", Op: "removed", Path: "junk.log"},
+	)
+	if len(rec.msgs) == 0 {
+		t.Fatal("AssertAppliedCleanly reported 0 failures, " +
+			"want the unfulfilled junk.log declaration reported")
+	}
+	if !strings.Contains(strings.Join(rec.msgs, "\n"), "junk.log") {
+		t.Errorf("failure messages = %v, want them to name junk.log", rec.msgs)
+	}
+}
+
+// TestAssertAppliedCleanly_reportsBothUndeclaredAndUnfulfilledTogether proves
+// the two checks run independently rather than short-circuiting each other: a
+// call that trips both an undeclared change (extra.txt, never declared) and an
+// unfulfilled declaration (junk.log, declared but never touched) must report
+// both, not just whichever check happens to run first.
+func TestAssertAppliedCleanly_reportsBothUndeclaredAndUnfulfilledTogether(t *testing.T) {
+	dir := initRepo(t)
+	before := Snap(t, dir)
+
+	writeFile(t, dir, "a.txt", "changed\n")
+	writeFile(t, dir, "extra.txt", "surprise\n")
+	// Stage only the two files under test: "add -A" would also sweep up
+	// initRepo's pre-existing untracked.txt fixture file, adding noise
+	// unrelated to what this test demonstrates.
+	runGit(t, dir, "add", "a.txt", "extra.txt")
+	runGit(t, dir, "commit", "-q", "-m", "Second.")
+
+	rec := &recorder{}
+	AssertAppliedCleanly(rec, before, Snap(t, dir),
+		Declared{Kind: "index", Op: "changed", Path: "a.txt"},
+		Declared{Kind: "worktree", Op: "changed", Path: "a.txt"},
+		Declared{Kind: "index", Op: "removed", Path: "junk.log"},
+	)
+
+	// Exactly two messages are expected: one t.Errorf per check. Asserting the
+	// count (rather than just scanning the joined output for both substrings)
+	// matters here — the undeclared-change message also echoes the full
+	// `declared` list for context, which happens to contain "junk.log" too, so a
+	// bare substring scan across the joined messages would pass even if the
+	// unfulfilled-declaration check never ran at all.
+	if len(rec.msgs) != 2 {
+		t.Fatalf("AssertAppliedCleanly reported %d failure(s), "+
+			"want 2 (one undeclared, one unfulfilled): %v", len(rec.msgs), rec.msgs)
+	}
+	if !strings.Contains(rec.msgs[0], "extra.txt") {
+		t.Errorf("first failure = %q, want it to name the undeclared extra.txt", rec.msgs[0])
+	}
+	if !strings.Contains(rec.msgs[1], "junk.log") {
+		t.Errorf("second failure = %q, want it to name the unfulfilled junk.log declaration", rec.msgs[1])
+	}
+}
+
 // TestAssertUndoRestores_toleratesAccumulatedRegitRefs proves the bookkeeping
 // waiver in AssertUndoRestores is exercised by a real pass/fail pair rather
 // than merely inferred from AssertAppliedCleanly's coverage of the same
