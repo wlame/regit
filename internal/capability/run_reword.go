@@ -9,6 +9,7 @@ import (
 
 	"github.com/wlame/regit/internal/model"
 	"github.com/wlame/regit/internal/reword"
+	"github.com/wlame/regit/internal/termsafe"
 )
 
 func runReword(ctx *RunContext, a ParsedArgs) error {
@@ -109,10 +110,16 @@ func runReword(ctx *RunContext, a ParsedArgs) error {
 			fmt.Fprintf(ctx.Stdout, "%s %q\n  (no variants)\n", Short(it.commit.Hash), it.commit.Subject)
 			continue
 		}
+		// best.Title/best.Body are LLM-generated text derived from repo content the
+		// model has read, so they are untrusted the same way commit-sourced text
+		// is: route the title through Line (single-line) and the body through
+		// Block (preserves the body's internal newlines while still stripping
+		// escapes).
 		best := res.Variants[0]
-		fmt.Fprintf(ctx.Stdout, "\n%s %q\n  -> %s\n", Short(it.commit.Hash), it.commit.Subject, best.Title)
+		fmt.Fprintf(ctx.Stdout, "\n%s %q\n  -> %s\n",
+			Short(it.commit.Hash), it.commit.Subject, termsafe.Line(best.Title))
 		if best.Body != "" {
-			fmt.Fprintf(ctx.Stdout, "     %s\n", best.Body)
+			fmt.Fprintf(ctx.Stdout, "     %s\n", termsafe.Block(best.Body))
 		}
 		edits[it.commit.Hash] = res.ToEdit(reword.DefaultSelection())
 	}

@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/wlame/regit/internal/model"
+	"github.com/wlame/regit/internal/termsafe"
 )
 
 // contributor is one distinct author in the current history. Key is the identity
@@ -76,7 +77,13 @@ func buildContributors(commits []model.Commit) ([]contributor, map[string]int) {
 		}
 		pos[key] = len(list)
 		list = append(list, contributor{
-			Key: key, Label: authorLabel(c), Count: 1,
+			// Sanitize at CONSTRUCTION, not at render: Label reaches the AUTHORS
+			// pane through lipgloss.Render, which wraps its input in style codes
+			// without inspecting it. The commit list's author column already
+			// sanitizes the same authorLabel(c) value (list.go); doing it here
+			// closes the second path rather than leaving two policies for one
+			// value.
+			Key: key, Label: termsafe.Line(authorLabel(c)), Count: 1,
 		})
 	}
 

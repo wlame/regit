@@ -13,6 +13,7 @@ import (
 	"github.com/wlame/regit/internal/model"
 	"github.com/wlame/regit/internal/safety"
 	"github.com/wlame/regit/internal/squash"
+	"github.com/wlame/regit/internal/termsafe"
 )
 
 // parseSquashSpec parses a comma-separated list of A..B ranges and single refs
@@ -192,8 +193,12 @@ func printSquashPlan(w io.Writer, plan model.SquashPlan, loc *time.Location) {
 	fmt.Fprintln(w)
 	for _, ch := range plan.Chains {
 		date := ch.AuthorDate.In(loc).Format("2006-01-02 15:04")
+		// AuthorName/AuthorEmail come from the commit chain's identity — arbitrary
+		// attacker-controlled bytes — so they route through termsafe. Subject stays
+		// under %q, which already renders control bytes as escaped literals.
 		fmt.Fprintf(w, "  %d commits → %q · %s <%s> · %s · %s..%s\n",
-			len(ch.Members), ch.Subject, ch.AuthorName, ch.AuthorEmail, date,
+			len(ch.Members), ch.Subject,
+			termsafe.Line(ch.AuthorName), termsafe.Line(ch.AuthorEmail), date,
 			Short(ch.First().Hash), Short(ch.Last().Hash))
 	}
 }

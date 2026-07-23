@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/wlame/regit/internal/model"
+	"github.com/wlame/regit/internal/termsafe"
 )
 
 // runReauthor rewrites the author (and, unless --committer=false, the committer)
@@ -68,14 +69,17 @@ func previewAuthors(w io.Writer, plan *model.Plan) {
 		if !ok {
 			continue
 		}
+		// Author/committer name and email are attacker-controlled bytes (whoever
+		// authored the commit chooses them), so every field here — old and new —
+		// routes through termsafe before it reaches the terminal.
 		fmt.Fprintf(w, "  %s  author %s <%s> -> %s <%s>\n",
 			Short(c.Hash),
-			c.AuthorName, c.AuthorEmail,
-			e.EffectiveAuthorName(c), e.EffectiveAuthorEmail(c))
+			termsafe.Line(c.AuthorName), termsafe.Line(c.AuthorEmail),
+			termsafe.Line(e.EffectiveAuthorName(c)), termsafe.Line(e.EffectiveAuthorEmail(c)))
 		if e.NewCommitterName != nil || e.NewCommitterEmail != nil {
 			fmt.Fprintf(w, "        committer %s <%s> -> %s <%s>\n",
-				c.CommitterName, c.CommitterEmail,
-				e.EffectiveCommitterName(c), e.EffectiveCommitterEmail(c))
+				termsafe.Line(c.CommitterName), termsafe.Line(c.CommitterEmail),
+				termsafe.Line(e.EffectiveCommitterName(c)), termsafe.Line(e.EffectiveCommitterEmail(c)))
 		}
 	}
 }
