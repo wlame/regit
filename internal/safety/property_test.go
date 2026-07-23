@@ -15,11 +15,25 @@ import (
 	"github.com/wlame/regit/internal/model"
 )
 
+// repoShape selects which history feature a generated fixture must exhibit.
+// The property harness needs different shapes for different operations: a
+// linear history cannot exercise linearize, and single-hunk commits cannot
+// exercise split.
+type repoShape int
+
+const (
+	shapeLinear    repoShape = iota // plain first-parent chain
+	shapeMerges                     // contains at least one real merge commit
+	shapeMultiHunk                  // contains at least one commit with 2+ diff hunks
+)
+
 // genRepo builds a repository with a pseudo-random (but seed-deterministic)
 // linear history: each commit performs 1–3 random file operations (create,
 // overwrite, delete) over a small file pool and carries a message drawn from a
-// set that includes multi-line bodies, wrapped paragraphs, and unicode.
-func genRepo(t *testing.T, rng *rand.Rand) *gitio.Repo {
+// set that includes multi-line bodies, wrapped paragraphs, and unicode. shape
+// then layers on the topology or diff-shape features that shapeLinear alone
+// cannot produce.
+func genRepo(t *testing.T, rng *rand.Rand, shape repoShape) *gitio.Repo {
 	t.Helper()
 	dir := t.TempDir()
 	run := func(env []string, args ...string) {
@@ -74,6 +88,50 @@ func genRepo(t *testing.T, rng *rand.Rand) *gitio.Repo {
 		run([]string{date, cdate}, "commit", "-q", "--allow-empty", "-m", messages[rng.Intn(len(messages))])
 	}
 
+	switch shape {
+	case shapeMerges:
+		// A side branch off HEAD~1 merged back with --no-ff, so the merge is a
+		// real two-parent commit rather than a fast-forward. nCommits is always
+		// 3 + rng.Intn(5), so HEAD~1 always exists.
+		run(nil, "checkout", "-q", "-b", "side", "HEAD~1")
+		if err := os.WriteFile(filepath.Join(dir, "side.txt"),
+			[]byte(fmt.Sprintf("side %d\n", rng.Int63())), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		run(nil, "add", "-A")
+		run([]string{"GIT_AUTHOR_DATE=2026-06-06T09:00:00+00:00",
+			"GIT_COMMITTER_DATE=2026-06-06T09:00:00+00:00"}, "commit", "-q", "-m", "Side work.")
+		run(nil, "checkout", "-q", "main")
+		run([]string{"GIT_AUTHOR_DATE=2026-06-06T10:00:00+00:00",
+			"GIT_COMMITTER_DATE=2026-06-06T10:00:00+00:00"},
+			"merge", "-q", "--no-ff", "side", "-m", "Merge side.")
+
+	case shapeMultiHunk:
+		// One commit touching several widely separated regions of one file, so
+		// its diff against the parent yields multiple independent hunks: with
+		// -U3 context, edits more than 6 lines apart cannot merge into one hunk.
+		var wide strings.Builder
+		for i := 0; i < 60; i++ {
+			wide.WriteString(fmt.Sprintf("line %d\n", i))
+		}
+		if err := os.WriteFile(filepath.Join(dir, "wide.txt"), []byte(wide.String()), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		run(nil, "add", "-A")
+		run(nil, "commit", "-q", "-m", "Add a wide file.")
+
+		body := strings.Split(wide.String(), "\n")
+		for _, i := range []int{3, 25, 50} { // far apart so hunks cannot coalesce
+			body[i] = fmt.Sprintf("edited %d seed %d", i, rng.Int63())
+		}
+		if err := os.WriteFile(filepath.Join(dir, "wide.txt"),
+			[]byte(strings.Join(body, "\n")), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		run(nil, "add", "-A")
+		run(nil, "commit", "-q", "-m", "Edit three regions.")
+	}
+
 	repo, err := gitio.Open(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -117,7 +175,7 @@ func TestProperty_replayPreservesEveryTreeOID(t *testing.T) {
 	for seed := int64(1); seed <= 6; seed++ {
 		t.Run(fmt.Sprintf("seed=%d", seed), func(t *testing.T) {
 			rng := rand.New(rand.NewSource(seed))
-			repo := genRepo(t, rng)
+			repo := genRepo(t, rng, shapeLinear)
 			before, err := repo.ReadCommits()
 			if err != nil {
 				t.Fatal(err)
@@ -148,5 +206,50 @@ func TestProperty_replayPreservesEveryTreeOID(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestGenRepo_shapesProduceTheirDefiningFeature guards the generators
+// themselves. A property test that silently generated only linear history would
+// pass while proving nothing about linearize, and a single-hunk generator would
+// prove nothing about split — the test would be green and useless.
+func TestGenRepo_shapesProduceTheirDefiningFeature(t *testing.T) {
+	rng := rand.New(rand.NewSource(1))
+
+	repo := genRepo(t, rng, shapeMerges)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var merges int
+	for _, c := range commits {
+		if c.IsMerge {
+			merges++
+		}
+	}
+	if merges == 0 {
+		t.Error("shapeMerges generated no merge commits")
+	}
+
+	repo = genRepo(t, rng, shapeMultiHunk)
+	commits, err = repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A splittable commit needs at least two hunks in its diff against its
+	// parent. ReadCommits returns the first-parent chain root-first, so
+	// commits[i-1].TreeHash is always commits[i]'s parent tree.
+	var best int
+	for i := 1; i < len(commits); i++ {
+		hunks, err := repo.Hunks(commits[i-1].TreeHash, commits[i].TreeHash)
+		if err != nil {
+			continue
+		}
+		if len(hunks) > best {
+			best = len(hunks)
+		}
+	}
+	if best < 2 {
+		t.Errorf("shapeMultiHunk best commit had %d hunk(s), want >= 2", best)
 	}
 }
