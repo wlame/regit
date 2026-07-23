@@ -592,3 +592,30 @@ func TestBuildPurgePreview_marksDropsWithoutEnumeratingDirs(t *testing.T) {
 		t.Errorf("preview must never enumerate directory member files, got: %s", rendered)
 	}
 }
+
+// TestRunPurge_summaryReportsRewrittenCommits pins the honest summary. The
+// verifier legitimately has nothing to say about purge's REWRITTEN commits —
+// their check is verifyPurgeHeadDiff, a whole-HEAD diff — so a bare
+// Verification.String() reads "verified 0 commits" after a successful purge and
+// looks like nothing happened, precisely when the purge did the most work.
+func TestRunPurge_summaryReportsRewrittenCommits(t *testing.T) {
+	repo, _ := newPurgeRepo(t, purgeFixtureFiles())
+	var out bytes.Buffer
+	ctx := newPurgeCtx(&out, repo)
+
+	a, err := Parse(mustLookup(t, "purge"), []string{"junk.log", "--execute"})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if err := runPurge(ctx, a); err != nil {
+		t.Fatalf("runPurge: %v", err)
+	}
+
+	got := out.String()
+	if strings.Contains(got, "verified 0 commit") {
+		t.Errorf("purge summary still reads as a no-op:\n%s", got)
+	}
+	if !strings.Contains(got, "rewritten") {
+		t.Errorf("purge summary does not report rewritten commits:\n%s", got)
+	}
+}

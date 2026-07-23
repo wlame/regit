@@ -231,7 +231,15 @@ func runPurge(ctx *RunContext, a ParsedArgs) error {
 	}
 	fmt.Fprintf(ctx.Stdout, "\nPurged %d path(s) across %d commit(s), dropped %d. New HEAD %s (backup %s)\n",
 		len(spec.Paths), len(pv.Affected), len(pv.Dropped), Short(res.NewHead), res.BackupRef)
-	fmt.Fprintln(ctx.Stdout, res.Verification.String())
+	// Purge's verification is split across two mechanisms: rewritten commits are
+	// checked by verifyPurgeHeadDiff (the old→new HEAD diff must be deletions
+	// under the purged paths only), while untouched commits are proven
+	// byte-identical by empty expectations. Reporting only the second — which is
+	// what Verification.String() covers — reads as "verified 0 commits" whenever
+	// every commit was rewritten, i.e. exactly when the purge did the most work.
+	fmt.Fprintf(ctx.Stdout,
+		"verified %d rewritten commit(s) against the purge diff, %d unchanged commit(s) re-emitted identically\n",
+		len(pv.Affected), res.Verification.Commits)
 	// History is already correct and the branch has already moved by the time
 	// SyncWarning can be non-empty (see runApply), so this is reported — never
 	// treated as a command failure — alongside the rest of the summary.
