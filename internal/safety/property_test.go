@@ -1,6 +1,7 @@
 package safety
 
 import (
+	"errors"
 	"fmt"
 	"math/rand"
 	"os"
@@ -252,4 +253,167 @@ func TestGenRepo_shapesProduceTheirDefiningFeature(t *testing.T) {
 	if best < 2 {
 		t.Errorf("shapeMultiHunk best commit had %d hunk(s), want >= 2", best)
 	}
+}
+
+// TestProperty_treePreservingApplyIsCleanAndReversible generalizes the
+// fixture-based tests over seed-deterministic random repositories. For every
+// tree-preserving operation and every seed, three things must hold:
+//
+//  1. every commit's tree OID survives — file content can NEVER change;
+//  2. the apply changes NOTHING in the checkout beyond the branch ref, since a
+//     preserved tree means the index and working tree are already correct;
+//  3. undo restores the repository exactly, so reversibility is a fact rather
+//     than the mere existence of a backup ref.
+//
+// Purge and redact are deliberately excluded: they change content by design, so
+// their oracle is a declared per-path delta (see purge_test.go / redact_test.go)
+// rather than tree preservation.
+func TestProperty_treePreservingApplyIsCleanAndReversible(t *testing.T) {
+	ops := []struct {
+		name  string
+		shape repoShape
+		apply func(t *testing.T, m *Manager, repo *gitio.Repo, seed int64) error
+	}{
+		{"redate", shapeLinear, applyRandomPlan},
+		{"linearize", shapeMerges, applyLinearizeWhole},
+		{"squash", shapeLinear, applySquashFirstPair},
+	}
+
+	for _, op := range ops {
+		for seed := int64(1); seed <= 4; seed++ {
+			t.Run(fmt.Sprintf("%s/seed=%d", op.name, seed), func(t *testing.T) {
+				rng := rand.New(rand.NewSource(seed))
+				repo := genRepo(t, rng, op.shape)
+
+				before, err := repo.ReadCommits()
+				if err != nil {
+					t.Fatal(err)
+				}
+				snapBefore := gittest.Snap(t, repo.Root())
+
+				m := NewManager(repo)
+				if err := op.apply(t, m, repo, seed); err != nil {
+					if errors.Is(err, errNothingToDo) {
+						t.Skip("this seed produced no work for this operation")
+					}
+					t.Fatalf("%s apply: %v", op.name, err)
+				}
+
+				// (2) A tree-preserving apply declares NOTHING about the checkout:
+				// the new HEAD carries the same tree, so index and worktree are
+				// already correct and must not have been touched.
+				gittest.AssertAppliedCleanly(t, snapBefore, gittest.Snap(t, repo.Root()))
+
+				// (1) The HEAD snapshot must be byte-identical. Squash and
+				// linearize change the commit COUNT, so comparing position by
+				// position is wrong; the tip tree is the invariant all three share.
+				after, err := repo.ReadCommits()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got, want := after[len(after)-1].TreeHash, before[len(before)-1].TreeHash; got != want {
+					t.Errorf("HEAD tree changed: %s -> %s", shortHash(want), shortHash(got))
+				}
+
+				// (3) Undo must restore the repository exactly.
+				if _, _, err := m.Undo(false, seed+1000); err != nil {
+					t.Fatalf("undo: %v", err)
+				}
+				gittest.AssertUndoRestores(t, snapBefore, gittest.Snap(t, repo.Root()))
+			})
+		}
+	}
+}
+
+// errNothingToDo lets an operation report that a given seed produced no valid
+// work (no merges to fold, no adjacent pair to squash) so the subtest skips
+// rather than failing for a reason unrelated to the property under test.
+var errNothingToDo = errors.New("nothing to do for this seed")
+
+// applyRandomPlan drives Manager.Apply with a seeded random edit plan — the
+// same shape TestProperty_replayPreservesEveryTreeOID uses.
+func applyRandomPlan(t *testing.T, m *Manager, repo *gitio.Repo, seed int64) error {
+	t.Helper()
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		return err
+	}
+	plan := genPlan(t, rand.New(rand.NewSource(seed)), commits)
+	if !plan.HasChanges() {
+		return errNothingToDo
+	}
+	state, err := repo.ReadState()
+	if err != nil {
+		return err
+	}
+	_, err = m.Apply(plan, state, ApplyOptions{
+		Sign: gitio.DropSignatures, UnixTimestamp: seed, ExpectedHead: state.HeadHash,
+	})
+	return err
+}
+
+// applyLinearizeWhole folds every merge on the branch into the first-parent
+// chain. It finds merges from the commit list rather than taking a hash from the
+// fixture, since the generator does not report which commit it merged.
+func applyLinearizeWhole(t *testing.T, m *Manager, repo *gitio.Repo, seed int64) error {
+	t.Helper()
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		return err
+	}
+	sides := map[string][]model.SideCommit{}
+	for _, c := range commits {
+		if !c.IsMerge {
+			continue
+		}
+		side, err := repo.SideCommits(c.Hash)
+		if err != nil {
+			return err
+		}
+		sides[c.Hash] = side
+	}
+	if len(sides) == 0 {
+		return errNothingToDo
+	}
+	plan := model.BuildLinearizePlan(commits, sides)
+	state, err := repo.ReadState()
+	if err != nil {
+		return err
+	}
+	_, err = m.ApplyLinearize(commits, plan, state, ApplyOptions{
+		Sign: gitio.DropSignatures, UnixTimestamp: seed, ExpectedHead: state.HeadHash,
+	})
+	return err
+}
+
+// applySquashFirstPair collapses the two newest commits into one, the smallest
+// squash that still exercises chain collapse plus tail replay.
+func applySquashFirstPair(t *testing.T, m *Manager, repo *gitio.Repo, seed int64) error {
+	t.Helper()
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		return err
+	}
+	if len(commits) < 2 {
+		return errNothingToDo
+	}
+	// ReadCommits returns root-first, so the last two entries are the newest.
+	a, b := commits[len(commits)-2], commits[len(commits)-1]
+	if a.IsMerge || b.IsMerge {
+		return errNothingToDo // squash refuses merge members
+	}
+	plan := model.SquashPlan{Chains: []model.SquashChain{{
+		Members:    []model.Commit{a, b},
+		Subject:    "Squashed pair.",
+		AuthorName: a.AuthorName, AuthorEmail: a.AuthorEmail,
+		AuthorDate: b.OrigAuthorDate,
+	}}}
+	state, err := repo.ReadState()
+	if err != nil {
+		return err
+	}
+	_, err = m.ApplySquash(commits, plan, state, ApplyOptions{
+		Sign: gitio.DropSignatures, UnixTimestamp: seed, ExpectedHead: state.HeadHash,
+	})
+	return err
 }

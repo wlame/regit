@@ -243,6 +243,8 @@ func TestApplySplit_movesBranchAndIsUndoable(t *testing.T) {
 
 	subs := buildSubCommits(t, repo, parentTreeHash, childCommit)
 
+	snapBefore := gittest.Snap(t, repo.Root())
+
 	res, err := mgr.ApplySplit(
 		childCommit, parentHash, subs, tail, state,
 		ApplyOptions{UnixTimestamp: 9999, ExpectedHead: oldHead},
@@ -250,6 +252,10 @@ func TestApplySplit_movesBranchAndIsUndoable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ApplySplit: %v", err)
 	}
+
+	// Split is tree-preserving: the last sub-commit reproduces the original
+	// tree, so the checkout is already correct and nothing may have touched it.
+	gittest.AssertAppliedCleanly(t, snapBefore, gittest.Snap(t, repo.Root()))
 
 	// 1. The result must report the old and new head correctly.
 	if res.OldHead != oldHead {
@@ -302,6 +308,8 @@ func TestApplySplit_movesBranchAndIsUndoable(t *testing.T) {
 	if mgr.CanUndo() {
 		t.Error("undo stack should be empty after single Undo")
 	}
+
+	gittest.AssertUndoRestores(t, snapBefore, gittest.Snap(t, repo.Root()))
 }
 
 // TestApplySplit_refusesWrongLastTree verifies the local-invariant guard:
