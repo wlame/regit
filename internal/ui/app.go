@@ -1897,7 +1897,7 @@ func (m Model) doUndo() (tea.Model, tea.Cmd) {
 		m.setStatus("Nothing to undo", statusWarn)
 		return m, nil
 	}
-	hash, err := m.mgr.Undo(false, time.Now().Unix())
+	hash, warning, err := m.mgr.Undo(false, time.Now().Unix())
 	if err != nil {
 		m.setStatus(err.Error(), statusErr)
 		return m, nil
@@ -1913,7 +1913,14 @@ func (m Model) doUndo() (tea.Model, tea.Cmd) {
 		m.setStatus("Undo done, reload failed: "+err.Error(), statusWarn)
 		return m, nil
 	}
-	m.setStatus("Undid last apply — restored "+short(hash), statusOK)
+	if warning != "" {
+		// The undo itself succeeded — the ref move is the undo, and it already
+		// happened — so this rides the same status line rather than replacing it,
+		// matching how commitPending appends the redact hygiene warning above.
+		m.setStatus("Undid last apply — restored "+short(hash)+". "+warning, statusWarn)
+	} else {
+		m.setStatus("Undid last apply — restored "+short(hash), statusOK)
+	}
 	return m, m.markAndFetch()
 }
 

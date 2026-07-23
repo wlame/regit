@@ -325,27 +325,31 @@ var ErrUndoHeadMoved = errors.New("HEAD moved past this backup")
 // full undo protocol: branch-ownership guard, advanced-HEAD guard (unless
 // force), a pre-undo backup of the current tip (under unixTS, so the undo is
 // itself reversible via `undo --to`), and a compare-and-swap ref move. It
-// returns the hash the branch was reset to.
+// returns the hash the branch was reset to, plus a non-fatal warning (empty on
+// success) when the post-move checkout refresh below could not be completed —
+// mirroring runApply's ApplyResult.SyncWarning so a stale checkout is never
+// silently dropped on the undo path either.
 //
 // This is THE single implementation of undo — the session-stack Undo below and
 // the headless `regit undo` both funnel through it, so "only the Manager moves
 // branch refs" actually holds and the two guard sets cannot drift.
-func (m *Manager) Restore(backupRef string, force bool, unixTS int64) (string, error) {
+func (m *Manager) Restore(backupRef string, force bool, unixTS int64) (string, string, error) {
 	branch, err := m.repo.CurrentBranch()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if b := gitio.BackupRefBranch(backupRef); b != "" && b != branch {
-		return "", fmt.Errorf("%w: %s was taken on branch %s; you are on %s — check out %s to undo it",
+		return "", "", fmt.Errorf(
+			"%w: %s was taken on branch %s; you are on %s — check out %s to undo it",
 			ErrBackupOtherBranch, backupRef, b, branch, b)
 	}
 	target, err := m.repo.ResolveRef(backupRef)
 	if err != nil {
-		return "", fmt.Errorf("resolve backup %s: %w", backupRef, err)
+		return "", "", fmt.Errorf("resolve backup %s: %w", backupRef, err)
 	}
 	current, err := m.repo.ResolveRef("HEAD")
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	// Advanced-HEAD guard: if this backup recorded the head its apply produced,
 	// and the branch no longer points there, work has happened since — undoing
@@ -355,16 +359,18 @@ func (m *Manager) Restore(backupRef string, force bool, unixTS int64) (string, e
 	// safe, so it too requires force.
 	applied, ok, aerr := m.repo.AppliedHeadFor(backupRef)
 	if aerr != nil && !force {
-		return "", fmt.Errorf("%w: cannot check the advanced-HEAD guard (%v); re-run with --force to unwind anyway",
+		return "", "", fmt.Errorf(
+			"%w: cannot check the advanced-HEAD guard (%v); re-run with --force to unwind anyway",
 			ErrUndoHeadMoved, aerr)
 	}
 	if ok && applied != current && !force {
-		return "", fmt.Errorf("%w (apply produced %s, branch is now %s); re-run with --force to unwind it",
+		return "", "", fmt.Errorf(
+			"%w (apply produced %s, branch is now %s); re-run with --force to unwind it",
 			ErrUndoHeadMoved, shortHash(applied), shortHash(current))
 	}
 	// Pre-undo backup: save the current tip so the undo is itself reversible.
 	if _, err := m.repo.CreateBackupRef(branch, unixTS, current); err != nil {
-		return "", fmt.Errorf("pre-undo backup: %w", err)
+		return "", "", fmt.Errorf("pre-undo backup: %w", err)
 	}
 	// Read BEFORE the ref moves, while `git status` still compares against the
 	// head being left: this answers "does the user have real uncommitted work
@@ -375,7 +381,7 @@ func (m *Manager) Restore(backupRef string, force bool, unixTS int64) (string, e
 	dirty, dirtyErr := m.repo.IsDirty()
 	cleanBeforeMove := dirtyErr == nil && !dirty
 	if err := m.repo.UpdateRef(gitio.BranchRef(branch), target, current); err != nil {
-		return "", fmt.Errorf("reset branch to backup: %w", err)
+		return "", "", fmt.Errorf("reset branch to backup: %w", err)
 	}
 	// update-ref alone never reverses a content-changing apply's checkout Sync
 	// (see runApply): without this, undoing a purge leaves a path missing from
@@ -395,29 +401,43 @@ func (m *Manager) Restore(backupRef string, force bool, unixTS int64) (string, e
 	// nothing of the user's on disk to lose. Both are non-fatal, matching
 	// runApply's Sync: the branch has already moved, which is what undo
 	// promises; a stale checkout after that is a follow-up nuisance, never a
-	// reason to report the undo itself as failed.
+	// reason to report the undo itself as failed — but unlike runApply's Sync,
+	// the failure is never simply dropped: it comes back as a warning string so
+	// a headless `regit undo` (and the TUI's U key) can still tell the operator
+	// their checkout may be stale and hand them the exact command to fix it.
+	var syncWarning string
 	if cleanBeforeMove {
-		_ = m.repo.SyncIndexAndWorktreeToTree(target)
+		if err := m.repo.SyncIndexAndWorktreeToTree(target); err != nil {
+			syncWarning = fmt.Sprintf(
+				"warning: could not refresh the working tree (%v); run: git read-tree --reset -u %s",
+				err, target)
+		}
 	} else {
-		_ = m.repo.SyncIndexToTree(target)
+		if err := m.repo.SyncIndexToTree(target); err != nil {
+			syncWarning = fmt.Sprintf(
+				"warning: could not refresh the index (%v); run: git read-tree --reset %s",
+				err, target)
+		}
 	}
-	return target, nil
+	return target, syncWarning, nil
 }
 
 // Undo restores the branch to the most recent backup ref this session created
 // and pops it off the stack (see Restore for the guard protocol). It returns
-// the hash the branch was reset to. unixTS names the pre-undo backup; it is a
+// the hash the branch was reset to, plus Restore's sync warning (see Restore)
+// unchanged — Undo is a thin wrapper over the stack, not a second place that
+// could decide to swallow it. unixTS names the pre-undo backup; it is a
 // parameter (not read from the clock) so Undo stays deterministic and
 // testable, matching how ApplyOptions.UnixTimestamp is threaded through Apply.
-func (m *Manager) Undo(force bool, unixTS int64) (string, error) {
+func (m *Manager) Undo(force bool, unixTS int64) (string, string, error) {
 	if !m.CanUndo() {
-		return "", fmt.Errorf("nothing to undo")
+		return "", "", fmt.Errorf("nothing to undo")
 	}
 	last := m.undoStack[len(m.undoStack)-1]
-	target, err := m.Restore(last, force, unixTS)
+	target, warning, err := m.Restore(last, force, unixTS)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	m.undoStack = m.undoStack[:len(m.undoStack)-1]
-	return target, nil
+	return target, warning, nil
 }

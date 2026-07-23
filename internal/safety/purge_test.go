@@ -115,7 +115,7 @@ func TestApplyPurge_endToEnd_removesPathAndSupportsUndo(t *testing.T) {
 		t.Errorf("junk.log should touch no commit after purge, still affected: %v", stillAffected)
 	}
 
-	restored, err := mgr.Undo(false, 1717689601)
+	restored, _, err := mgr.Undo(false, 1717689601)
 	if err != nil {
 		t.Fatalf("Undo: %v", err)
 	}

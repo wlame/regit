@@ -105,7 +105,7 @@ func TestApplyLinearize_appliesVerifiesAndUndoes(t *testing.T) {
 	}
 
 	// Undo restores the original head byte-for-byte.
-	restored, err := mgr.Restore(res.BackupRef, false, 1789000100)
+	restored, _, err := mgr.Restore(res.BackupRef, false, 1789000100)
 	if err != nil {
 		t.Fatalf("undo: %v", err)
 	}

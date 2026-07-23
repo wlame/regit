@@ -288,7 +288,7 @@ func TestApplySplit_movesBranchAndIsUndoable(t *testing.T) {
 	if !mgr.CanUndo() {
 		t.Fatal("CanUndo should be true after ApplySplit")
 	}
-	restored, err := mgr.Undo(false, 10000)
+	restored, _, err := mgr.Undo(false, 10000)
 	if err != nil {
 		t.Fatalf("Undo: %v", err)
 	}

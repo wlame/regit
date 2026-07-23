@@ -98,7 +98,8 @@ func runUndo(ctx *RunContext, a ParsedArgs) error {
 	// compare-and-swap ref move — is the Manager's single implementation
 	// (safety.Manager.Restore); this file only selects WHICH backup to restore.
 	// Sentinel errors map the Manager's guard refusals to exit code 2.
-	restored, err := safety.NewManager(ctx.Repo).Restore(target.Name, a.Bool("force"), ctx.Now.Unix())
+	restored, warning, err := safety.NewManager(ctx.Repo).
+		Restore(target.Name, a.Bool("force"), ctx.Now.Unix())
 	if err != nil {
 		if errors.Is(err, safety.ErrUndoHeadMoved) || errors.Is(err, safety.ErrBackupOtherBranch) {
 			return guardErr("%v", err)
@@ -106,5 +107,11 @@ func runUndo(ctx *RunContext, a ParsedArgs) error {
 		return runtimeErr("restore: %v", err)
 	}
 	fmt.Fprintf(ctx.Stdout, "Restored %s to %s (was %s)\n", state.Branch, Short(restored), Short(state.HeadHash))
+	// The branch has already moved by the time this can be non-empty (see
+	// safety.Manager.Restore), so — same as run_purge.go/run_redact.go's
+	// SyncWarning — it is reported, never treated as a command failure.
+	if warning != "" {
+		fmt.Fprintln(ctx.Stderr, warning)
+	}
 	return nil
 }

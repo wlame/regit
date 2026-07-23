@@ -130,7 +130,7 @@ func TestApplyRedact_endToEndRemoveVerifies(t *testing.T) {
 		t.Error("sk-OLD should be absent from the new head's tree")
 	}
 
-	restored, err := mgr.Undo(false, 1717689601)
+	restored, _, err := mgr.Undo(false, 1717689601)
 	if err != nil {
 		t.Fatalf("Undo: %v", err)
 	}

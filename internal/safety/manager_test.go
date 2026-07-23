@@ -136,7 +136,7 @@ func TestManagerUndo_restoresOriginalHead(t *testing.T) {
 	if !mgr.CanUndo() {
 		t.Fatal("should be able to undo after apply")
 	}
-	restored, err := mgr.Undo(false, 2)
+	restored, _, err := mgr.Undo(false, 2)
 	if err != nil {
 		t.Fatalf("Undo: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestManagerApply_pushedRequiresConfirmation(t *testing.T) {
 func TestManagerUndo_withoutApplyErrors(t *testing.T) {
 	repo := buildRepo(t)
 	mgr := NewManager(repo)
-	if _, err := mgr.Undo(false, 1); err == nil {
+	if _, _, err := mgr.Undo(false, 1); err == nil {
 		t.Error("undo with empty stack should error")
 	}
 }
@@ -246,7 +246,7 @@ func TestManagerUndo_refusesCrossBranchRestore(t *testing.T) {
 	if out, err := checkout.CombinedOutput(); err != nil {
 		t.Fatalf("checkout: %v\n%s", err, out)
 	}
-	if _, err := mgr.Undo(false, 8); err == nil {
+	if _, _, err := mgr.Undo(false, 8); err == nil {
 		t.Fatal("Undo on a different branch must refuse")
 	} else if !strings.Contains(err.Error(), "main") || !strings.Contains(err.Error(), "feature") {
 		t.Errorf("refusal should name both branches; got: %v", err)
@@ -353,12 +353,12 @@ func TestManagerRestore_sentinelErrors(t *testing.T) {
 	// Advance HEAD past the recorded applied head with a plain commit.
 	appendCommit(t, repo)
 
-	_, err = mgr.Restore(res.BackupRef, false, 2)
+	_, _, err = mgr.Restore(res.BackupRef, false, 2)
 	if !errors.Is(err, ErrUndoHeadMoved) {
 		t.Fatalf("advanced HEAD should refuse with ErrUndoHeadMoved, got: %v", err)
 	}
 	// Forced restore proceeds.
-	restored, err := mgr.Restore(res.BackupRef, true, 3)
+	restored, _, err := mgr.Restore(res.BackupRef, true, 3)
 	if err != nil {
 		t.Fatalf("forced Restore: %v", err)
 	}
@@ -371,7 +371,7 @@ func TestManagerRestore_sentinelErrors(t *testing.T) {
 	if err := repo.UpdateRef(otherRef, oldHead, ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := mgr.Restore(otherRef, false, 4); !errors.Is(err, ErrBackupOtherBranch) {
+	if _, _, err := mgr.Restore(otherRef, false, 4); !errors.Is(err, ErrBackupOtherBranch) {
 		t.Fatalf("cross-branch restore should refuse with ErrBackupOtherBranch, got: %v", err)
 	}
 }
