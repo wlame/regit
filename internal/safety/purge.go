@@ -104,6 +104,10 @@ func (m *Manager) ApplyPurge(commits []model.Commit, spec model.PurgeSpec, affec
 				NewLen:       oldLen - len(remap.Dropped),
 			}, nil
 		},
+		// Purge keeps the file on disk (see SyncIndexToTree): the index must stop
+		// staging it, but someone purging a large artifact they still use locally
+		// keeps their copy. It becomes an untracked file.
+		Sync: m.repo.SyncIndexToTree,
 	}, opts)
 }
 

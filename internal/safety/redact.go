@@ -108,6 +108,10 @@ func (m *Manager) ApplyRedact(
 				NewLen:       oldLen - len(remap.Dropped),
 			}, nil
 		},
+		// Redact rewrites the file on disk (see SyncIndexAndWorktreeToTree): a
+		// redaction that leaves the secret in the checkout has redacted nothing
+		// the operator cares about.
+		Sync: m.repo.SyncIndexAndWorktreeToTree,
 	}, opts)
 }
 

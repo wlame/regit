@@ -89,6 +89,11 @@ type ApplyResult struct {
 	OldHead      string
 	NewHead      string
 	Verification model.VerificationSummary // result of the change-set verifier
+	// SyncWarning is non-empty when the post-apply checkout refresh failed. It is
+	// a warning rather than an error on purpose: history is already correct and
+	// the branch has already moved, so aborting is neither possible nor honest.
+	// It carries the exact command to run by hand.
+	SyncWarning string
 }
 
 // rewriteResult is what an operation's rewrite step hands back to runApply:
@@ -111,6 +116,18 @@ type rewriteResult struct {
 type applyOp struct {
 	Guards  func() error
 	Rewrite func(oldHead string) (rewriteResult, error)
+	// Sync optionally refreshes the checkout after the branch ref has moved.
+	//
+	// Tree-preserving operations (redate, split, squash, linearize) leave it nil:
+	// their new HEAD carries the identical tree, so the index and working tree are
+	// already correct. Content-changing operations (purge, redact) MUST set it —
+	// without it the branch points at a tree the checkout no longer matches, which
+	// leaves a purged file staged for re-addition and a redacted secret still on
+	// disk, and additionally trips regit's own dirty-tree guard on the next run.
+	//
+	// It lives on the skeleton rather than in the two callers so it participates
+	// in the same "one protocol, every operation" guarantee as every other step.
+	Sync func(newHead string) error
 }
 
 // runApply is the single guarded apply skeleton every history rewrite runs
@@ -167,6 +184,18 @@ func (m *Manager) runApply(op applyOp, opts ApplyOptions) (ApplyResult, error) {
 		return ApplyResult{}, fmt.Errorf("move branch %s: %w", branch, err)
 	}
 
+	// Refresh the checkout for operations whose new HEAD carries a different
+	// tree. Deliberately non-fatal: the branch has moved and history is correct,
+	// so a failure here is a stale checkout, not a corrupt repository.
+	var syncWarning string
+	if op.Sync != nil {
+		if err := op.Sync(res.NewHead); err != nil {
+			syncWarning = fmt.Sprintf(
+				"warning: could not refresh the working tree (%v); run: git read-tree --reset -u %s",
+				err, res.NewHead)
+		}
+	}
+
 	// Record the head this apply produced, paired with the backup, so a later
 	// undo can detect whether the branch has since advanced past this point.
 	// Non-fatal: on failure the advanced-HEAD guard simply degrades to off for
@@ -174,7 +203,13 @@ func (m *Manager) runApply(op applyOp, opts ApplyOptions) (ApplyResult, error) {
 	_ = m.repo.RecordAppliedHead(backupRef, res.NewHead)
 
 	m.undoStack = append(m.undoStack, backupRef)
-	return ApplyResult{BackupRef: backupRef, OldHead: oldHead, NewHead: res.NewHead, Verification: verification}, nil
+	return ApplyResult{
+		BackupRef:    backupRef,
+		OldHead:      oldHead,
+		NewHead:      res.NewHead,
+		Verification: verification,
+		SyncWarning:  syncWarning,
+	}, nil
 }
 
 // Apply runs the full guarded rewrite for the plan against the given state. It
@@ -331,8 +366,40 @@ func (m *Manager) Restore(backupRef string, force bool, unixTS int64) (string, e
 	if _, err := m.repo.CreateBackupRef(branch, unixTS, current); err != nil {
 		return "", fmt.Errorf("pre-undo backup: %w", err)
 	}
+	// Read BEFORE the ref moves, while `git status` still compares against the
+	// head being left: this answers "does the user have real uncommitted work
+	// right now", which is what must never be destroyed below. A dirty tree here
+	// is never a reason to refuse the undo itself — the ref move is the undo, and
+	// it always proceeds — it only narrows how much of the checkout refresh
+	// after it is safe to attempt.
+	dirty, dirtyErr := m.repo.IsDirty()
+	cleanBeforeMove := dirtyErr == nil && !dirty
 	if err := m.repo.UpdateRef(gitio.BranchRef(branch), target, current); err != nil {
 		return "", fmt.Errorf("reset branch to backup: %w", err)
+	}
+	// update-ref alone never reverses a content-changing apply's checkout Sync
+	// (see runApply): without this, undoing a purge leaves a path missing from
+	// the index even though the branch is back on the commit that carries it,
+	// and undoing a redact leaves the redacted text sitting in the working tree
+	// even though the branch is back before the redaction. Restore does not know
+	// which operation produced this backup, so it cannot pick the matching
+	// SyncIndexToTree/SyncIndexAndWorktreeToTree policy the way runApply does —
+	// but it does not need to: `git read-tree` without `-u` only ever writes the
+	// index, so it is safe unconditionally, and is exactly what a tree-preserving
+	// op's undo needs (a no-op, since old and new share one tree) as well as
+	// purge's (the purged path was never touched on disk, only in the index).
+	// The `-u` half, which DOES write worktree files, additionally requires
+	// cleanBeforeMove: `git read-tree -u` has no "would overwrite local changes"
+	// refusal the way `git checkout` does (verified empirically — it silently
+	// clobbers them), so it only runs when the pre-move check proved there was
+	// nothing of the user's on disk to lose. Both are non-fatal, matching
+	// runApply's Sync: the branch has already moved, which is what undo
+	// promises; a stale checkout after that is a follow-up nuisance, never a
+	// reason to report the undo itself as failed.
+	if cleanBeforeMove {
+		_ = m.repo.SyncIndexAndWorktreeToTree(target)
+	} else {
+		_ = m.repo.SyncIndexToTree(target)
 	}
 	return target, nil
 }

@@ -232,6 +232,12 @@ func runPurge(ctx *RunContext, a ParsedArgs) error {
 	fmt.Fprintf(ctx.Stdout, "\nPurged %d path(s) across %d commit(s), dropped %d. New HEAD %s (backup %s)\n",
 		len(spec.Paths), len(pv.Affected), len(pv.Dropped), Short(res.NewHead), res.BackupRef)
 	fmt.Fprintln(ctx.Stdout, res.Verification.String())
+	// History is already correct and the branch has already moved by the time
+	// SyncWarning can be non-empty (see runApply), so this is reported — never
+	// treated as a command failure — alongside the rest of the summary.
+	if res.SyncWarning != "" {
+		fmt.Fprintln(ctx.Stderr, res.SyncWarning)
+	}
 	fmt.Fprintln(ctx.Stdout, "note: old objects remain reachable via the backup ref and reflog until 'git gc' prunes them")
 	pushHint(ctx.Stdout, state)
 	return nil
