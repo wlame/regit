@@ -582,8 +582,11 @@ func TestE2E_Redact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(body), "sk-OLD") {
-		t.Errorf("sk-OLD still present in the working-tree copy of cfg.yaml:\n%s", body)
+	// The tip's checkout holds the rotated value sk-NEW; a working-tree
+	// refresh must have scrubbed that. sk-OLD was already rotated out by c2
+	// before the redact ran, so its absence proves nothing.
+	if strings.Contains(string(body), "sk-NEW") {
+		t.Errorf("sk-NEW (the rotated value) still present in the working-tree copy of cfg.yaml:\n%s", body)
 	}
 	afterLog := gitLines(t, dir, "log", "--oneline", "main")
 	if len(afterLog) != len(beforeLog)-1 {
