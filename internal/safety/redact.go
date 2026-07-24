@@ -294,6 +294,16 @@ func (m *Manager) verifyRedactAbsence(
 // this is a check on what the rewrite actually DID to the real git object,
 // not a re-run of the same logic that could share the same bug.
 func (m *Manager) redactSurvivingLine(tree, path string, lines []string) (string, error) {
+	// The "" return doubles as "no survivor", which is only unambiguous because an
+	// empty target line cannot reach here: model.RedactSpec.Validate rejects one
+	// ("path %q has an empty target line") and ApplyRedact validates before any
+	// verification runs. Were that guard ever relaxed, a surviving empty line would
+	// read as a clean result — so keep the two facts together.
+	for _, line := range lines {
+		if line == "" {
+			return "", fmt.Errorf("programming error: empty target line for %s", path)
+		}
+	}
 	content, ok, err := m.repo.BlobContent(tree, path)
 	if err != nil {
 		return "", err
