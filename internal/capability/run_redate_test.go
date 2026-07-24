@@ -313,6 +313,29 @@ func TestRedateParams_rejectsInvertedWorkdayFlags(t *testing.T) {
 	}
 }
 
+// TestRedateParams_invertedRangeIsAUsageError pins the parse-time check. The
+// WORKDAY window already errors cleanly when inverted; the calendar range did
+// not, so `--start=2026-03-01 --end=2026-01-01 --execute` built an empty plan
+// and surfaced as exit 3 ("nothing to apply") — a runtime error for what is
+// plainly bad input.
+func TestRedateParams_invertedRangeIsAUsageError(t *testing.T) {
+	args := newParsedArgs(map[string]any{
+		"start": time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
+		"end":   time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	}, nil)
+
+	_, err := redateParams(&RunContext{Cfg: config.Default(), Now: time.Now()}, args)
+	if err == nil {
+		t.Fatal("redateParams accepted an inverted range")
+	}
+	if got := ExitCode(err); got != 1 {
+		t.Errorf("ExitCode = %d, want 1 (usage error)", got)
+	}
+	if !strings.Contains(err.Error(), "--end") {
+		t.Errorf("error %q does not name the offending flag", err)
+	}
+}
+
 // redateScopedTestRepo builds a 4-commit repo (c1..c4) with author dates one
 // calendar day apart — 2026-01-01 .. 2026-01-04, noon UTC — so a segment
 // spanning more than one commit also spans more than one calendar day. This

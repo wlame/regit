@@ -173,6 +173,15 @@ func redateParams(ctx *RunContext, a ParsedArgs) (strategy.Params, error) {
 	}
 	p.DayStartMin, p.DayEndMin = startMin, endMin
 
+	// An inverted calendar range is bad input, not a runtime condition. Without this
+	// the strategy simply finds no day that satisfies both bounds, the plan comes out
+	// empty, and --execute fails with "nothing to apply" (exit 3) — the wrong code,
+	// at the wrong moment. This mirrors the workday-window check above.
+	if !p.Start.IsZero() && !p.End.IsZero() && p.End.Before(p.Start) {
+		return p, usageErr("--end (%s) must not be before --start (%s)",
+			p.End.Format("2006-01-02"), p.Start.Format("2006-01-02"))
+	}
+
 	if tf := a.String("time-fixed"); tf != "" {
 		if p.FixedMin, err = clockToMin(tf); err != nil {
 			return p, fmt.Errorf("time-fixed: %w", err)
