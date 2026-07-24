@@ -167,3 +167,38 @@ func TestCache_putIsAtomic(t *testing.T) {
 		t.Errorf("temp files leaked: %v", leftovers)
 	}
 }
+
+// TestCache_filesAreNotWorldReadable pins the permission contract. Cached
+// entries hold commit diffs, which for a split or redact run can contain the
+// very secret the operator is removing. 0644 in a shared checkout hands that to
+// every local user; the historical comment even recorded that the mode had been
+// deliberately WIDENED from CreateTemp's 0600.
+func TestCache_filesAreNotWorldReadable(t *testing.T) {
+	gitDir := t.TempDir()
+	c := New[payload](gitDir, "test")
+	if err := c.Put(Entry[payload]{Key: "k", Fingerprint: "f", Payload: payload{}}); err != nil {
+		t.Fatal(err)
+	}
+	cacheDir := filepath.Join(gitDir, "regit", "cache", "test")
+	entries, err := os.ReadDir(cacheDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if perm := info.Mode().Perm(); perm&0o077 != 0 {
+			t.Errorf("%s has mode %o, want no group/other access", e.Name(), perm)
+		}
+	}
+	// Also check the directory itself.
+	dirInfo, err := os.Stat(cacheDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := dirInfo.Mode().Perm(); perm&0o077 != 0 {
+		t.Errorf("cache dir has mode %o, want no group/other access", perm)
+	}
+}

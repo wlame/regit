@@ -87,7 +87,7 @@ func (c *Cache[T]) Put(e Entry[T]) error {
 	if e.Key == "" {
 		return fmt.Errorf("cache: refusing to write entry with empty key")
 	}
-	if err := os.MkdirAll(c.dir, 0o755); err != nil {
+	if err := os.MkdirAll(c.dir, 0o700); err != nil {
 		return err
 	}
 	e.Version = Version
@@ -110,8 +110,12 @@ func (c *Cache[T]) Put(e Entry[T]) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	// CreateTemp creates 0600; match WriteFile's historical 0644.
-	if err := os.Chmod(tmpName, 0o644); err != nil {
+	// 0600, matching CreateTemp's own default. A cache entry holds the commit
+	// diff that produced it, which for a split or redact run can contain the
+	// secret the operator is removing — so the file must not be readable by
+	// other local users. (This deliberately reverses an earlier widening to
+	// 0644 that was made only for consistency with WriteFile.)
+	if err := os.Chmod(tmpName, 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmpName, c.Path(e.Key))

@@ -463,8 +463,12 @@ func appendCommandLog(repo *gitio.Repo, line string) {
 		return
 	}
 	dir := filepath.Join(gitDir, "regit")
-	_ = os.MkdirAll(dir, 0o755)
-	f, err := os.OpenFile(filepath.Join(dir, "command.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	// 0700/0600: the command log records the exact headless command for every
+	// applied action, and `regit redact --match=<secret>` puts the secret itself
+	// on that line — the verb's own Limitations entry says so. It must not be
+	// readable by other local users.
+	_ = os.MkdirAll(dir, 0o700)
+	f, err := os.OpenFile(filepath.Join(dir, "command.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return
 	}
