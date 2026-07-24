@@ -115,14 +115,27 @@ func (r *Repo) FirstParents(rev string, n int) ([]string, error) {
 	return strings.Fields(out), nil
 }
 
-// HasCommits reports whether HEAD resolves to a commit. `rev-parse --verify`
-// exits non-zero on an unborn branch, which is a normal state rather than an
-// error, so the exit status is folded into the boolean.
+// HasCommits reports whether the current branch is genuinely unborn (zero
+// commits anywhere in the repository), as opposed to a repository whose ref
+// exists but is broken.
+//
+// `rev-parse --verify --quiet HEAD` looks like the obvious check but is wrong:
+// it exits non-zero identically for an unborn branch AND for a corrupt ref
+// (e.g. refs/heads/main containing garbage instead of a hash). Gating on that
+// alone reported "no commits yet" for a corrupted repository, swallowing a real
+// error behind a reassuring lie — worse than the verbose error it replaced.
+//
+// `rev-list -n 1 --all` discriminates the two cases: on an unborn branch it
+// exits 0 with empty output (there is nothing to list, anywhere); on a corrupt
+// ref it exits non-zero with git's own "fatal: bad object ..." detail. So "no
+// commits" is exit==0 AND output=="" together; any non-zero exit is a real
+// failure and must propagate rather than be folded into false.
 func (r *Repo) HasCommits() (bool, error) {
-	if _, err := r.git("rev-parse", "--verify", "--quiet", "HEAD"); err != nil {
-		return false, nil
+	out, err := r.git("rev-list", "-n", "1", "--all")
+	if err != nil {
+		return false, err
 	}
-	return true, nil
+	return out != "", nil
 }
 
 // ReadCommits returns the first-parent linear history of the current branch in

@@ -124,6 +124,51 @@ func TestReadCommits_emptyBranchGivesAPlainMessage(t *testing.T) {
 	}
 }
 
+// TestReadCommits_corruptRefGivesARealError proves a corrupt refs/heads/<branch>
+// is NOT reported as "this branch has no commits yet". `rev-parse --verify
+// --quiet HEAD` fails identically on an unborn branch and on a corrupt ref, so a
+// naive HasCommits gated on that alone would swallow real repository corruption
+// behind the same reassuring message an empty repo gets. Building this fixture
+// the same way as the real-world repro (commit, then overwrite the branch ref
+// with garbage) is what makes the test non-vacuous against the old code.
+func TestReadCommits_corruptRefGivesARealError(t *testing.T) {
+	dir := t.TempDir()
+	run := func(args ...string) string {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = gittest.Env(dir)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	run("init", "-q", "-b", "main")
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "a.txt")
+	run("commit", "-q", "-m", "First.")
+
+	refPath := filepath.Join(dir, ".git", "refs", "heads", "main")
+	if err := os.WriteFile(refPath, []byte("not-a-hash\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	repo, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = repo.ReadCommits()
+	if err == nil {
+		t.Fatal("ReadCommits succeeded against a corrupt ref")
+	}
+	if strings.Contains(err.Error(), "no commits") {
+		t.Errorf("corrupt ref misreported as an empty branch: %v", err)
+	}
+}
+
 func TestReplay_changesDatesButNotFiles(t *testing.T) {
 	repo, dir := testRepo(t)
 	commits, err := repo.ReadCommits()
