@@ -115,6 +115,16 @@ func (r *Repo) FirstParents(rev string, n int) ([]string, error) {
 	return strings.Fields(out), nil
 }
 
+// HasCommits reports whether HEAD resolves to a commit. `rev-parse --verify`
+// exits non-zero on an unborn branch, which is a normal state rather than an
+// error, so the exit status is folded into the boolean.
+func (r *Repo) HasCommits() (bool, error) {
+	if _, err := r.git("rev-parse", "--verify", "--quiet", "HEAD"); err != nil {
+		return false, nil
+	}
+	return true, nil
+}
+
 // ReadCommits returns the first-parent linear history of the current branch in
 // root-first order (oldest commit at index 0), which is the order the rewrite
 // engine replays. Commits already present on any remote-tracking ref are
@@ -130,6 +140,14 @@ func (r *Repo) ReadCommits() ([]model.Commit, error) {
 	out, err := r.gitRaw("log", "--first-parent", "--reverse", "-z",
 		"--no-show-signature", "--encoding=UTF-8", "--format="+logFormat, "HEAD")
 	if err != nil {
+		// A branch with no commits is a predictable, user-facing situation, not a
+		// plumbing failure. runGit's wrapper is deliberately verbose for debugging
+		// — it embeds the whole argv and git's stderr — which is exactly wrong
+		// here. HasCommits distinguishes "empty branch" from a real git failure,
+		// which must keep its detailed message.
+		if has, herr := r.HasCommits(); herr == nil && !has {
+			return nil, fmt.Errorf("this branch has no commits yet")
+		}
 		return nil, err
 	}
 

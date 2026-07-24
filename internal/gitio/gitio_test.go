@@ -94,6 +94,36 @@ func TestReadCommits_returnsRootFirstWithMetadata(t *testing.T) {
 	}
 }
 
+// TestReadCommits_emptyBranchGivesAPlainMessage pins the error text. A repo with
+// no commits made every headless verb print the whole `git log --first-parent
+// --reverse -z --format=%H%x00%T%x00...` invocation plus git's own three-line
+// "ambiguous argument 'HEAD'" hint. cmd/regit's TUI path already had a clean
+// message for exactly this case; the headless path had none.
+func TestReadCommits_emptyBranchGivesAPlainMessage(t *testing.T) {
+	dir := t.TempDir()
+	cmd := exec.Command("git", "init", "-q")
+	cmd.Dir = dir
+	cmd.Env = gittest.Env(dir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	repo, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = repo.ReadCommits()
+	if err == nil {
+		t.Fatal("ReadCommits succeeded on an empty repository")
+	}
+	if strings.Contains(err.Error(), "%x00") || strings.Contains(err.Error(), "--first-parent") {
+		t.Errorf("error leaks the raw git invocation: %v", err)
+	}
+	if !strings.Contains(err.Error(), "no commits") {
+		t.Errorf("error %q does not explain that the branch has no commits", err)
+	}
+}
+
 func TestReplay_changesDatesButNotFiles(t *testing.T) {
 	repo, dir := testRepo(t)
 	commits, err := repo.ReadCommits()
