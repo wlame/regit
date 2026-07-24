@@ -19,7 +19,7 @@ import (
 // comment. It deliberately shells out to git ITSELF rather than going through
 // internal/gitio: an oracle built on the code it validates lets a bug hide from
 // the very check meant to catch it (the same reasoning recorded for
-// safety.redactLineSurvives). internal/gittest imports no other internal package.
+// safety.redactSurvivingLine). internal/gittest imports no other internal package.
 //
 // Dangling objects are deliberately NOT captured. They are unreachable and
 // reclaimed by `git gc`, and safety.runApply already documents them as the

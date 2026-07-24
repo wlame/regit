@@ -201,7 +201,7 @@ func (m *Manager) redactModifiedPaths(
 //     of spec.Targets cannot cause a false abort on a partial selection; it
 //     only closes the gap. Two independent sub-checks per path:
 //     (a) none of that path's ORIGINAL target line contents may survive as a
-//     whole line in the new tree (redactLineSurvives) — checked by reading
+//     whole line in the new tree (redactSurvivingLine) — checked by reading
 //     the tree's raw blob bytes directly (gitio.BlobContent) and comparing
 //     lines, deliberately NOT routed through RedactBlobsInTree/redactLines,
 //     the SAME matching logic the rewrite itself used: reusing it here would
@@ -230,18 +230,20 @@ func (m *Manager) redactModifiedPaths(
 func (m *Manager) verifyRedactAbsence(
 	newHead string, spec model.RedactSpec, allSelected bool, expectations []model.Expectation,
 ) error {
+	// Hoisted out of the expectation loop: it allocates and sorts, and
+	// spec.Targets does not change between commits.
+	paths := sortedTargetPaths(spec.Targets)
 	for _, e := range expectations {
-		for _, path := range sortedTargetPaths(spec.Targets) {
-			for _, line := range sortedTargetLines(spec.Targets[path]) {
-				survived, err := m.redactLineSurvives(e.NewCommit, path, line)
-				if err != nil {
-					return fmt.Errorf("verify redact absence: %w", err)
-				}
-				if survived {
-					return fmt.Errorf(
-						"redact verification failed: %q still present in %s at %s",
-						line, path, shortHash(e.NewCommit))
-				}
+		for _, path := range paths {
+			survivor, err := m.redactSurvivingLine(
+				e.NewCommit, path, sortedTargetLines(spec.Targets[path]))
+			if err != nil {
+				return fmt.Errorf("verify redact absence: %w", err)
+			}
+			if survivor != "" {
+				return fmt.Errorf(
+					"redact verification failed: %q still present in %s at %s",
+					survivor, path, shortHash(e.NewCommit))
 			}
 		}
 	}
@@ -274,29 +276,44 @@ func (m *Manager) verifyRedactAbsence(
 	return nil
 }
 
-// redactLineSurvives reports whether line still exists as a whole line
-// somewhere in path's blob at tree (a commit-ish or a raw tree both work,
-// same as GrepTree/BlobContent). Reads the tree's raw blob bytes directly via
-// gitio.BlobContent and compares lines itself (split on "\n", TrimSuffix
-// "\r", exact equality) — mechanism-independent of RedactBlobsInTree/
-// redactLines, the transform that performed the rewrite. See
-// verifyRedactAbsence's doc comment for why that independence matters: this
-// is a check on what the rewrite actually DID to the real git object, not a
-// re-run of the same logic that could share the same bug.
-func (m *Manager) redactLineSurvives(tree, path, line string) (bool, error) {
+// redactSurvivingLine returns the first of lines that still exists as a whole
+// line in path's blob at tree (a commit-ish or a raw tree both work, same as
+// GrepTree/BlobContent), or "" when none do.
+//
+// It reads the blob ONCE and checks every candidate against it. The previous
+// shape called a single-line variant from inside the caller's per-line loop,
+// so a path carrying N target lines cost N blob reads — two git subprocesses
+// each — for content that depends only on (tree, path), not on which line is
+// being checked.
+//
+// The independence that matters is unchanged: this reads the tree's raw blob
+// bytes directly via gitio.BlobContent and compares lines itself (split on
+// "\n", TrimSuffix "\r", exact equality) — mechanism-independent of
+// RedactBlobsInTree/redactLines, the transform that performed the rewrite.
+// See verifyRedactAbsence's doc comment for why that independence matters:
+// this is a check on what the rewrite actually DID to the real git object,
+// not a re-run of the same logic that could share the same bug.
+func (m *Manager) redactSurvivingLine(tree, path string, lines []string) (string, error) {
 	content, ok, err := m.repo.BlobContent(tree, path)
 	if err != nil {
-		return false, err
+		return "", err
 	}
 	if !ok {
-		return false, nil // path absent from this tree: nothing can survive
+		return "", nil // path absent from this tree: nothing can survive
 	}
+	present := make(map[string]bool)
 	for _, raw := range strings.Split(content, "\n") {
-		if strings.TrimSuffix(raw, "\r") == line {
-			return true, nil
+		present[strings.TrimSuffix(raw, "\r")] = true
+	}
+	// Iterate lines (already sorted by the caller via sortedTargetLines)
+	// rather than the present map, so the reported survivor is deterministic
+	// across runs — Go deliberately randomizes map iteration order.
+	for _, line := range lines {
+		if present[line] {
+			return line, nil
 		}
 	}
-	return false, nil
+	return "", nil
 }
 
 // redactReplacedLineStillHasMatch checks, for every selected target line,

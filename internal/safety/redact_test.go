@@ -393,7 +393,7 @@ func TestApplyRedact_partialSelectionPreciseTierAbortsOnSurvivor(t *testing.T) {
 // spec.Targets (see its doc comment), so other.txt is never even looked at
 // and rides forward byte-for-byte, literal intact. By construction:
 //   - Tier 1 loops spec.Targets = {cfg.yaml}; cfg.yaml's target line is
-//     genuinely gone from the new tree, so redactLineSurvives returns false
+//     genuinely gone from the new tree, so redactSurvivingLine returns ""
 //     and tier 1 returns nil cleanly — a REAL pass, not a vacuous one (the
 //     check runs and the redaction it inspects actually worked).
 //   - Tier 2 (armed by allSelected=true) re-scans the ENTIRE rewritten
@@ -697,5 +697,43 @@ func TestApplyRedact_pushedRequiresForce(t *testing.T) {
 	if _, err := mgr.ApplyRedact(commits, spec, true, state,
 		ApplyOptions{UnixTimestamp: 2, Confirmed: true, ExpectedHead: oldHead}); err != nil {
 		t.Errorf("a confirmed redact touching a pushed commit should proceed: %v", err)
+	}
+}
+
+// TestRedactSurvivingLine_readsTheBlobOncePerPath pins the shape of the
+// verification loop. Content depends on (commit, path) only, so re-reading the
+// blob once per TARGET LINE multiplies git subprocesses by the occurrence count
+// for no information: 50 commits x 3 paths x 20 lines is ~6,000 spawns where
+// ~300 suffice, inside the pre-CAS window where the user is already waiting.
+func TestRedactSurvivingLine_readsTheBlobOncePerPath(t *testing.T) {
+	// newLinearRepo writes f0.txt ... fN.txt, each containing "x<name>\n".
+	repo := newLinearRepo(t, 3)
+	m := NewManager(repo)
+
+	// Ten candidate lines against one path must cost exactly one blob read.
+	lines := make([]string, 10)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("absent line %d", i)
+	}
+	got, err := m.redactSurvivingLine("HEAD", "f0.txt", lines)
+	if err != nil {
+		t.Fatalf("redactSurvivingLine: %v", err)
+	}
+	if got != "" {
+		t.Errorf("redactSurvivingLine = %q, want \"\" (none of these lines exist)", got)
+	}
+
+	// A line that IS present must be reported, and must be the one returned.
+	if got, err := m.redactSurvivingLine("HEAD", "f0.txt", []string{"xf0.txt"}); err != nil {
+		t.Fatal(err)
+	} else if got != "xf0.txt" {
+		t.Errorf("redactSurvivingLine = %q, want \"xf0.txt\"", got)
+	}
+
+	// An absent path is a normal outcome, not an error.
+	if got, err := m.redactSurvivingLine("HEAD", "nosuch.txt", []string{"anything"}); err != nil {
+		t.Errorf("redactSurvivingLine on a missing path errored: %v", err)
+	} else if got != "" {
+		t.Errorf("redactSurvivingLine on a missing path = %q, want \"\"", got)
 	}
 }

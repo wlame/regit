@@ -549,7 +549,7 @@ func (r *Repo) GrepTree(tree, literal string) (bool, error) {
 // This is a deliberately RAW read: no line-splitting, no redaction logic, no
 // git-grep pattern matching — just the exact bytes git has stored. It exists
 // so a caller verifying a rewrite's OUTCOME (see safety.Manager's
-// redactLineSurvives) can compare against the real content directly, rather
+// redactSurvivingLine) can compare against the real content directly, rather
 // than through RedactBlobsInTree/redactLines — the SAME matching logic that
 // performed the rewrite, and so a bug there could otherwise hide itself from
 // a check meant to catch exactly that kind of bug.
