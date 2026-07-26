@@ -1,0 +1,43 @@
+# Nightly fuzz burst.
+#
+# Deliberately NOT part of the blocking CI gate: committed seed corpora already
+# replay during ordinary `go test`, which is deterministic, whereas a fresh burst
+# is not — gating pull requests on it would make CI fail at random whenever the
+# fuzzer found something new. This job runs on a schedule instead, so a new
+# crasher is loud without blocking anyone. Commit any crasher it produces as a
+# seed; the normal suite then replays it forever.
+
+name: fuzz
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache: true
+
+      - name: Install just
+        uses: extractions/setup-just@v2
+
+      - name: Fuzz every target
+        run: just fuzz 120s
+
+      - name: Upload any crashers
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashers
+          path: internal/**/testdata/fuzz/**

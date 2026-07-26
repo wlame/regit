@@ -7,7 +7,13 @@ bin_dir := "dist"
 coverage_file := "coverage.out"
 
 # Minimum total statement coverage; `just cover` and `just ci` fail below it.
-cover_min := "80"
+cover_min := "85"
+
+# Per-package floors for the apply core. These are higher than the global gate
+# on purpose: a global number can be met by covering cheap render code while the
+# code that rewrites a user's history stays thin. safety and gitio are where a
+# bug corrupts a repository.
+core_cover_min := "90"
 
 # Version stamped into builds: latest tag + dirty/commit marker, or "dev"
 # outside any tag (e.g. a fresh clone with no tags).
@@ -62,14 +68,37 @@ test:
 test-race:
     go test -race -coverprofile={{coverage_file}} ./...
 
-# Show per-function coverage and FAIL if the total is below cover_min.
+# Show per-function coverage, then FAIL if the total is below cover_min or if
+# either core package is below core_cover_min.
 cover: test-race
     #!/usr/bin/env bash
     set -euo pipefail
     go tool cover -func={{coverage_file}}
     total="$(go tool cover -func={{coverage_file}} | tail -n 1 | awk '{print $3}' | tr -d '%')"
     echo "total coverage: ${total}% (floor {{cover_min}}%)"
+
+    # Per-package totals are statement-WEIGHTED, computed straight from the
+    # profile: each record is "file:span numStatements count", so summing
+    # numStatements (and those with count>0) per package directory is exact.
+    # Averaging the per-function percentages would silently overweight tiny
+    # functions.
+    fail=0
+    for pkg in internal/safety internal/gitio; do
+        pct="$(awk -F'[:. ]+' -v pkg="$pkg" '
+            $0 ~ pkg"/" {
+                n = $(NF-1); c = $NF
+                total += n
+                if (c > 0) covered += n
+            }
+            END { if (total == 0) print "0"; else printf "%.1f", covered * 100 / total }
+        ' {{coverage_file}})"
+        echo "  ${pkg}: ${pct}% (floor {{core_cover_min}}%)"
+        awk -v p="$pct" -v m={{core_cover_min}} 'BEGIN { exit (p+0 < m+0) ? 1 : 0 }' || {
+            echo "  ${pkg} is below the core floor"; fail=1; }
+    done
+
     awk -v t="$total" -v m={{cover_min}} 'BEGIN { if (t+0 < m+0) { print "coverage below floor"; exit 1 } }'
+    [ "$fail" -eq 0 ]
 
 # Open an HTML coverage report in the browser.
 cover-html: test-race
