@@ -351,6 +351,22 @@ func (m *Manager) Restore(backupRef string, force bool, unixTS int64) (string, s
 	if err != nil {
 		return "", "", err
 	}
+	// Whether the backup's tree equals the current HEAD's tree is the gate for
+	// the checkout refresh below: identical trees prove nothing on disk or in
+	// the index needs to change, so skipping is provably correct rather than a
+	// guess. This is what makes the gate op-agnostic — Restore still does not
+	// need to know whether it is undoing a redate or a purge (see the sync
+	// block's own comment) — while also confining the refresh to exactly the
+	// operations that actually changed content, instead of running it
+	// unconditionally on every undo. A read failure here must not abort the
+	// undo, since the ref move below IS the undo and always proceeds; it falls
+	// back to treesEqual=false, i.e. the pre-fix behavior of always attempting
+	// the sync, so a content-changing operation is never silently left
+	// unsynced just because a tree lookup happened to fail.
+	treesEqual := false
+	if trees, terr := m.repo.CommitTrees([]string{current, target}); terr == nil {
+		treesEqual = trees[current] == trees[target]
+	}
 	// Advanced-HEAD guard: if this backup recorded the head its apply produced,
 	// and the branch no longer points there, work has happened since — undoing
 	// would unwind it. Refuse unless forced. A legacy backup (no paired applied
@@ -390,29 +406,40 @@ func (m *Manager) Restore(backupRef string, force bool, unixTS int64) (string, s
 	// even though the branch is back before the redaction. Restore does not know
 	// which operation produced this backup, so it cannot pick the matching
 	// SyncIndexToTree/SyncIndexAndWorktreeToTree policy the way runApply does —
-	// but it does not need to: `git read-tree` without `-u` only ever writes the
-	// index, so it is safe unconditionally, and is exactly what a tree-preserving
-	// op's undo needs (a no-op, since old and new share one tree) as well as
-	// purge's (the purged path was never touched on disk, only in the index).
-	// The `-u` half, which DOES write worktree files, additionally requires
-	// cleanBeforeMove: `git read-tree -u` has no "would overwrite local changes"
-	// refusal the way `git checkout` does (verified empirically — it silently
-	// clobbers them), so it only runs when the pre-move check proved there was
-	// nothing of the user's on disk to lose. Both are non-fatal, matching
-	// runApply's Sync: the branch has already moved, which is what undo
-	// promises; a stale checkout after that is a follow-up nuisance, never a
-	// reason to report the undo itself as failed — but unlike runApply's Sync,
-	// the failure is never simply dropped: it comes back as a warning string so
-	// a headless `regit undo` (and the TUI's U key) can still tell the operator
-	// their checkout may be stale and hand them the exact command to fix it.
+	// but it does not need to: treesEqual (computed above, before the ref moved)
+	// already tells it whether there is anything to reverse at all. When the
+	// trees match — every tree-preserving op's undo (redate, reword, split,
+	// squash, linearize) — the sync is skipped outright: `read-tree --reset`
+	// replaces the WHOLE index, not just the paths an operation touched, so
+	// running it "just in case" on a dirty tree silently discards unrelated
+	// staged changes that have nothing to do with the undo. Only when the trees
+	// differ (purge, redact) does the sync run, and only then do the two arms
+	// below matter: `git read-tree` without `-u` only ever writes the index, so
+	// it is safe unconditionally, and is exactly what purge's undo needs (the
+	// purged path was never touched on disk, only in the index). The `-u` half,
+	// which DOES write worktree files, additionally requires cleanBeforeMove:
+	// `git read-tree -u` has no "would overwrite local changes" refusal the way
+	// `git checkout` does (verified empirically — it silently clobbers them), so
+	// it only runs when the pre-move check proved there was nothing of the
+	// user's on disk to lose. Both are non-fatal, matching runApply's Sync: the
+	// branch has already moved, which is what undo promises; a stale checkout
+	// after that is a follow-up nuisance, never a reason to report the undo
+	// itself as failed — but unlike runApply's Sync, the failure is never simply
+	// dropped: it comes back as a warning string so a headless `regit undo` (and
+	// the TUI's U key) can still tell the operator their checkout may be stale
+	// and hand them the exact command to fix it.
 	var syncWarning string
-	if cleanBeforeMove {
+	switch {
+	case treesEqual:
+		// Nothing changed between the two trees, so nothing needs refreshing —
+		// touching the index here would only risk clobbering unrelated state.
+	case cleanBeforeMove:
 		if err := m.repo.SyncIndexAndWorktreeToTree(target); err != nil {
 			syncWarning = fmt.Sprintf(
 				"warning: could not refresh the working tree (%v); run: git read-tree --reset -u %s",
 				err, target)
 		}
-	} else {
+	default:
 		if err := m.repo.SyncIndexToTree(target); err != nil {
 			syncWarning = fmt.Sprintf(
 				"warning: could not refresh the index (%v); run: git read-tree --reset %s",

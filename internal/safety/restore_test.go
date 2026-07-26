@@ -2,6 +2,7 @@ package safety
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -159,5 +160,72 @@ func TestRestore_dirtyTreeRefreshesTheIndexOnly(t *testing.T) {
 	}
 	if string(got) != uncommitted {
 		t.Errorf("keep.txt on disk = %q, want the untouched uncommitted edit %q", got, uncommitted)
+	}
+}
+
+// TestRestore_treePreservingUndoLeavesUnrelatedStagingAlone is the regression
+// test for the bug fixed alongside it: Restore used to run the checkout
+// refresh on EVERY undo, including tree-preserving operations (redate here)
+// whose backup target shares HEAD's tree byte-for-byte. On a dirty tree that
+// took the index-only branch, `git read-tree --reset` replaces the WHOLE
+// index — not just the paths the operation touched — so it silently discarded
+// unrelated staged changes that have nothing to do with the undo at all. A
+// redate never needed the index touched in the first place: its old and new
+// trees are identical, so the fix is to skip the sync entirely rather than
+// pick a "safer" sync.
+func TestRestore_treePreservingUndoLeavesUnrelatedStagingAlone(t *testing.T) {
+	repo := buildRepo(t)
+	plan := spreadPlan(t, repo)
+	state, err := repo.ReadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldHead := state.HeadHash
+
+	mgr := NewManager(repo)
+	opts := ApplyOptions{Sign: gitio.DropSignatures, UnixTimestamp: 1717689910, ExpectedHead: oldHead}
+	res, err := mgr.Apply(plan, state, opts)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if res.NewHead == oldHead {
+		t.Fatal("setup: redate should have produced a new head")
+	}
+
+	// Stage a brand-new, wholly unrelated file — standing in for real staged
+	// work the user has in progress at undo time, untouched by the redate.
+	unrelatedPath := filepath.Join(repo.Root(), "unrelated.txt")
+	if err := os.WriteFile(unrelatedPath, []byte("unrelated\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	addCmd := exec.Command("git", "add", "unrelated.txt")
+	addCmd.Dir = repo.Root()
+	addCmd.Env = gittest.Env(repo.Root())
+	if out, err := addCmd.CombinedOutput(); err != nil {
+		t.Fatalf("git add unrelated.txt: %v\n%s", err, out)
+	}
+	dirty, err := repo.IsDirty()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !dirty {
+		t.Fatal("setup: the staged unrelated file must register as a dirty tree")
+	}
+
+	restored, warning, err := mgr.Undo(false, 1717689911)
+	if err != nil {
+		t.Fatalf("Undo: %v", err)
+	}
+	if warning != "" {
+		t.Errorf("unexpected sync warning: %q", warning)
+	}
+	if restored != oldHead {
+		t.Errorf("Undo should restore old head %s, got %s", shortHash(oldHead), shortHash(restored))
+	}
+
+	// The regression: undoing a tree-preserving operation must never touch the
+	// index, so the unrelated staged entry must still be there afterward.
+	if _, staged := gittest.Snap(t, repo.Root()).Index["unrelated.txt"]; !staged {
+		t.Error("undoing a tree-preserving redate discarded an unrelated staged file")
 	}
 }
