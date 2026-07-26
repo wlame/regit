@@ -14,6 +14,24 @@ func commitHash(t *testing.T, dir string) string {
 	return gitT(t, dir, "rev-parse", "HEAD")
 }
 
+// TestRefKind pins the classifier's three cases directly: tag/remote prefixes
+// map explicitly, and everything else (a plain "refs/heads/..." ref) falls
+// through to "branch" — the case TestRefsPointingAt_reportsTagsAndBranches
+// doesn't isolate on its own since that fixture has no refs/remotes/ entry.
+func TestRefKind(t *testing.T) {
+	cases := map[string]string{
+		"refs/tags/v1.0":           "tag",
+		"refs/remotes/origin/main": "remote",
+		"refs/heads/main":          "branch",
+		"refs/heads/feature/thing": "branch",
+	}
+	for name, want := range cases {
+		if got := refKind(name); got != want {
+			t.Errorf("refKind(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
 func TestRefsPointingAt_reportsTagsAndBranches(t *testing.T) {
 	dir, r := initRepo(t)
 	gitT(t, dir, "symbolic-ref", "HEAD", "refs/heads/main")

@@ -483,6 +483,148 @@ func TestApplyRedact_mergeInRangeBlocks(t *testing.T) {
 	}
 }
 
+// TestApplyRedact_invalidSpecBlocks pins the Guards closure's own validation
+// call: an invalid spec (here, no match literal at all) must be rejected
+// before any history is touched, surfacing RedactSpec.Validate's own message.
+func TestApplyRedact_invalidSpecBlocks(t *testing.T) {
+	repo := redactRotationRepo(t)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := repo.ReadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := model.RedactSpec{} // no match, no targets — invalid
+
+	_, err = NewManager(repo).ApplyRedact(commits, spec, true, state,
+		ApplyOptions{UnixTimestamp: 1, ExpectedHead: state.HeadHash})
+	if err == nil {
+		t.Fatal("an invalid spec must block the redact")
+	}
+	if !strings.Contains(err.Error(), "match must not be empty") {
+		t.Errorf("error should surface RedactSpec.Validate's message, got: %v", err)
+	}
+}
+
+// TestApplyRedact_nothingToRedactBlocks pins the "no commit's snapshot
+// contains the target content" guard: a target line that never actually
+// appears in the path's history must refuse cleanly rather than run a rewrite
+// that changes nothing.
+func TestApplyRedact_nothingToRedactBlocks(t *testing.T) {
+	repo := redactRotationRepo(t)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := repo.ReadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := model.RedactSpec{
+		Match: "never-appears", Mode: model.RedactRemove,
+		Targets: map[string][]string{"cfg.yaml": {"token: never-appears"}},
+	}
+
+	_, err = NewManager(repo).ApplyRedact(commits, spec, true, state,
+		ApplyOptions{UnixTimestamp: 1, ExpectedHead: state.HeadHash})
+	if err == nil {
+		t.Fatal("redacting a line that never appears should block")
+	}
+	if !strings.Contains(err.Error(), "nothing to redact") {
+		t.Errorf("error should say nothing to redact, got: %v", err)
+	}
+}
+
+// TestApplyRedact_dirtyTreeBlocks pins ApplyRedact's own dirty-tree guard,
+// mirroring TestApplyPurge_dirtyTreeBlocks for the redact side.
+func TestApplyRedact_dirtyTreeBlocks(t *testing.T) {
+	repo := redactRotationRepo(t)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := repo.ReadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.IsDirty = true
+	spec := model.RedactSpec{
+		Match: "sk-OLD", Mode: model.RedactRemove,
+		Targets: map[string][]string{"cfg.yaml": {"token: sk-OLD"}},
+	}
+
+	_, err = NewManager(repo).ApplyRedact(commits, spec, true, state,
+		ApplyOptions{UnixTimestamp: 1, ExpectedHead: state.HeadHash})
+	if err == nil {
+		t.Fatal("a dirty tree must block the redact")
+	}
+	if !strings.Contains(err.Error(), "dirty") {
+		t.Errorf("error should mention dirty tree, got: %v", err)
+	}
+}
+
+// TestApplyRedact_baseComputationErrorPropagates pins the Guards closure's
+// baseErr surfacing: RedactBase is computed once, eagerly, before Guards
+// runs, from whatever commits slice the caller supplies. A caller-supplied
+// commit whose TreeHash doesn't actually resolve (a stale snapshot) must make
+// that eager computation fail closed, not silently walk past the corruption.
+func TestApplyRedact_baseComputationErrorPropagates(t *testing.T) {
+	repo := redactRotationRepo(t)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := repo.ReadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	commits[0].TreeHash = "0000000000000000000000000000000000dead"
+	spec := model.RedactSpec{
+		Match: "sk-OLD", Mode: model.RedactRemove,
+		Targets: map[string][]string{"cfg.yaml": {"token: sk-OLD"}},
+	}
+
+	_, err = NewManager(repo).ApplyRedact(commits, spec, true, state,
+		ApplyOptions{UnixTimestamp: 1, ExpectedHead: state.HeadHash})
+	if err == nil {
+		t.Fatal("a corrupted commit tree hash should fail redact base computation, got nil error")
+	}
+	if !strings.Contains(err.Error(), "compute redact base") {
+		t.Errorf("error = %q, want it to name the base-computation failure", err)
+	}
+}
+
+// TestApplyRedact_internalRewriteErrorPropagates pins the Rewrite closure's
+// own error path from gitio.ApplyRedact (redact.go:89-91), mirroring
+// TestApplyPurge_internalRewriteErrorPropagates: base is computed from the
+// FIRST commit that carries the secret (index 0 here), so corrupting a LATER
+// commit's TreeHash lets RedactBase succeed while gitio.ApplyRedact's walk
+// still fails when it reaches the corrupted commit.
+func TestApplyRedact_internalRewriteErrorPropagates(t *testing.T) {
+	repo := redactRotationRepo(t)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := repo.ReadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	commits[len(commits)-1].TreeHash = "0000000000000000000000000000000000dead"
+	spec := model.RedactSpec{
+		Match: "sk-OLD", Mode: model.RedactRemove,
+		Targets: map[string][]string{"cfg.yaml": {"token: sk-OLD"}},
+	}
+
+	_, err = NewManager(repo).ApplyRedact(commits, spec, true, state,
+		ApplyOptions{UnixTimestamp: 1, ExpectedHead: state.HeadHash})
+	if err == nil {
+		t.Fatal("a corrupted commit tree hash should fail the rewrite, got nil error")
+	}
+}
+
 // TestVerifyRedactAbsence_preciseDetectsLineSurvival unit-tests the PRECISE
 // check's sub-check (a) directly, independent of whether a real ApplyRedact
 // run could ever actually produce this shape (it cannot: RedactBlobsInTree

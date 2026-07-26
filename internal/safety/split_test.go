@@ -175,6 +175,60 @@ func TestApplySplit_refusesMergeCommit(t *testing.T) {
 	}
 }
 
+// TestApplySplit_dirtyTreeBlocks pins ApplySplit's own dirty-tree guard: a
+// state snapshot recorded as dirty must refuse before any rewrite, the same
+// way ApplyPurge and ApplyRedact refuse (see TestApplyPurge_dirtyTreeBlocks).
+func TestApplySplit_dirtyTreeBlocks(t *testing.T) {
+	repo := buildRepo(t)
+	mgr := NewManager(repo)
+	oldHead, err := repo.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := model.RepoState{IsDirty: true, Branch: "main", HeadHash: oldHead}
+	subs := []gitio.SubCommit{
+		{Tree: "dummy1", Subject: "a"},
+		{Tree: "dummy2", Subject: "b"},
+	}
+	target := model.Commit{Hash: oldHead, TreeHash: "dummy2"}
+
+	_, err = mgr.ApplySplit(target, "parent", subs, nil, state,
+		ApplyOptions{UnixTimestamp: 1, ExpectedHead: oldHead})
+	if err == nil {
+		t.Fatal("a dirty tree must block the split")
+	}
+	if !strings.Contains(err.Error(), "dirty") {
+		t.Errorf("error should mention dirty tree, got: %v", err)
+	}
+}
+
+// TestApplySplit_fewerThanTwoSubsBlocks pins the "nothing to split" guard: a
+// single sub-commit is not a split (it would just replay the same commit), so
+// ApplySplit must refuse rather than run a no-op rewrite.
+func TestApplySplit_fewerThanTwoSubsBlocks(t *testing.T) {
+	repo := buildRepo(t)
+	mgr := NewManager(repo)
+	state, err := repo.ReadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldHead, err := repo.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := model.Commit{Hash: oldHead, TreeHash: "dummy"}
+	subs := []gitio.SubCommit{{Tree: "dummy", Subject: "only one"}}
+
+	_, err = mgr.ApplySplit(target, "parent", subs, nil, state,
+		ApplyOptions{UnixTimestamp: 1, ExpectedHead: oldHead})
+	if err == nil {
+		t.Fatal("fewer than two sub-commits must block the split")
+	}
+	if !strings.Contains(err.Error(), "fewer than two") {
+		t.Errorf("error should mention fewer than two sub-commits, got: %v", err)
+	}
+}
+
 // TestApplySplit_pushedTargetRequiresConfirmation verifies ApplySplit's own
 // pushed guard (model.AnyPushed(target, tail...)): an unconfirmed apply whose
 // target is marked pushed must be refused before any repo state changes, and

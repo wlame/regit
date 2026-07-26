@@ -373,3 +373,40 @@ func TestHunks_spaceInFilename(t *testing.T) {
 		t.Fatalf("expected hunk with File=%q, got %v", name, hs)
 	}
 }
+
+// TestHunks_errorsOnUnresolvableTree pins the outer diff-failure path.
+func TestHunks_errorsOnUnresolvableTree(t *testing.T) {
+	repo, parent, _ := twoCommitRepo(t)
+	if _, err := repo.Hunks(parent, "0000000000000000000000000000000000dead"); err == nil {
+		t.Fatal("Hunks against an unresolvable tree should fail, got nil error")
+	}
+}
+
+// TestHunks_pureDeletionHasNoPlusLine pins parsePaths' pure-deletion branch: a
+// file present in parentTree and entirely absent from commitTree produces a
+// diff section with a "--- a/<path>" line but NO "+++ b/..." line at all
+// (git omits it for a delete), so the hunk's File must come from minusPath
+// alone.
+func TestHunks_pureDeletionHasNoPlusLine(t *testing.T) {
+	dir, repo := initRepo(t)
+	os.WriteFile(filepath.Join(dir, "gone.txt"), []byte("bye\n"), 0o644)
+	gitT(t, dir, "add", "-A")
+	parent := snapTree(t, dir, "parent")
+
+	gitT(t, dir, "rm", "-q", "gone.txt")
+	child := snapTree(t, dir, "child")
+
+	hs, err := repo.Hunks(parent, child)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, h := range hs {
+		if h.File == "gone.txt" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected a hunk for the deleted gone.txt, got %v", hs)
+	}
+}

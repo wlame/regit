@@ -97,6 +97,24 @@ func TestRefsContaining_reportsOtherRefsOnly(t *testing.T) {
 	}
 }
 
+// TestSideCommits_errorsOnUnresolvableMergeHash pins the failure path: a
+// mergeHash naming no commit must surface the log invocation's refusal.
+func TestSideCommits_errorsOnUnresolvableMergeHash(t *testing.T) {
+	repo, _ := mergeRepo(t)
+	if _, err := repo.SideCommits("0000000000000000000000000000000000dead"); err == nil {
+		t.Fatal("SideCommits on an unresolvable merge hash should fail, got nil error")
+	}
+}
+
+// TestRefsContaining_errorsOnUnresolvableHash pins RefsContaining's own
+// failure path.
+func TestRefsContaining_errorsOnUnresolvableHash(t *testing.T) {
+	repo, _ := mergeRepo(t)
+	if _, err := repo.RefsContaining("0000000000000000000000000000000000dead", "main"); err == nil {
+		t.Fatal("RefsContaining on an unresolvable hash should fail, got nil error")
+	}
+}
+
 func TestApplyLinearize_foldsMergePreservingEveryTree(t *testing.T) {
 	repo, mergeHash := mergeRepo(t)
 	commits, err := repo.ReadCommits()

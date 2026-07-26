@@ -769,3 +769,188 @@ func mustMkdir(t *testing.T, dir, name string) {
 		t.Fatal(err)
 	}
 }
+
+// TestParseHunks_multiFilePatchEndsCollectionAtNextFileHeader pins the
+// "default: cur = nil" branch: a second file's "diff --git" header inside one
+// combined multi-file patch must end collection into the FIRST file's last
+// hunk without discarding it, and the following "@@ " line must then start a
+// fresh hunk for the second file — the shape secretAdditionsInCommit's own
+// diff-tree output has whenever a commit touches more than one file.
+func TestParseHunks_multiFilePatchEndsCollectionAtNextFileHeader(t *testing.T) {
+	patch := strings.Join([]string{
+		"diff --git a/one.txt b/one.txt",
+		"index 1111111..2222222 100644",
+		"--- a/one.txt",
+		"+++ b/one.txt",
+		"@@ -1 +1 @@",
+		"-old one",
+		"+new one",
+		"diff --git a/two.txt b/two.txt",
+		"index 3333333..4444444 100644",
+		"--- a/two.txt",
+		"+++ b/two.txt",
+		"@@ -1 +1 @@",
+		"-old two",
+		"+new two",
+		"",
+	}, "\n")
+
+	hunks := parseHunks(patch)
+	if len(hunks) != 2 {
+		t.Fatalf("got %d hunks, want 2 (one per file): %+v", len(hunks), hunks)
+	}
+	want0 := []hunkLine{{op: '-', text: "old one"}, {op: '+', text: "new one"}}
+	if !reflect.DeepEqual(hunks[0].lines, want0) {
+		t.Errorf("hunk0 lines = %+v, want %+v (must not be discarded by the next file's header)",
+			hunks[0].lines, want0)
+	}
+	want1 := []hunkLine{{op: '-', text: "old two"}, {op: '+', text: "new two"}}
+	if !reflect.DeepEqual(hunks[1].lines, want1) {
+		t.Errorf("hunk1 lines = %+v, want %+v", hunks[1].lines, want1)
+	}
+}
+
+// TestFirstOp_returnsEmptyWhenOpAbsent pins firstOp's "not found" branch: a
+// hunk with no line of the requested op (here, no removal at all — a
+// pure-addition hunk) must report "" rather than panic or return a wrong line.
+func TestFirstOp_returnsEmptyWhenOpAbsent(t *testing.T) {
+	lines := []hunkLine{{op: '+', text: "added"}, {op: ' ', text: "context"}}
+	if got := firstOp(lines, '-'); got != "" {
+		t.Errorf("firstOp(no removal, '-') = %q, want \"\"", got)
+	}
+}
+
+// TestSecretAdditions_errorsOnUnbornBranch pins pickaxeCommitHashes' own
+// failure path (shared by SecretAdditions and SecretAdditionsBinary): `git
+// log -S... HEAD` cannot run at all when HEAD has no commits yet, and that
+// must propagate rather than read as "no hits".
+func TestSecretAdditions_errorsOnUnbornBranch(t *testing.T) {
+	_, repo := initRepo(t)
+	if _, err := repo.SecretAdditions("secret", nil); err == nil {
+		t.Fatal("SecretAdditions on an unborn branch should fail, got nil error")
+	}
+}
+
+// TestSecretAdditionsBinary_errorsOnUnbornBranch is
+// TestSecretAdditions_errorsOnUnbornBranch's sibling for the binary scan,
+// pinning SecretAdditionsBinary's OWN propagation of the same failure.
+func TestSecretAdditionsBinary_errorsOnUnbornBranch(t *testing.T) {
+	_, repo := initRepo(t)
+	if _, err := repo.SecretAdditionsBinary("secret", nil); err == nil {
+		t.Fatal("SecretAdditionsBinary on an unborn branch should fail, got nil error")
+	}
+}
+
+// TestSecretAdditionsInCommit_errorsOnUnresolvableHash calls the private
+// helper directly (same package, like gitio's other guard-input tests): a
+// hash naming no commit must surface diff-tree's refusal.
+func TestSecretAdditionsInCommit_errorsOnUnresolvableHash(t *testing.T) {
+	repo, _ := redactScanRepo(t)
+	_, err := repo.secretAdditionsInCommit("0000000000000000000000000000000000dead", "secret", nil)
+	if err == nil {
+		t.Fatal("secretAdditionsInCommit on an unresolvable hash should fail, got nil error")
+	}
+}
+
+// TestBinaryBlobsInCommit_errorsOnUnresolvableHash mirrors
+// TestSecretAdditionsInCommit_errorsOnUnresolvableHash for the binary scan's
+// own diff-tree call.
+func TestBinaryBlobsInCommit_errorsOnUnresolvableHash(t *testing.T) {
+	repo, _ := redactScanRepo(t)
+	_, err := repo.binaryBlobsInCommit("0000000000000000000000000000000000dead", "secret", nil)
+	if err == nil {
+		t.Fatal("binaryBlobsInCommit on an unresolvable hash should fail, got nil error")
+	}
+}
+
+// TestBinaryBlobsInCommit_globArgumentNarrowsListing pins the globs-narrowing
+// branch (mirroring pickaxeCommitHashes' own): calling the private helper
+// directly with a non-empty globs slice that DOES cover the binary path must
+// still find the hit, proving the pathspec args are appended correctly rather
+// than merely accepted and ignored.
+func TestBinaryBlobsInCommit_globArgumentNarrowsListing(t *testing.T) {
+	repo, commits := binarySecretRepo(t)
+	paths, err := repo.binaryBlobsInCommit(commits[0].Hash, "sk-BINARY", []string{"bin.dat"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != 1 || paths[0] != "bin.dat" {
+		t.Errorf("paths = %v, want [bin.dat]", paths)
+	}
+}
+
+// TestBinaryBlobsInCommit_skipsDeletedPath pins the "path deleted at hash"
+// branch: diff-tree reports a path as touched by a commit that DELETES it, so
+// there is no blob left to inspect at that commit — the deletion itself must
+// be treated as "not a hit", not as an error that aborts the whole scan.
+func TestBinaryBlobsInCommit_skipsDeletedPath(t *testing.T) {
+	repo, dir := purgeTestRepoEmpty(t)
+	mustWriteFile(t, dir, "bin.dat", "before\x00sk-BINARY\x00after")
+	gitT(t, dir, "add", ".")
+	gitT(t, dir, "commit", "-m", "add binary secret")
+	gitT(t, dir, "rm", "bin.dat")
+	gitT(t, dir, "commit", "-m", "remove binary secret")
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) != 2 {
+		t.Fatalf("setup: want 2 commits, got %d", len(commits))
+	}
+
+	paths, err := repo.binaryBlobsInCommit(commits[1].Hash, "sk-BINARY", nil)
+	if err != nil {
+		t.Fatalf("a deleted path should not error the scan: %v", err)
+	}
+	if len(paths) != 0 {
+		t.Errorf("paths = %v, want none (the only touched path was deleted)", paths)
+	}
+}
+
+// TestLineDescendants_errorsOnUnbornBranch pins LineDescendants' own
+// propagation of isOnFirstParentChain's failure on an unborn branch.
+func TestLineDescendants_errorsOnUnbornBranch(t *testing.T) {
+	_, repo := initRepo(t)
+	if _, _, err := repo.LineDescendants("deadbeef", "path.txt", "line"); err == nil {
+		t.Fatal("LineDescendants on an unborn branch should fail, got nil error")
+	}
+}
+
+// TestIsOnFirstParentChain_errorsOnUnbornBranch pins the guard LineDescendants
+// depends on: the underlying rev-list must fail closed, not report "not on
+// chain", when HEAD itself has no commits.
+func TestIsOnFirstParentChain_errorsOnUnbornBranch(t *testing.T) {
+	_, repo := initRepo(t)
+	if _, err := repo.isOnFirstParentChain("deadbeef"); err == nil {
+		t.Fatal("isOnFirstParentChain on an unborn branch should fail, got nil error")
+	}
+}
+
+// TestBlobContent_errorsOnUnresolvableTree pins the ls-tree failure path:
+// an unresolvable tree must propagate rather than read as "path absent".
+func TestBlobContent_errorsOnUnresolvableTree(t *testing.T) {
+	repo, _ := redactScanRepo(t)
+	_, _, err := repo.BlobContent("0000000000000000000000000000000000dead", "cfg.yaml")
+	if err == nil {
+		t.Fatal("BlobContent on an unresolvable tree should fail, got nil error")
+	}
+}
+
+// TestSecretAddedFrom_errorsOnUnresolvableRev pins the failure path
+// SecretInSideHistory and verifyRedactAbsence's GLOBAL tier both depend on.
+func TestSecretAddedFrom_errorsOnUnresolvableRev(t *testing.T) {
+	repo, _ := redactScanRepo(t)
+	_, err := repo.SecretAddedFrom("0000000000000000000000000000000000dead", "secret")
+	if err == nil {
+		t.Fatal("SecretAddedFrom on an unresolvable rev should fail, got nil error")
+	}
+}
+
+// TestSecretInSideHistory_errorsOnUnbornBranch pins SecretInSideHistory's own
+// propagation of SecretAddedFrom's failure (it always searches from "HEAD").
+func TestSecretInSideHistory_errorsOnUnbornBranch(t *testing.T) {
+	_, repo := initRepo(t)
+	if _, err := repo.SecretInSideHistory(nil, "secret"); err == nil {
+		t.Fatal("SecretInSideHistory on an unborn branch should fail, got nil error")
+	}
+}

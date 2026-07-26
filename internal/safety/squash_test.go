@@ -84,6 +84,30 @@ func TestApplySquash_appliesAndVerifies(t *testing.T) {
 	}
 }
 
+// TestApplySquash_noChainsBlocks pins the "nothing to squash" guard: a plan
+// with no chains at all must refuse before any rewrite runs, the same way an
+// empty linearize plan refuses (see TestApplyLinearize_emptyPlanAndDirtyTreeRefuse).
+func TestApplySquash_noChainsBlocks(t *testing.T) {
+	repo := newLinearRepo(t, 3)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := repo.ReadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = NewManager(repo).ApplySquash(commits, model.SquashPlan{}, state,
+		ApplyOptions{UnixTimestamp: 1, ExpectedHead: state.HeadHash})
+	if err == nil {
+		t.Fatal("an empty squash plan must block")
+	}
+	if !strings.Contains(err.Error(), "nothing to squash") {
+		t.Errorf("error should say nothing to squash, got: %v", err)
+	}
+}
+
 func TestApplySquash_blocksMergeMember(t *testing.T) {
 	repo := newLinearRepo(t, 3)
 	commits, _ := repo.ReadCommits()

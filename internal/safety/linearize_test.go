@@ -138,3 +138,42 @@ func TestApplyLinearize_emptyPlanAndDirtyTreeRefuse(t *testing.T) {
 		t.Fatalf("dirty tree must refuse, got %v", err)
 	}
 }
+
+// TestApplyLinearize_pushedRequiresConfirmation pins ApplyLinearize's own
+// pushed guard: model.AnyPushed(plan.RewrittenCommits(commits)). An
+// unconfirmed linearize whose rewritten range touches a pushed commit must be
+// refused before any repo state changes, and the same call with
+// Confirmed:true must proceed — mirroring squash and split's identical guard.
+func TestApplyLinearize_pushedRequiresConfirmation(t *testing.T) {
+	repo, mergeHash := mergeRepo(t)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	side, err := repo.SideCommits(mergeHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := model.BuildLinearizePlan(commits, map[string][]model.SideCommit{mergeHash: side})
+	state, err := repo.ReadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range commits {
+		commits[i].IsPushed = true
+	}
+	expectedHead := commits[len(commits)-1].Hash
+
+	mgr := NewManager(repo)
+	if _, err := mgr.ApplyLinearize(commits, plan, state, ApplyOptions{
+		UnixTimestamp: 1, ExpectedHead: expectedHead,
+	}); err == nil {
+		t.Fatal("an unconfirmed linearize of pushed commits must be refused")
+	}
+
+	if _, err := mgr.ApplyLinearize(commits, plan, state, ApplyOptions{
+		UnixTimestamp: 2, ExpectedHead: expectedHead, Confirmed: true,
+	}); err != nil {
+		t.Fatalf("a confirmed linearize of pushed commits should proceed: %v", err)
+	}
+}

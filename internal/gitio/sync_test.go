@@ -166,3 +166,24 @@ func TestSyncIndexAndWorktreeToTree_rewritesDiskContent(t *testing.T) {
 			short(newHead), strings.TrimSpace(diff))
 	}
 }
+
+// TestSyncIndexToTree_errorsOnUnresolvableRev pins the failure path: a rev
+// that names no object must surface `read-tree`'s refusal, not leave the index
+// silently untouched while callers assume the sync happened.
+func TestSyncIndexToTree_errorsOnUnresolvableRev(t *testing.T) {
+	repo := syncFixture(t)
+	err := repo.SyncIndexToTree("0000000000000000000000000000000000dead")
+	if err == nil {
+		t.Fatal("SyncIndexToTree with an unresolvable rev should fail, got nil error")
+	}
+}
+
+// TestSyncIndexAndWorktreeToTree_errorsOnUnresolvableRev is
+// TestSyncIndexToTree_errorsOnUnresolvableRev's sibling for the -u variant.
+func TestSyncIndexAndWorktreeToTree_errorsOnUnresolvableRev(t *testing.T) {
+	repo := syncFixture(t)
+	err := repo.SyncIndexAndWorktreeToTree("0000000000000000000000000000000000dead")
+	if err == nil {
+		t.Fatal("SyncIndexAndWorktreeToTree with an unresolvable rev should fail, got nil error")
+	}
+}

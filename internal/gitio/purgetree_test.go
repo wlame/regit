@@ -125,6 +125,16 @@ func TestRemovePathsFromTree_noPathsIsNoop(t *testing.T) {
 	}
 }
 
+// TestRemovePathsFromTree_errorsOnUnresolvableTree pins the read-tree failure
+// path: an unresolvable tree must propagate rather than silently no-op.
+func TestRemovePathsFromTree_errorsOnUnresolvableTree(t *testing.T) {
+	r, _ := purgeTestRepo(t)
+	_, err := r.RemovePathsFromTree("0000000000000000000000000000000000dead", []string{"keep.txt"})
+	if err == nil {
+		t.Fatal("RemovePathsFromTree on an unresolvable tree should fail, got nil error")
+	}
+}
+
 func TestRemovePathsFromTree_leavesUserIndexAlone(t *testing.T) {
 	r, dir := purgeTestRepo(t)
 	before, err := r.git("status", "--porcelain")

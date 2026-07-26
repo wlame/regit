@@ -160,6 +160,185 @@ func TestApplyPurge_dirtyTreeBlocks(t *testing.T) {
 	}
 }
 
+// TestApplyPurge_invalidSpecBlocks pins the Guards closure's own validation
+// call: an invalid spec (here, no paths at all) must be rejected before any
+// history is touched, surfacing PurgeSpec.Validate's own message.
+func TestApplyPurge_invalidSpecBlocks(t *testing.T) {
+	repo := purgeThreeCommitRepo(t)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	head, err := repo.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := model.RepoState{Branch: "main", HeadHash: head}
+	spec := model.PurgeSpec{} // no paths — invalid
+
+	_, err = NewManager(repo).ApplyPurge(commits, spec, nil, state,
+		ApplyOptions{UnixTimestamp: 1, ExpectedHead: head})
+	if err == nil {
+		t.Fatal("an invalid spec must block the purge")
+	}
+	if !strings.Contains(err.Error(), "no paths given") {
+		t.Errorf("error should surface PurgeSpec.Validate's message, got: %v", err)
+	}
+}
+
+// TestApplyPurge_nothingToPurgeBlocks pins the "no commits touch these paths"
+// guard: a path that never appears anywhere in history must refuse cleanly
+// rather than run a rewrite that changes nothing.
+func TestApplyPurge_nothingToPurgeBlocks(t *testing.T) {
+	repo := purgeThreeCommitRepo(t)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	head, err := repo.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := model.RepoState{Branch: "main", HeadHash: head}
+	spec := model.PurgeSpec{Paths: []string{"never-existed.txt"}}
+	affected, err := repo.AffectedCommits(spec.Paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = NewManager(repo).ApplyPurge(commits, spec, affected, state,
+		ApplyOptions{UnixTimestamp: 1, ExpectedHead: head})
+	if err == nil {
+		t.Fatal("purging a path with no history should block")
+	}
+	if !strings.Contains(err.Error(), "nothing to purge") {
+		t.Errorf("error should say nothing to purge, got: %v", err)
+	}
+}
+
+// TestApplyPurge_internalRewriteErrorPropagates pins the Rewrite closure's own
+// error path from gitio.ApplyPurge (purge.go:87-89): Guards validates the
+// caller-supplied commits against affected/spec, but does not re-verify every
+// commit's TreeHash actually resolves in the object store. A stale or
+// corrupted snapshot (here, simulated by corrupting one TreeHash after
+// ReadCommits) must surface as a rewrite failure — never a silent bad
+// rewrite — proving the safety layer does not blindly trust its input.
+func TestApplyPurge_internalRewriteErrorPropagates(t *testing.T) {
+	repo := purgeThreeCommitRepo(t)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := model.PurgeSpec{Paths: []string{"junk.log"}}
+	affected, err := repo.AffectedCommits(spec.Paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := repo.ReadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Corrupt the affected commit's tree hash so gitio.ApplyPurge's own walk
+	// fails trying to read it, after Guards (which never inspects TreeHash)
+	// has already passed.
+	for i := range commits {
+		if affected[commits[i].Hash] {
+			commits[i].TreeHash = "0000000000000000000000000000000000dead"
+		}
+	}
+
+	_, err = NewManager(repo).ApplyPurge(commits, spec, affected, state,
+		ApplyOptions{UnixTimestamp: 1, ExpectedHead: state.HeadHash})
+	if err == nil {
+		t.Fatal("a corrupted commit tree hash should fail the rewrite, got nil error")
+	}
+}
+
+// TestVerifyPurgeHeadDiff_errorsOnUnresolvableRev pins the outer DiffChangeSet
+// failure path: a head that names no commit must propagate as an error
+// rather than an empty (and therefore falsely "clean") diff.
+func TestVerifyPurgeHeadDiff_errorsOnUnresolvableRev(t *testing.T) {
+	repo := purgeThreeCommitRepo(t)
+	head, err := repo.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr := NewManager(repo)
+	err = mgr.verifyPurgeHeadDiff(head, "0000000000000000000000000000000000dead", []string{"junk.log"})
+	if err == nil {
+		t.Fatal("verifyPurgeHeadDiff against an unresolvable rev should fail, got nil error")
+	}
+}
+
+// TestVerifyPurgeAbsence_errorsOnUnresolvableRev pins verifyPurgeAbsence's own
+// PathsReachableFrom failure path, mirroring the head-diff sibling above.
+func TestVerifyPurgeAbsence_errorsOnUnresolvableRev(t *testing.T) {
+	repo := purgeThreeCommitRepo(t)
+	mgr := NewManager(repo)
+	err := mgr.verifyPurgeAbsence("0000000000000000000000000000000000dead", []string{"junk.log"})
+	if err == nil {
+		t.Fatal("verifyPurgeAbsence against an unresolvable rev should fail, got nil error")
+	}
+}
+
+// TestVerifyPurgeHeadDiff_flagsChangeOutsidePurgedPaths and
+// TestVerifyPurgeHeadDiff_flagsNonDeletionUnderPurgedPath call the verifier
+// directly (same package, like gitio's guard-input tests) rather than through
+// a full ApplyPurge, because gitio.ApplyPurge's own rewrite always produces a
+// clean diff — the only way to see verifyPurgeHeadDiff's OWN two failure
+// branches is to feed it a hand-built before/after pair that a correct rewrite
+// would never actually produce, proving the safety net catches a regression in
+// the rewrite it is meant to double-check.
+
+// TestVerifyPurgeHeadDiff_flagsChangeOutsidePurgedPaths builds oldHead/newHead
+// where the diff includes a path NOT among the purged paths, and asserts the
+// verifier refuses rather than silently accept.
+func TestVerifyPurgeHeadDiff_flagsChangeOutsidePurgedPaths(t *testing.T) {
+	repo := newPurgeRepo(t, []map[string]string{
+		{"one.txt": "a"},
+		{"one.txt": "a", "two.txt": "b"}, // adds an UNRELATED file
+	})
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldHead, newHead := commits[0].Hash, commits[1].Hash
+
+	mgr := NewManager(repo)
+	err = mgr.verifyPurgeHeadDiff(oldHead, newHead, []string{"one.txt"})
+	if err == nil {
+		t.Fatal("a diff touching an unpurged path should fail verification")
+	}
+	if !strings.Contains(err.Error(), "unexpected change") {
+		t.Errorf("error = %q, want it to name the unexpected-change failure", err)
+	}
+}
+
+// TestVerifyPurgeHeadDiff_flagsNonDeletionUnderPurgedPath builds oldHead/newHead
+// where the purged path was MODIFIED rather than deleted, and asserts the
+// verifier refuses — a purge that leaves content behind under the path it
+// claims to have removed is not a purge.
+func TestVerifyPurgeHeadDiff_flagsNonDeletionUnderPurgedPath(t *testing.T) {
+	repo := newPurgeRepo(t, []map[string]string{
+		{"secret.txt": "a"},
+		{"secret.txt": "b"}, // modified, not deleted
+	})
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldHead, newHead := commits[0].Hash, commits[1].Hash
+
+	mgr := NewManager(repo)
+	err = mgr.verifyPurgeHeadDiff(oldHead, newHead, []string{"secret.txt"})
+	if err == nil {
+		t.Fatal("a purged path that was modified rather than deleted should fail verification")
+	}
+	if !strings.Contains(err.Error(), "was not deleted") {
+		t.Errorf("error = %q, want it to name the not-deleted failure", err)
+	}
+}
+
 func TestApplyPurge_mergeInSuffixBlocks(t *testing.T) {
 	repo := purgeThreeCommitRepo(t)
 	commits, err := repo.ReadCommits()

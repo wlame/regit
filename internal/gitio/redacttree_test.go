@@ -211,3 +211,86 @@ func TestRedactBlobsInTree_alreadyEmptyFileIsNoop(t *testing.T) {
 		t.Fatalf("already-empty file must be a no-op: %s != %s", newTree, tree)
 	}
 }
+
+// TestRedactBlobsInTree_errorsOnUnresolvableTree pins the ls-tree failure
+// path: an unresolvable tree must propagate rather than read as "path
+// absent" (which would silently no-op an entire redact).
+func TestRedactBlobsInTree_errorsOnUnresolvableTree(t *testing.T) {
+	r, _ := purgeTestRepo(t)
+	spec := model.RedactSpec{Match: "sk-123", Mode: model.RedactRemove,
+		Targets: map[string][]string{"cfg.yaml": {"token: sk-123"}}}
+	_, err := r.RedactBlobsInTree("0000000000000000000000000000000000dead", spec)
+	if err == nil {
+		t.Fatal("RedactBlobsInTree on an unresolvable tree should fail, got nil error")
+	}
+}
+
+// TestRedactBlobsInTree_binaryBlobIsSkipped pins the NUL-byte defensive skip:
+// a target path whose blob contains a NUL byte (git's own "binary" signal,
+// matching RemovePathsFromTree's convention) must be left untouched even
+// though its content happens to also contain the literal spec targets.
+func TestRedactBlobsInTree_binaryBlobIsSkipped(t *testing.T) {
+	r, dir := purgeTestRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, "bin.dat"),
+		[]byte("before\x00token: sk-123\x00after"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, dir, "add", "bin.dat")
+	gitT(t, dir, "commit", "-q", "-m", "add binary")
+	tree := headTree(t, r)
+	spec := model.RedactSpec{Match: "sk-123", Mode: model.RedactRemove,
+		Targets: map[string][]string{"bin.dat": {"token: sk-123"}}}
+	newTree, err := r.RedactBlobsInTree(tree, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newTree != tree {
+		t.Fatalf("a binary blob must be skipped defensively: %s != %s", newTree, tree)
+	}
+}
+
+// TestRedactBlobsInTree_errorsOnBadReplaceRule pins the Compile-failure path
+// (both redactLines' own return and RedactBlobsInTree's propagation of it): a
+// spec.Rule with an empty Pattern is rejected by RedactSpec.Validate at the
+// safety layer before ever reaching here, but RedactBlobsInTree itself does
+// not re-validate — so a caller that skips validation must still fail
+// closed, not silently leave the target line untouched.
+func TestRedactBlobsInTree_errorsOnBadReplaceRule(t *testing.T) {
+	r, tree := redactTestRepo(t, "a\ntoken: sk-123\nb\n")
+	spec := model.RedactSpec{Match: "sk-123", Mode: model.RedactReplace,
+		Rule:    model.RedactRule{Pattern: "", Replacement: "x"}, // invalid: empty pattern
+		Targets: map[string][]string{"cfg.yaml": {"token: sk-123"}}}
+	_, err := r.RedactBlobsInTree(tree, spec)
+	if err == nil {
+		t.Fatal("RedactBlobsInTree with an empty replace pattern should fail, got nil error")
+	}
+}
+
+// TestRedactBlobsInTree_errorsOnDanglingBlob pins the cat-file failure path:
+// a tree whose entry points at an oid that was never actually written to the
+// object store (constructed here via a raw `mktree`, which does not itself
+// validate that referenced blobs exist) must surface as an error rather than
+// silently skip the path — the shape a partial fetch or corrupted object
+// store can produce.
+func TestRedactBlobsInTree_errorsOnDanglingBlob(t *testing.T) {
+	r, _ := purgeTestRepo(t)
+	// mktree validates the oid is a syntactically well-formed 40-char SHA-1
+	// (unlike rev-parse, which merely treats an ill-formed one as "unknown
+	// revision"), so this must be full-length even though it names no real
+	// object in the store.
+	danglingOid := "deaddeaddeaddeaddeaddeaddeaddeaddeaddead"
+	entry := "100644 blob " + danglingOid + "\tcfg.yaml\n"
+	// --missing: mktree otherwise refuses to build a tree entry whose object
+	// isn't in the store at all, which is exactly the corrupted-store shape
+	// this test needs to construct.
+	tree, err := r.gitWithEnvStdin(nil, entry, "mktree", "--missing")
+	if err != nil {
+		t.Fatalf("mktree with a dangling blob oid: %v", err)
+	}
+	spec := model.RedactSpec{Match: "sk-123", Mode: model.RedactRemove,
+		Targets: map[string][]string{"cfg.yaml": {"token: sk-123"}}}
+	_, err = r.RedactBlobsInTree(tree, spec)
+	if err == nil {
+		t.Fatal("RedactBlobsInTree over a tree with a dangling blob oid should fail, got nil error")
+	}
+}

@@ -124,6 +124,72 @@ func TestReadCommits_emptyBranchGivesAPlainMessage(t *testing.T) {
 	}
 }
 
+// TestCurrentBranchIsUnborn_falseOnOrdinaryRepo pins the common-case branch
+// directly: a repo with real commits must report false with no error, not
+// merely rely on ReadCommits' error path (which never calls this at all when
+// there IS history) to exercise it indirectly.
+func TestCurrentBranchIsUnborn_falseOnOrdinaryRepo(t *testing.T) {
+	repo, _ := testRepo(t)
+	unborn, err := repo.CurrentBranchIsUnborn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unborn {
+		t.Error("a repo with commits should not report as unborn")
+	}
+}
+
+// TestReadCommits_flagsCommitsReachableFromAnyRemote pins pushedHashes' own
+// found-something path: a commit reachable from a real remote-tracking ref
+// (pushed to a bare "origin" here, not merely a configured @{u} upstream)
+// must come back with IsPushed=true — the guard input safety's pushed-history
+// confirmation gate reads.
+func TestReadCommits_flagsCommitsReachableFromAnyRemote(t *testing.T) {
+	repo, dir := testRepo(t) // 3 commits: alpha, beta, gamma
+
+	remoteDir := t.TempDir()
+	if _, err := repo.git("init", "-q", "--bare", remoteDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.git("remote", "add", "origin", remoteDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.git("push", "-q", "origin", "main"); err != nil {
+		t.Fatal(err)
+	}
+	pushedHead, err := repo.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// One more LOCAL-only commit, never pushed.
+	if err := os.WriteFile(filepath.Join(dir, "delta.txt"), []byte("delta\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.git("add", "delta.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.git("commit", "-q", "-m", "commit delta"); err != nil {
+		t.Fatal(err)
+	}
+
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pushedCommit := commits[len(commits)-2]
+	unpushedCommit := commits[len(commits)-1]
+	if pushedCommit.Hash != pushedHead {
+		t.Fatalf("setup: commits[-2] = %s, want the pushed head %s", short(pushedCommit.Hash), short(pushedHead))
+	}
+	if !pushedCommit.IsPushed {
+		t.Errorf("commit %s was pushed to origin and should be IsPushed", short(pushedCommit.Hash))
+	}
+	if unpushedCommit.IsPushed {
+		t.Error("the newest, never-pushed commit should not be IsPushed")
+	}
+}
+
 // TestReadCommits_corruptRefGivesARealError proves a corrupt refs/heads/<branch>
 // is NOT reported as "this branch has no commits yet". `rev-parse --verify
 // --quiet HEAD` fails identically on an unborn branch and on a corrupt ref, so a
@@ -457,6 +523,53 @@ func TestReadState_detectsDirtyWorktree(t *testing.T) {
 	}
 }
 
+// TestReadState_reportsUpstreamTracking pins the upstream half of ReadState:
+// with a real remote-tracking branch configured, HasUpstream, UpstreamRef, and
+// AheadOfRemote must all reflect it. safety's pushed-history confirmation
+// guard reads AheadOfRemote's sibling data (IsPushed), so a bug here would
+// silently under- or over-report how far a branch has diverged from origin.
+func TestReadState_reportsUpstreamTracking(t *testing.T) {
+	repo, dir := testRepo(t)
+
+	// A bare "remote" seeded from the current tip, so pushing HEAD:main sets up
+	// a real upstream without needing network access.
+	remoteDir := t.TempDir()
+	if _, err := repo.git("init", "-q", "--bare", remoteDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.git("remote", "add", "origin", remoteDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.git("push", "-q", "-u", "origin", "main"); err != nil {
+		t.Fatal(err)
+	}
+
+	// One more local-only commit, so the branch is ahead of its upstream by 1.
+	if err := os.WriteFile(filepath.Join(dir, "delta.txt"), []byte("delta\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.git("add", "delta.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.git("commit", "-q", "-m", "commit delta"); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := repo.ReadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.HasUpstream {
+		t.Fatal("expected HasUpstream = true after `git push -u`")
+	}
+	if st.UpstreamRef != "origin/main" {
+		t.Errorf("UpstreamRef = %q, want origin/main", st.UpstreamRef)
+	}
+	if st.AheadOfRemote != 1 {
+		t.Errorf("AheadOfRemote = %d, want 1", st.AheadOfRemote)
+	}
+}
+
 func TestBackupRefs_createListResolve(t *testing.T) {
 	repo, _ := testRepo(t)
 	head, _ := repo.ResolveRef("HEAD")
@@ -571,6 +684,29 @@ func TestCreateBackupRef_collisionBumpsSeq(t *testing.T) {
 		if got, err := repo.ResolveRef(ref); err != nil || got != head {
 			t.Errorf("%s resolves to %q (err %v), want %s", ref, got, err, head)
 		}
+	}
+}
+
+// TestCreateBackupRef_exhaustsSeqRangeErrors pins the collision-retry loop's
+// own ceiling: once every "<ts>-<seq>" slot up to maxBackupSeq is taken (a
+// real, if unusual, mass-apply-in-one-second scenario), CreateBackupRef must
+// return a clear error instead of looping forever or silently overwriting one
+// of the existing backups.
+func TestCreateBackupRef_exhaustsSeqRangeErrors(t *testing.T) {
+	repo := newRefsTestRepo(t)
+	head, err := repo.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const unixTS = 1717689600
+	for seq := 0; seq < 100; seq++ {
+		ref := BackupRefName("main", unixTS, seq)
+		if err := repo.UpdateRef(ref, head, ""); err != nil {
+			t.Fatalf("pre-filling %s: %v", ref, err)
+		}
+	}
+	if _, err := repo.CreateBackupRef("main", unixTS, head); err == nil {
+		t.Fatal("CreateBackupRef with every slot taken should fail, got nil error")
 	}
 }
 

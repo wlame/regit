@@ -128,3 +128,39 @@ func TestParseNumstat_handlesBinaryMarker(t *testing.T) {
 		t.Errorf("binary row = %+v, want binary logo.bin", rows[1])
 	}
 }
+
+// TestParseNumstat_skipsMalformedLine pins the defensive skip: a line that
+// doesn't split into exactly 3 tab-separated fields (never expected from real
+// `git show --numstat` output, but the parser must not panic or misattribute
+// fields if it ever saw one) is dropped rather than crash or produce a
+// half-populated row.
+func TestParseNumstat_skipsMalformedLine(t *testing.T) {
+	rows := parseNumstat("3\t1\tsrc/a.go\nmalformed-line-no-tabs\n1\t0\tsrc/b.go\n")
+	if len(rows) != 2 {
+		t.Fatalf("want 2 rows (malformed line skipped), got %d: %+v", len(rows), rows)
+	}
+	if rows[0].path != "src/a.go" || rows[1].path != "src/b.go" {
+		t.Errorf("rows = %+v, want a.go then b.go", rows)
+	}
+}
+
+// TestParseNameStatus_skipsMalformedLine mirrors
+// TestParseNumstat_skipsMalformedLine for the --name-status parser.
+func TestParseNameStatus_skipsMalformedLine(t *testing.T) {
+	byPath := parseNameStatus("M\tsrc/a.go\nmalformed-no-tab\nA\tsrc/b.go\n")
+	if len(byPath) != 2 {
+		t.Fatalf("want 2 entries (malformed line skipped), got %d: %+v", len(byPath), byPath)
+	}
+	if byPath["src/a.go"] != "M" || byPath["src/b.go"] != "A" {
+		t.Errorf("byPath = %+v, want a.go=M b.go=A", byPath)
+	}
+}
+
+// TestCommitStat_errorsOnUnresolvableHash pins the numstat query's own
+// failure path.
+func TestCommitStat_errorsOnUnresolvableHash(t *testing.T) {
+	repo := statRepo(t)
+	if _, err := repo.CommitStat("0000000000000000000000000000000000dead"); err == nil {
+		t.Fatal("CommitStat on an unresolvable hash should fail, got nil error")
+	}
+}

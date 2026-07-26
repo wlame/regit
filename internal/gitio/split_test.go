@@ -229,3 +229,14 @@ func TestSubCommitMessage_normalizesSubject(t *testing.T) {
 		})
 	}
 }
+
+// TestApplySplit_noSubCommitsErrors pins ApplySplit's own top-level guard,
+// independent of safety.Manager's identical-sounding one: called directly
+// with zero sub-commits, it must refuse rather than build a chain of nothing.
+func TestApplySplit_noSubCommitsErrors(t *testing.T) {
+	repo, parentHash, _, _ := splitFixtureTwoSubsOneTail(t)
+	_, _, err := repo.ApplySplit(parentHash, nil, nil, DropSignatures)
+	if err == nil {
+		t.Fatal("ApplySplit with no sub-commits should fail, got nil error")
+	}
+}

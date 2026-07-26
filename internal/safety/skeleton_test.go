@@ -139,3 +139,39 @@ func TestRunApply_abortAfterBackupLeavesOnlyTheBackupRef(t *testing.T) {
 		t.Errorf("branch %s moved during an aborted apply", before.Head)
 	}
 }
+
+// TestRunApply_syncFailureSurfacesAsWarningNotError pins the documented
+// non-fatal contract for op.Sync (see runApply's doc comment): by the time
+// Sync runs, the branch has already moved and history is already correct, so
+// a failure to refresh the checkout must NOT be reported as an apply failure —
+// it must come back as ApplyResult.SyncWarning, naming the fix-up command,
+// with a nil error. ApplyPurge and ApplyRedact are the only two real ops that
+// set Sync; this drives the skeleton directly with a synthetic one so the
+// contract is proven independent of either operation's own plumbing.
+func TestRunApply_syncFailureSurfacesAsWarningNotError(t *testing.T) {
+	repo := newLinearRepo(t, 3)
+	head, err := repo.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := NewManager(repo).runApply(applyOp{
+		Guards: func() error { return nil },
+		// Identity "rewrite": NewHead == oldHead, so verify (empty expectations,
+		// identical trees) and verifyChainStructure (identical 1-commit chains)
+		// both pass trivially, letting the branch move so Sync actually runs.
+		Rewrite: func(head string) (rewriteResult, error) {
+			return rewriteResult{NewHead: head, OldLen: 1, NewLen: 1}, nil
+		},
+		Sync: func(string) error { return errInjected },
+	}, ApplyOptions{UnixTimestamp: 9, ExpectedHead: head})
+	if err != nil {
+		t.Fatalf("a Sync failure must not fail the apply, got error: %v", err)
+	}
+	if res.SyncWarning == "" {
+		t.Error("a Sync failure should have produced a non-empty SyncWarning")
+	}
+	if !strings.Contains(res.SyncWarning, errInjected.Error()) {
+		t.Errorf("SyncWarning = %q, want it to name the underlying failure", res.SyncWarning)
+	}
+}

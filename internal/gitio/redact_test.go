@@ -101,6 +101,32 @@ func TestRedactBase_returnsNegativeOneWhenNoSnapshotContainsTarget(t *testing.T)
 	}
 }
 
+// TestApplyRedact_baseNotFoundErrors pins ApplyRedact's own propagation of
+// RedactBase's -1 result: called directly with a spec that matches nothing,
+// it must refuse rather than walk the whole history as a no-op.
+func TestApplyRedact_baseNotFoundErrors(t *testing.T) {
+	r, commits := redactHistoryRepo(t)
+	spec := model.RedactSpec{Match: "nope", Mode: model.RedactRemove,
+		Targets: map[string][]string{"cfg.yaml": {"token: sk-NEVER-PRESENT"}}}
+	_, _, err := r.ApplyRedact(commits, spec, DropSignatures)
+	if err == nil {
+		t.Fatal("ApplyRedact with no matching snapshot should fail, got nil error")
+	}
+}
+
+// TestRedactBase_errorsOnUnresolvableTree pins RedactBase's own failure path:
+// a corrupted commit TreeHash (a stale snapshot) must surface as an error
+// from the underlying RedactBlobsInTree call, not be silently skipped.
+func TestRedactBase_errorsOnUnresolvableTree(t *testing.T) {
+	r, commits := redactHistoryRepo(t)
+	commits[0].TreeHash = "0000000000000000000000000000000000dead"
+	spec := model.RedactSpec{Match: "sk-OLD", Mode: model.RedactRemove,
+		Targets: map[string][]string{"cfg.yaml": {"token: sk-OLD"}}}
+	if _, err := r.RedactBase(commits, spec); err == nil {
+		t.Fatal("RedactBase over a corrupted tree hash should fail, got nil error")
+	}
+}
+
 // TestApplyRedact_removesAcrossSnapshotsAndDropsEmptied covers the cascade
 // selection: the spec targets BOTH the old and rotated line contents for
 // cfg.yaml, so c3 — which only ever rotated the secret line — collapses to

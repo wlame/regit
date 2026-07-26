@@ -154,3 +154,25 @@ func TestScanHistoryPaths_realRepoFindsAddAndRename(t *testing.T) {
 		t.Errorf("alpha.txt should be indexed as added; got %v", idx.AddedIn)
 	}
 }
+
+// TestScanHistoryPaths_errorsOnUnbornBranch pins the failure path: `git log`
+// cannot run at all when HEAD has no commits yet, and that must propagate
+// rather than read as "no paths added".
+func TestScanHistoryPaths_errorsOnUnbornBranch(t *testing.T) {
+	_, repo := initRepo(t)
+	if _, err := repo.ScanHistoryPaths(); err == nil {
+		t.Fatal("ScanHistoryPaths on an unborn branch should fail, got nil error")
+	}
+}
+
+// TestUnquoteGitPath_returnsUnchangedOnBadEscape pins the defensive fallback:
+// a field that merely STARTS with a quote but isn't valid Go-escape syntax
+// (never expected from real git output, but the parser must not crash on
+// arbitrary "\x00"-adjacent bytes if it ever saw one) is returned unchanged
+// rather than dropped or panicking.
+func TestUnquoteGitPath_returnsUnchangedOnBadEscape(t *testing.T) {
+	bad := `"unterminated`
+	if got := unquoteGitPath(bad); got != bad {
+		t.Errorf("unquoteGitPath(%q) = %q, want unchanged", bad, got)
+	}
+}

@@ -171,3 +171,47 @@ func TestApplySquash_chainAtRootBecomesRoot(t *testing.T) {
 		t.Errorf("root rev-list count = %s, want 1 (a single root commit)", parents)
 	}
 }
+
+// TestApplySquash_noChainsErrors pins ApplySquash's own top-level guard,
+// independent of safety.Manager's identical-sounding one: called directly
+// with zero chains, it must refuse rather than walk the whole history as a
+// no-op.
+func TestApplySquash_noChainsErrors(t *testing.T) {
+	repo, commits := linearRepo(t, 2)
+	_, _, err := repo.ApplySquash(commits, model.SquashPlan{}, DropSignatures)
+	if err == nil {
+		t.Fatal("ApplySquash with no chains should fail, got nil error")
+	}
+}
+
+// TestApplySquash_chainsNotFoundErrors pins the "chains not found on history"
+// guard: a chain naming a commit hash that isn't actually in the commits
+// slice (a stale plan built against different history) must refuse rather
+// than silently squash nothing.
+func TestApplySquash_chainsNotFoundErrors(t *testing.T) {
+	repo, commits := linearRepo(t, 2)
+	ghost := model.Commit{Hash: "0000000000000000000000000000000000dead", TreeHash: commits[0].TreeHash}
+	plan := model.SquashPlan{Chains: []model.SquashChain{
+		{Members: []model.Commit{ghost, ghost}, Subject: "x"},
+	}}
+	_, _, err := repo.ApplySquash(commits, plan, DropSignatures)
+	if err == nil {
+		t.Fatal("ApplySquash with a chain absent from history should fail, got nil error")
+	}
+}
+
+// TestRemapFirstParent pins the helper both ApplySquash and ApplyLinearize
+// share: a root commit (no parents) stays parentless, and an ordinary commit
+// gets its first parent swapped for the newly emitted predecessor while any
+// merge (second+) parent is left untouched.
+func TestRemapFirstParent(t *testing.T) {
+	if got := remapFirstParent(nil, "new1"); got != nil {
+		t.Errorf("root commit should stay parentless, got %v", got)
+	}
+	if got := remapFirstParent([]string{"old1"}, "new1"); len(got) != 1 || got[0] != "new1" {
+		t.Errorf("linear remap = %v, want [new1]", got)
+	}
+	if got := remapFirstParent([]string{"old1", "sideX"}, "new1"); got[0] != "new1" || got[1] != "sideX" {
+		t.Errorf("merge remap = %v, want [new1 sideX]", got)
+	}
+}

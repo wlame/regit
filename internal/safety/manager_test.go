@@ -376,6 +376,19 @@ func TestManagerRestore_sentinelErrors(t *testing.T) {
 	}
 }
 
+// TestManagerRestore_errorsOnUnresolvableBackupRef pins Restore's own
+// ResolveRef failure path: a backup ref name that doesn't exist at all (never
+// created, or already pruned) must surface a real error rather than restore
+// to a zero-value hash.
+func TestManagerRestore_errorsOnUnresolvableBackupRef(t *testing.T) {
+	repo := buildRepo(t)
+	mgr := NewManager(repo)
+	_, _, err := mgr.Restore("refs/regit/backup/main/999999-0", false, 1)
+	if err == nil {
+		t.Fatal("Restore on a nonexistent backup ref should fail, got nil error")
+	}
+}
+
 // TestVerifyChainStructure_detectsShapeBugs exercises the structural verifier
 // directly: correct lengths over the same boundary pass; a dropped or
 // duplicated commit (wrong new length) and a reparented chain (different
@@ -418,6 +431,54 @@ func TestVerifyChainStructure_detectsShapeBugs(t *testing.T) {
 	// New side: 1 commit over boundary = old head. Boundaries differ → fail.
 	if err := mgr.verifyChainStructure(head, newHead, 1, 1); err == nil {
 		t.Error("differing boundary parents must fail verification")
+	}
+}
+
+// TestVerifyChainStructure_propagatesFirstParentsFailure pins the guard-input
+// failure path: if walking either chain errors (here, an oldHead that names no
+// commit at all), the structural check must propagate that error rather than
+// treat an empty walk as "rooted" and pass a rewrite it never actually proved.
+func TestVerifyChainStructure_propagatesFirstParentsFailure(t *testing.T) {
+	repo := buildRepo(t)
+	mgr := NewManager(repo)
+	head, _ := repo.ResolveRef("HEAD")
+
+	err := mgr.verifyChainStructure("0000000000000000000000000000000000dead", head, 1, 1)
+	if err == nil {
+		t.Fatal("an unresolvable oldHead should fail verifyChainStructure, got nil error")
+	}
+	// The NEW chain's walk has its own, independent error return; an
+	// unresolvable newHead (oldHead now valid) must be caught there too.
+	err = mgr.verifyChainStructure(head, "0000000000000000000000000000000000dead", 1, 1)
+	if err == nil {
+		t.Fatal("an unresolvable newHead should fail verifyChainStructure, got nil error")
+	}
+}
+
+// TestShortHash pins the helper's own two branches: hashes longer than 8
+// characters truncate (the form every error message in this package uses),
+// and shorter inputs pass through unchanged rather than panic on a slice
+// bounds error.
+func TestShortHash(t *testing.T) {
+	if got, want := shortHash("abcdef1234567890"), "abcdef12"; got != want {
+		t.Errorf("shortHash(long) = %q, want %q", got, want)
+	}
+	if got, want := shortHash("abc"), "abc"; got != want {
+		t.Errorf("shortHash(short) = %q, want %q (pass through unchanged)", got, want)
+	}
+}
+
+// TestVerify_errorsOnUnresolvableCommit pins verify's own CommitTrees failure
+// path: an expectation naming a commit that doesn't exist must propagate as an
+// error rather than let a bogus hash silently read as "identical" or "empty".
+func TestVerify_errorsOnUnresolvableCommit(t *testing.T) {
+	repo := buildRepo(t)
+	mgr := NewManager(repo)
+	bogus := "0000000000000000000000000000000000dead"
+
+	_, err := mgr.verify([]model.Expectation{{OldCommit: bogus, NewCommit: bogus}})
+	if err == nil {
+		t.Fatal("verify with an unresolvable commit should fail, got nil error")
 	}
 }
 

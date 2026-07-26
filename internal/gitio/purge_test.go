@@ -617,3 +617,90 @@ func mustWriteFile(t *testing.T, dir, name, content string) {
 		t.Fatal(err)
 	}
 }
+
+// TestAffectedCommits_errorsOnUnbornBranch pins AffectedCommits' own failure
+// path: `git rev-list HEAD -- paths` cannot run at all when HEAD has no
+// commits yet, and that must propagate rather than read as "nothing
+// affected" (which would let a purge guard wrongly conclude there is nothing
+// to do instead of reporting the real problem).
+func TestAffectedCommits_errorsOnUnbornBranch(t *testing.T) {
+	_, repo := initRepo(t)
+	if _, err := repo.AffectedCommits([]string{"junk.log"}); err == nil {
+		t.Fatal("AffectedCommits on an unborn branch should fail, got nil error")
+	}
+}
+
+// TestCommitTouchedFiles_errorsOnUnresolvableHash pins the failure path: a
+// hash naming no commit must surface diff-tree's refusal rather than an empty
+// (and therefore misleadingly "touches nothing") file list.
+func TestCommitTouchedFiles_errorsOnUnresolvableHash(t *testing.T) {
+	repo, _ := purgeTestRepo(t)
+	if _, err := repo.CommitTouchedFiles("0000000000000000000000000000000000dead"); err == nil {
+		t.Fatal("CommitTouchedFiles on an unresolvable hash should fail, got nil error")
+	}
+}
+
+// TestTreeContainsAnyPath_errorsOnUnresolvableTree pins the failure path this
+// package's own PurgeBase walk depends on: an ls-tree that can't run at all
+// must propagate, not silently read as "path absent".
+func TestTreeContainsAnyPath_errorsOnUnresolvableTree(t *testing.T) {
+	repo, _ := purgeTestRepo(t)
+	_, err := repo.treeContainsAnyPath("0000000000000000000000000000000000dead", []string{"keep.txt"})
+	if err == nil {
+		t.Fatal("treeContainsAnyPath on an unresolvable tree should fail, got nil error")
+	}
+}
+
+// TestPathsReachableFrom_errorsOnUnresolvableRev pins the failure path
+// verifyPurgeAbsence's safety net depends on: a rev-list that can't run must
+// propagate rather than read as "nothing reachable", which would let a purge
+// verification wrongly pass.
+func TestPathsReachableFrom_errorsOnUnresolvableRev(t *testing.T) {
+	repo, _ := purgeTestRepo(t)
+	_, err := repo.PathsReachableFrom("0000000000000000000000000000000000dead", []string{"keep.txt"})
+	if err == nil {
+		t.Fatal("PathsReachableFrom on an unresolvable rev should fail, got nil error")
+	}
+}
+
+// TestPathsInSideHistory_errorsOnUnbornBranch mirrors
+// TestAffectedCommits_errorsOnUnbornBranch for the side-history rev-list.
+func TestPathsInSideHistory_errorsOnUnbornBranch(t *testing.T) {
+	_, repo := initRepo(t)
+	if _, err := repo.PathsInSideHistory(nil, []string{"junk.log"}); err == nil {
+		t.Fatal("PathsInSideHistory on an unborn branch should fail, got nil error")
+	}
+}
+
+// TestApplyPurge_noAffectedCommitsErrors pins the defensive guard at the top
+// of ApplyPurge: called with an empty affected set (the caller should have
+// refused earlier, but ApplyPurge does not trust that), it must error rather
+// than silently walk the whole history as if firstAffected were 0.
+func TestApplyPurge_noAffectedCommitsErrors(t *testing.T) {
+	repo, commits := purgeHistoryRepo(t)
+	spec := model.PurgeSpec{Paths: []string{"junk.log"}}
+	_, _, err := repo.ApplyPurge(commits, spec, map[string]bool{}, DropSignatures)
+	if err == nil {
+		t.Fatal("ApplyPurge with no affected commits should fail, got nil error")
+	}
+	if !strings.Contains(err.Error(), "no affected commits") {
+		t.Errorf("error = %q, want it to name the no-affected-commits failure", err)
+	}
+}
+
+// TestApplyPurge_affectedCommitNotOnBranchErrors pins ApplyPurge's own
+// PurgeBase-result guard: an affected set naming a hash that isn't actually
+// in the commits slice (the branch's own first-parent history) must error
+// rather than silently rewrite from firstAffected == -1's zero value.
+func TestApplyPurge_affectedCommitNotOnBranchErrors(t *testing.T) {
+	repo, commits := purgeHistoryRepo(t)
+	spec := model.PurgeSpec{Paths: []string{"junk.log"}}
+	affected := map[string]bool{"0000000000000000000000000000000000dead": true}
+	_, _, err := repo.ApplyPurge(commits, spec, affected, DropSignatures)
+	if err == nil {
+		t.Fatal("ApplyPurge with an affected hash absent from commits should fail, got nil error")
+	}
+	if !strings.Contains(err.Error(), "not on this branch") {
+		t.Errorf("error = %q, want it to name the not-on-this-branch failure", err)
+	}
+}

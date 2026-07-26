@@ -91,3 +91,73 @@ func TestSwitchBranch_movesHead(t *testing.T) {
 		t.Errorf("after switch HEAD is on %q, want feature", cur)
 	}
 }
+
+// TestCurrentBranch_errorsWhenDetached pins the guard input every apply
+// depends on: a detached HEAD has no branch for a rewrite to move, and that
+// must surface as an error rather than an empty (and easily-ignored) name.
+func TestCurrentBranch_errorsWhenDetached(t *testing.T) {
+	repo := branchTestRepo(t)
+	if _, err := repo.git("checkout", "-q", "--detach", "HEAD"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.CurrentBranch(); err == nil {
+		t.Fatal("CurrentBranch on a detached HEAD should fail, got nil error")
+	}
+}
+
+// TestSwitchBranch_errorsOnUnknownBranch pins the failure path: a name that
+// names no local branch must surface `git switch`'s refusal, not silently
+// leave HEAD wherever it already was.
+func TestSwitchBranch_errorsOnUnknownBranch(t *testing.T) {
+	repo := branchTestRepo(t)
+	if err := repo.SwitchBranch("does-not-exist"); err == nil {
+		t.Fatal("SwitchBranch to an unknown branch should fail, got nil error")
+	}
+}
+
+// TestMergeBase_errorsOnUnrelatedHistories pins the documented failure mode:
+// two branches with no common ancestor at all (built from separate `init`
+// calls, not a fork of one repo) must error rather than return a bogus hash.
+func TestMergeBase_errorsOnUnrelatedHistories(t *testing.T) {
+	repo := branchTestRepo(t)
+	// Build a second, wholly disconnected root commit and graft it in as a
+	// branch via update-ref, so it shares no history with main at all.
+	dir := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = gittest.Env(dir,
+			"GIT_AUTHOR_DATE=2026-06-05T14:00:00+00:00",
+			"GIT_COMMITTER_DATE=2026-06-05T14:00:00+00:00")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	run("init", "-q")
+	run("symbolic-ref", "HEAD", "refs/heads/main")
+	run("config", "user.name", "wlame")
+	run("config", "user.email", "vvlame@gmail.com")
+	run("config", "commit.gpgsign", "false")
+	if err := os.WriteFile(dir+"/unrelated.txt", []byte("unrelated\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", ".")
+	run("commit", "-q", "-m", "unrelated root")
+	other, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unrelatedHead, err := other.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Import the unrelated commit's object into repo's own object store, then
+	// point a branch at it — merge-base has no common ancestor to find.
+	if _, err := repo.git("fetch", dir, "HEAD:refs/heads/unrelated"); err != nil {
+		t.Fatalf("importing the unrelated history: %v", err)
+	}
+	if _, err := repo.MergeBase("main", "unrelated"); err == nil {
+		t.Errorf("MergeBase across unrelated histories should fail, got a result (unrelated head %s)",
+			unrelatedHead)
+	}
+}

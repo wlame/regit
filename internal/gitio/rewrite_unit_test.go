@@ -180,3 +180,64 @@ func TestReplay_emptyPlanErrors(t *testing.T) {
 		t.Error("expected error replaying empty plan")
 	}
 }
+
+// TestReplay_everyCommitFrozenErrors pins the base-boundary guard. SetBase
+// always clamps to leave at least one commit editable, so this sets Plan.Base
+// directly (an exported field) past the end of Commits — the shape a
+// corrupted or hand-built plan could produce — and confirms Replay refuses
+// rather than silently replay nothing and return an empty head.
+func TestReplay_everyCommitFrozenErrors(t *testing.T) {
+	repo, _ := testRepo(t)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := model.NewPlan(commits)
+	plan.Base = len(commits) // past the end: nothing left editable
+	if _, _, err := repo.Replay(plan, DropSignatures); err == nil {
+		t.Error("Replay with every commit frozen should fail, got nil error")
+	}
+}
+
+// TestVerifyTreesUnchanged_passesOnIdenticalContent pins the happy path this
+// verifier exists to prove safe: a "rewrite" that changed nothing content-wise
+// (e.g. a redate that only touched dates) must pass.
+func TestVerifyTreesUnchanged_passesOnIdenticalContent(t *testing.T) {
+	repo, _ := testRepo(t)
+	head, err := repo.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.VerifyTreesUnchanged(head, head); err != nil {
+		t.Errorf("identical heads should verify clean: %v", err)
+	}
+}
+
+// TestVerifyTreesUnchanged_detectsChangedContent pins the core assertion: two
+// commits whose file content genuinely differs must be reported, naming the
+// diff, rather than let a content-changing bug slip past as a "safe" rewrite.
+func TestVerifyTreesUnchanged_detectsChangedContent(t *testing.T) {
+	repo, parent, child := twoCommitRepo(t)
+	err := repo.VerifyTreesUnchanged(parent, child)
+	if err == nil {
+		t.Fatal("VerifyTreesUnchanged across genuinely different trees should fail, got nil error")
+	}
+	if !strings.Contains(err.Error(), "file contents changed") {
+		t.Errorf("error = %q, want it to name the content-changed failure", err)
+	}
+}
+
+// TestVerifyTreesUnchanged_errorsOnUnresolvableRev pins the diff-failure path:
+// a rev that names no commit must surface as an error, not an empty (and
+// therefore falsely "clean") diff.
+func TestVerifyTreesUnchanged_errorsOnUnresolvableRev(t *testing.T) {
+	repo, _ := testRepo(t)
+	head, err := repo.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = repo.VerifyTreesUnchanged(head, "0000000000000000000000000000000000dead")
+	if err == nil {
+		t.Fatal("VerifyTreesUnchanged against an unresolvable rev should fail, got nil error")
+	}
+}
