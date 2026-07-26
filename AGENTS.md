@@ -568,7 +568,9 @@ internal/gitio/
   read.go               ReadCommits, ReadState
   rewrite.go            Replay (→ remap), VerifyTreesUnchanged
   split.go              ApplySplit (→ SplitRemap), SubCommit
-  hunks.go              Hunks(), BuildTreeFromHunks(), Worktree
+  diff.go               Hunks() (diff → stable-ID model.Hunk), DiffText (wide-context diff)
+  buildtree.go          BuildTreeFromHunks (selected hunks → tree, restarts from parent)
+  worktree.go           Worktree, NewWorktree, EmptyTree (isolated build worktree)
   refs.go               UpdateRef, BackupRefPrefix, BranchRef, AppliedRefPrefix, RecordAppliedHead/AppliedHeadFor
   changeset.go          DiffChangeSet (git diff --raw), CommitTrees (batched tree OIDs)
 internal/promptcache/
@@ -584,7 +586,7 @@ internal/squash/
 internal/reword/
   engine.go             Engine, Generate (normal + agent-scan modes), diffHash
   cache.go              promptcache instantiation (.git/regit/cache/reword/)
-  types.go              Result, Variant, Selection, DefaultSelection, Options, Request
+  model.go              Result, Variant, Selection, DefaultSelection, ToEdit (→ model.Edit)
   prompt.go             BuildMessages, BuildScanMessages, SchemaJSON, ParseVariants
 internal/redact/
   engine.go             Redact engine: pickaxe scan, line cascade, plan → RedactSpec
@@ -592,7 +594,7 @@ internal/llm/
   backend.go            Backend interface (generic Generate), FewShot
   http.go               HTTPBackend (OpenAI-compatible)
   agent.go              AgentBackend (CLI driver), ScanDefaultArgs
-  schema.go             Split-specific SchemaJSON (JSON schema for structured output)
+  prompt.go             SchemaJSON, BuildMessages, ParseAndValidate, ExtractJSON, ProposeSplit
 internal/safety/
   manager.go            Manager, runApply (the single apply skeleton), Apply, ApplySplit, Restore/Undo
   squash.go             Manager.ApplySquash (squashed chains + tail replay, verified like every apply)

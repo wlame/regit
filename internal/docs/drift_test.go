@@ -149,6 +149,77 @@ func TestAGENTS_mentionsEveryInternalPackage(t *testing.T) {
 	}
 }
 
+// agentsMDDirHeader matches a "Where things live" section heading such as
+// "internal/gitio/" — the WHOLE trimmed line, nothing else. It is what lets
+// the loop below resolve the indented bare filenames beneath it.
+var agentsMDDirHeader = regexp.MustCompile(`^(?:internal|cmd)/[a-z0-9_/]+/$`)
+
+// agentsMDFullPath matches an internal/... or cmd/... path ending in .go
+// wherever it stands complete on a line, which covers prose references like
+// `internal/llm/agent.go` and the cmd/regit/main.go rows at the top of the map.
+var agentsMDFullPath = regexp.MustCompile(`(?:internal|cmd)/[a-zA-Z0-9_/]+\.go`)
+
+// agentsMDBareGoFile matches one bare filename token ("hunks.go") the way the
+// map indents it under a directory heading, without the internal/cmd prefix.
+var agentsMDBareGoFile = regexp.MustCompile(`^[a-zA-Z0-9_]+\.go$`)
+
+// TestAGENTS_fileMapPathsExist closes the gap that let three paths go stale:
+// TestAGENTS_mentionsEveryInternalPackage checks that every PACKAGE is named,
+// but nothing checked that a named FILE exists, so hunks.go, types.go, and
+// schema.go all survived being renamed out from under the map. AGENTS.md is an
+// agent's entry point, and a wrong path there is a wrong first move.
+//
+// The map has two shapes that both need covering: prose elsewhere in the file
+// names a complete path ("internal/llm/agent.go"), but the "Where things live"
+// map itself indents bare filenames under a directory heading and never repeats
+// the internal/cmd prefix — a regexp that only matches complete paths silently
+// skips every row in the map, which is exactly the form that went stale.
+func TestAGENTS_fileMapPathsExist(t *testing.T) {
+	root := driftRoot(t)
+	raw, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	checkPath := func(p string) {
+		if _, err := os.Stat(filepath.Join(root, p)); err != nil {
+			t.Errorf("AGENTS.md names %s, which does not exist", p)
+		}
+	}
+
+	var checked int
+	var currentDir string // directory heading the map is currently indented under
+	for _, line := range strings.Split(string(raw), "\n") {
+		trimmed := strings.TrimSpace(line)
+
+		if agentsMDDirHeader.MatchString(trimmed) {
+			currentDir = trimmed
+			continue
+		}
+
+		// Bare filenames only resolve while indented under a directory heading;
+		// stop at the first field that isn't itself a bare ".go" filename, since
+		// that's where the free-text description column begins.
+		if currentDir != "" && strings.HasPrefix(line, "  ") {
+			for _, field := range strings.Fields(trimmed) {
+				if !agentsMDBareGoFile.MatchString(field) {
+					break
+				}
+				checked++
+				checkPath(currentDir + field)
+			}
+		}
+
+		for _, m := range agentsMDFullPath.FindAllString(line, -1) {
+			checked++
+			checkPath(m)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("the path regexps matched nothing — AGENTS.md's map layout changed")
+	}
+}
+
 // TestREADME_showsBackupRefPattern binds the safety table to the real backup
 // ref shape (gitio.BackupRefDocPattern is itself test-locked to BackupRefName).
 func TestREADME_showsBackupRefPattern(t *testing.T) {
