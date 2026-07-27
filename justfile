@@ -128,6 +128,18 @@ vet:
 # Static checks: formatting + vet.
 lint: fmt-check vet
 
+# Deliberately NOT part of `ci`: this reaches the network twice (to fetch the
+# tool and the vulnerability database), and `ci` is the recipe a developer runs
+# on a plane. It belongs to `check`, the pre-push battery — if you are about to
+# push, you are online. CI runs it as its own step.
+#
+# The tool is unpinned on purpose. What protects you is the freshness of the
+# vulnerability database it downloads at run time, so pinning the binary to an
+# old release would buy reproducibility at the cost of the thing being bought.
+# Scan the module's dependencies for known vulnerabilities.
+vulncheck:
+    go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
 # Sync go.mod / go.sum.
 tidy:
     go mod tidy
@@ -158,8 +170,9 @@ fuzz time="20s":
     go test ./internal/gitio      -fuzz='^FuzzRedactLines$'          -fuzztime={{time}}
     go test ./internal/docs       -fuzz='^FuzzSpliceBlocks$'         -fuzztime={{time}}
 
-# Full pre-push battery: CI gates + end-to-end + docs drift + a fuzz burst.
-check: ci e2e docs-check (fuzz "10s")
+# Needs network for the vulncheck leg; see that recipe for why it is not in `ci`.
+# Full pre-push battery: CI gates + e2e + docs drift + vuln scan + a fuzz burst.
+check: ci e2e docs-check vulncheck (fuzz "10s")
 
 # Run the LLM-backed commit splitter against a commit (defaults to HEAD).
 # Usage: just split <commit-ish> -- --llm=ollama/qwen2.5-coder --dry-run

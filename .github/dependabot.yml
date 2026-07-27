@@ -1,0 +1,23 @@
+# Dependency updates. Both ecosystems matter here for different reasons:
+# gomod because a vulnerable transitive dependency ships inside the release
+# binaries, and github-actions because the release workflow holds
+# contents:write — a compromised action there could publish arbitrary assets.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      # Matches this repo's convention: a plain imperative sentence, no
+      # "chore(deps):" prefix. Dependabot appends the rest of the subject.
+      prefix: "Update"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "Update"

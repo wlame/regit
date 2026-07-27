@@ -35,6 +35,12 @@ jobs:
       - name: End-to-end (built binary)
         run: just e2e
 
+      # A separate step rather than part of `just ci`: that recipe must stay
+      # runnable offline, and this one fetches both the tool and the
+      # vulnerability database. Blocking here, where the network exists.
+      - name: Vulnerability scan
+        run: just vulncheck
+
   # regit shells out to git for everything, so the suite must hold on the
   # platforms users actually run — not just one Linux/git combination.
   os-matrix:
