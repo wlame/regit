@@ -12,7 +12,7 @@ Get from a fresh clone to a previewed history rewrite in under 10 minutes.
 
 - **`git` on your `PATH`** — regit performs all repository access by shelling out to the real
   `git` binary; there is no bundled git.
-- **Go 1.26+** — needed to install. Both install methods below compile from source
+- **Go 1.24+** — needed to install. Both install methods below compile from source
   (there are no prebuilt binaries yet).
 - **Optional: an [LLM provider](reference/llm-providers.md)** — only the
   [`split`](reference/cli/split.md), [`reword`](reference/cli/reword.md), and

@@ -96,7 +96,7 @@ amd64/arm64) from the
 [latest release](https://github.com/wlame/regit/releases/latest), rename it to
 `regit`, and put it on your `PATH`.
 
-Either way regit needs the `git` binary on your `PATH` (and Go 1.26+ only to
+Either way regit needs the `git` binary on your `PATH` (and Go 1.24+ only to
 build from source). Optionally register it as a git subcommand:
 
 ```bash

@@ -12,7 +12,7 @@ Contributions welcome — issues, docs, tests, and code.
 
 You need:
 
-- Go 1.26+
+- Go 1.24+
 - `git` on your `PATH` (regit shells out to it for all repository access)
 - [`just`](https://github.com/casey/just) — the single dev entrypoint
 

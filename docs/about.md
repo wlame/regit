@@ -73,7 +73,7 @@ CLI with identical behavior.
   first-parent chain (or use [`redate --allow-merges`](reference/cli/redate.md) where
   supported).
 - **Runtime and build requirements.** A `git` binary on PATH is required at runtime; building
-  from source requires Go 1.26+.
+  from source requires Go 1.24+.
 
 ## Comparison
 
