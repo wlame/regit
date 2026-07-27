@@ -12,6 +12,8 @@ on:
 
 permissions:
   contents: write # required to upload assets to the release
+  id-token: write # attest-build-provenance signs with a short-lived OIDC token
+  attestations: write # …and records the resulting attestation on the repo
 
 jobs:
   binaries:
@@ -42,7 +44,23 @@ jobs:
       - name: Cross-compile all platforms
         run: just build-all
 
-      - name: Attach binaries to the release
+      # Checksums let someone who downloaded a binary verify it matches what this
+      # workflow produced. Generated with paths relative to dist/ so the file
+      # works with a plain `sha256sum -c SHA256SUMS` from the download directory.
+      - name: Generate checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS
+
+      # Signed, verifiable provenance tying each binary to this workflow run and
+      # commit — `gh attestation verify <file> --repo wlame/regit`. Covers the
+      # gap checksums cannot: a checksum only proves a file is self-consistent,
+      # not that it came from here.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*
+
+      - name: Attach binaries and checksums to the release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name }}
