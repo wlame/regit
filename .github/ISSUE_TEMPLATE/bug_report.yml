@@ -1,0 +1,65 @@
+name: Bug report
+description: Something regit did that it should not have
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If this is a security issue — content corruption, a removal reported as
+        successful that was not, or a secret disclosed by regit — do **not** file
+        it here. See [SECURITY.md](../blob/main/SECURITY.md).
+
+        Never paste a real credential. Replace it with a placeholder.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected, and what regit did instead.
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: The exact command
+      description: Including flags. Redact any secret.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: |
+        The git commands that build a repository showing the problem, if you can
+        produce one. A synthetic repository is far more useful than a description
+        of a private one.
+      render: shell
+  - type: input
+    id: regit-version
+    attributes:
+      label: regit --version
+    validations:
+      required: true
+  - type: input
+    id: git-version
+    attributes:
+      label: git --version
+      description: regit shells out to git, so its version matters.
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [Linux, macOS, Windows, Other]
+    validations:
+      required: true
+  - type: checkboxes
+    id: state
+    attributes:
+      label: Repository state
+      options:
+        - label: The working tree was clean before the command
+        - label: The branch had already been pushed
+        - label: The range contained a merge commit
+        - label: A backup ref exists under `refs/regit/backup/` (`regit undo --list`)

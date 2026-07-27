@@ -1,0 +1,24 @@
+name: Feature request
+description: Something regit should be able to do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do that regit makes hard or impossible?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you have in mind
+      description: |
+        Optional. If it is a new verb, note what it would do to history and
+        whether file content would change — that decides which safety machinery
+        it needs.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do today instead
+      description: The manual git incantation, another tool, or nothing.
