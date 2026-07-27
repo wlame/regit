@@ -96,6 +96,18 @@ amd64/arm64) from the
 [latest release](https://github.com/wlame/regit/releases/latest), rename it to
 `regit`, and put it on your `PATH`.
 
+Each release also carries a `SHA256SUMS` file and signed build provenance, so a
+downloaded binary can be checked before you run it:
+
+```bash
+sha256sum -c SHA256SUMS --ignore-missing        # the file matches the release
+gh attestation verify regit --repo wlame/regit  # …and the release built it here
+```
+
+The checksum proves the file is intact; the attestation proves it came from
+this repository's release workflow rather than from someone who merely produced
+a matching checksum file.
+
 Either way regit needs the `git` binary on your `PATH` (and Go 1.24+ only to
 build from source). Optionally register it as a git subcommand:
 
