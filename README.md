@@ -71,7 +71,7 @@ and act immediately.
 | Dirty working tree | apply is **blocked** until you commit or stash |
 | Already-pushed commits | apply requires `--force` (the TUI asks you to type the branch name) |
 | Shallow clone | apply is **blocked** — run `git fetch --unshallow` first |
-| Merge commits in range | apply is **blocked** (redate accepts `--allow-merges`) |
+| Merge commits in range | split, squash, purge, and redact are **blocked**; redate is blocked unless `--allow-merges`; header-only verbs (retitle, reauthor, drop-bodies, reword) rewrite the first-parent chain and keep the merges |
 | Signed commits | rewriting drops signatures; regit **warns**, and `--sign` re-signs with your key |
 | Backup | `refs/regit/backup/<branch>/<ts>-<seq>` created before each apply, never overwritten |
 | Undo past new work | `undo` **refuses** to unwind past newer commits unless `--force`; it backs up the tip first |
@@ -93,15 +93,17 @@ go install github.com/wlame/regit/cmd/regit@latest
 
 Or download a prebuilt binary for your platform (Linux, macOS, Windows —
 amd64/arm64) from the
-[latest release](https://github.com/wlame/regit/releases/latest), rename it to
-`regit`, and put it on your `PATH`.
+[latest release](https://github.com/wlame/regit/releases/latest), check it,
+then rename it to `regit` and put it on your `PATH`.
 
 Each release also carries a `SHA256SUMS` file and signed build provenance, so a
-downloaded binary can be checked before you run it:
+downloaded binary can be checked before you run it. Check it under its release
+name (for example `regit-linux-amd64`), before the rename — `SHA256SUMS` lists
+that name, and `--ignore-missing` silently skips a file it cannot find:
 
 ```bash
-sha256sum -c SHA256SUMS --ignore-missing        # the file matches the release
-gh attestation verify regit --repo wlame/regit  # …and the release built it here
+sha256sum -c SHA256SUMS --ignore-missing                   # the file matches the release
+gh attestation verify regit-linux-amd64 --repo wlame/regit # …and the release built it here
 ```
 
 The checksum proves the file is intact; the attestation proves it came from
@@ -184,7 +186,7 @@ cached under `.git/regit/cache/` so repeated runs skip the LLM call.
 regit split <commit-ish>          # commit to split (default: HEAD)
   --llm=ollama/qwen2.5-coder      # or openai/gpt-4o, openrouter/..., lmstudio/...
   --agent=claude                  # drive an agent CLI instead of HTTP
-  --agent-args="-p --output-format json {schema}"
+  --agent-args="-p --output-format json --bare --json-schema {schema}"
                                   # replace default agent args; {schema} is substituted
   --llm-base-url=<url>            # override the inferred OpenAI-compatible endpoint
   --max-commits=4                 # clamp on resulting commits (auto-scales with diff size)

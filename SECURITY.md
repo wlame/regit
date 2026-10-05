@@ -48,7 +48,8 @@ In scope:
   terminal without passing through `internal/termsafe`, allowing output
   spoofing, a window-title rewrite, or an OSC-52 clipboard write.
 - **Guards failing open.** Any path where the dirty-tree, shallow-clone,
-  pushed-history, or merge-commit guard can be bypassed rather than blocking.
+  pushed-history, or a verb's merge-commit guard can be bypassed rather than
+  blocking.
 
 ## Known limits — not vulnerabilities
 
