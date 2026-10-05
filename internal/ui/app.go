@@ -466,13 +466,19 @@ func appendCommandLog(repo *gitio.Repo, line string) {
 	// 0700/0600: the command log records the exact headless command for every
 	// applied action, and `regit redact --match=<secret>` puts the secret itself
 	// on that line — the verb's own Limitations entry says so. It must not be
-	// readable by other local users.
+	// readable by other local users. MkdirAll and OpenFile apply their mode
+	// only on creation, so the explicit chmods also tighten a directory or log
+	// left world-readable by an older regit.
 	_ = os.MkdirAll(dir, 0o700)
+	_ = os.Chmod(dir, 0o700)
 	f, err := os.OpenFile(filepath.Join(dir, "command.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return
 	}
 	defer f.Close()
+	if err := f.Chmod(0o600); err != nil {
+		return
+	}
 	_, _ = f.WriteString(line + "\n\n")
 }
 
