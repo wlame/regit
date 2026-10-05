@@ -58,7 +58,7 @@ install:
 # Run regit against a repository (defaults to the current directory).
 # Usage: `just run` or `just run /path/to/repo`.
 run repo=".":
-    go run ./cmd/regit --repo={{repo}}
+    go run ./cmd/regit --repo={{quote(repo)}}
 
 # Run the full test suite.
 test:
@@ -175,14 +175,14 @@ fuzz time="20s":
 check: ci e2e docs-check vulncheck (fuzz "10s")
 
 # Run the LLM-backed commit splitter against a commit (defaults to HEAD).
-# Usage: just split <commit-ish> -- --llm=ollama/qwen2.5-coder --dry-run
+# Usage: just split <commit-ish> --llm=ollama/qwen2.5-coder
 split commit="HEAD" *args:
-    go run ./cmd/regit split {{commit}} {{args}}
+    go run ./cmd/regit split {{quote(commit)}} {{args}}
 
 # Reword commit messages with the LLM (defaults to HEAD).
-# Usage: just reword <commit-ish> -- --llm=ollama/qwen2.5-coder --dry-run
+# Usage: just reword <commit-ish> --llm=ollama/qwen2.5-coder
 reword commit="HEAD" *args:
-    go run ./cmd/regit reword {{commit}} {{args}}
+    go run ./cmd/regit reword {{quote(commit)}} {{args}}
 
 # Preview an even date spread on the current repo (dry-run).
 redate *args:
@@ -190,7 +190,7 @@ redate *args:
 
 # Preview a regex retitle (dry-run); pass --execute to apply.
 retitle match replace *args:
-    go run ./cmd/regit retitle --match={{match}} --replace={{replace}} {{args}}
+    go run ./cmd/regit retitle --match={{quote(match)}} --replace={{quote(replace)}} {{args}}
 
 # Print the agent-facing documentation.
 llm-help:

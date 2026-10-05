@@ -26,8 +26,9 @@ just check
 
 That runs the full battery: `ci` (format, vet, build, race tests, the coverage
 gate), the end-to-end tests against the built binary, the generated-docs drift
-check, and a short fuzz burst. CI runs the same recipes, so the two cannot
-disagree.
+check, a dependency vulnerability scan (needs network), and a short fuzz burst.
+CI runs the same `ci`, `e2e`, and `vulncheck` recipes, so those gates cannot
+disagree between your machine and CI.
 
 The coverage gate is 85% overall, with a floor of 90% on `internal/safety` and
 `internal/gitio` — the packages that rewrite a user's history.

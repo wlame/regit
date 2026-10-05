@@ -8,7 +8,7 @@
 
 ## Checks
 
-- [ ] `just check` passes (ci + e2e + docs drift + fuzz burst)
+- [ ] `just check` passes (ci + e2e + docs drift + vuln scan + fuzz burst)
 - [ ] New behavior has a test that fails without the change
 - [ ] Generated doc blocks regenerated with `just docs-sync` if the registry,
       keymap, config, or strategy names changed
