@@ -109,12 +109,22 @@ func extractRepoFlag(args []string) (string, []string) {
 	return ".", args
 }
 
+// helpHint returns the help command to suggest in a usage error, in the form
+// the user launched. Under `git re` it is `-h`, because git answers a bare
+// `git re --help` itself with a man-page lookup and never reaches regit.
+func helpHint() string {
+	if capability.Invocation() == "git re" {
+		return "git re -h"
+	}
+	return "regit --help"
+}
+
 // rejectUnknownFlag returns an error if args starts with an unrecognised
 // top-level flag (anything beginning with "-" that survived --repo, --help,
 // and --version extraction). The error directs the user to --help.
 func rejectUnknownFlag(args []string) error {
 	if len(args) > 0 && strings.HasPrefix(args[0], "-") {
-		return fmt.Errorf("unknown flag %q (try regit --help)", args[0])
+		return fmt.Errorf("unknown flag %q (try %s)", args[0], helpHint())
 	}
 	return nil
 }
@@ -193,7 +203,7 @@ func run() error {
 	// A verb-shaped first token that is not a registered command is a typo;
 	// reject it rather than silently launching the TUI.
 	if verb, reject := unknownCommand(args); reject {
-		return fmt.Errorf("unknown command %q (try regit --help)", verb)
+		return fmt.Errorf("unknown command %q (try %s)", verb, helpHint())
 	}
 
 	// Unknown top-level flag: reject clearly rather than silently launching

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/wlame/regit/internal/capability"
 )
 
 func TestWantsVersion(t *testing.T) {
@@ -228,5 +230,27 @@ func TestInvokedAsGitRe(t *testing.T) {
 		if got := invokedAsGitRe(c.argv0); got != c.want {
 			t.Errorf("invokedAsGitRe(%q) = %v, want %v", c.argv0, got, c.want)
 		}
+	}
+}
+
+// TestHelpHint_matchesInvocation verifies the "try …" hint in usage errors
+// names the form the user launched. Under `git re` it must be `-h`: git
+// answers a bare `git re --help` itself with a man-page lookup.
+func TestHelpHint_matchesInvocation(t *testing.T) {
+	cases := []struct {
+		invocation string
+		want       string
+	}{
+		{"regit", "regit --help"},
+		{"git re", "git re -h"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.invocation, func(t *testing.T) {
+			capability.SetInvocation(tc.invocation)
+			t.Cleanup(func() { capability.SetInvocation("") })
+			if got := helpHint(); got != tc.want {
+				t.Errorf("helpHint() = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
