@@ -32,6 +32,9 @@ go.work.sum
 .serena/
 .remember/
 .superpowers/
+superpowers/
+docs/superpowers/
+CLAUDE.local.md
 .vb*
 .aider*
 .cursor/
