@@ -67,8 +67,8 @@ const (
 type layoutDims struct {
 	contentWidth       int  // terminal width, capped at maxContentWidth (reserved for future work; not yet wired)
 	listWidth          int  // commit-list pane width (border excluded)
-	flowWidth          int  // flow-zone pane width (0 when the flow zone is hidden)
-	showRight          bool // whether the flow zone fits; false → list-only on narrow terminals
+	flowWidth          int  // flow-zone pane width; on a one-column terminal, the list's width
+	showRight          bool // whether list and flow zone fit side by side; false → one column
 	bodyHeight         int  // rows available to the body (reserved for future work; not yet wired)
 	inputWidth         int  // single-line text-input width for the editor and every modal field
 	detailOverlayWidth int  // width of the on-demand commit-detail overlay ('.')
@@ -99,13 +99,15 @@ func computeLayout(termW, termH int) layoutDims {
 	var listW, flowW int
 	switch {
 	case !showRight:
-		// List-only: the list pane spends the whole usable width minus its own
-		// left/right border. The flow zone is hidden; detail is still reachable
-		// as an on-demand overlay.
+		// One column: the list pane spends the whole usable width minus its own
+		// left/right border. There is no side-by-side flow zone; an open flow
+		// takes the list's place (viewMain) and so gets the list's width.
+		// Detail is still reachable as an on-demand overlay.
 		listW = usable - 2
 		if listW < listFloorWidth {
 			listW = listFloorWidth
 		}
+		flowW = listW
 	default:
 		// Two-column: list + flow zone. The list keeps priority: it grows to
 		// listCeilWidth first, the flow zone absorbs whatever remains — unlike

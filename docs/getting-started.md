@@ -77,6 +77,11 @@ regit --repo=/path/to/repo
 The TUI opens on your current branch's commits. Press `?` for the full key overlay,
 ++p++ to preview pending changes, and ++q++ to quit.
 
+On a terminal narrower than 88 columns the TUI uses one column. An open flow,
+such as the date calendar or the redact wizard, then takes the place of the
+commit list. In the date flow, press ++tab++ to switch between the flow and the
+list.
+
 ### A first headless command
 
 Every TUI action has a headless CLI equivalent, and every mutating command

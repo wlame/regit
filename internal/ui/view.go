@@ -12,18 +12,17 @@ import (
 // open), then the status bar and keybar.
 func (m Model) viewMain() string {
 	title := m.viewTitle()
-	list := m.viewCommitList()
-	right := m.viewFlowZone()
 
 	var body string
 	switch dims := computeLayout(m.width, m.height); {
+	case !dims.showRight && m.flowOwnsNarrowBody():
+		body = m.viewFlowZone()
 	case !dims.showRight:
-		// Terminal too narrow for the flow zone — render the list alone rather
-		// than overflowing the frame. Detail is still reachable via the '.'
-		// overlay at this width.
-		body = list
+		// Too narrow for two columns and no flow in front: the list alone.
+		// Detail is still reachable via the '.' overlay at this width.
+		body = m.viewCommitList()
 	default:
-		body = lipgloss.JoinHorizontal(lipgloss.Top, list, right)
+		body = lipgloss.JoinHorizontal(lipgloss.Top, m.viewCommitList(), m.viewFlowZone())
 	}
 	status := m.viewStatusBar()
 	keybar := m.st.keybar.Render(keybarHintFor(m.currentKeyCtx(), m.width))
@@ -47,6 +46,15 @@ func (m Model) viewMain() string {
 		}
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, regions...)
+}
+
+// flowOwnsNarrowBody reports whether a one-column terminal shows the open flow
+// instead of the commit list. The focused pane wins: a flow can hand focus
+// back to the list while it stays open (tab or esc from the strategy pane, or
+// staging a strategy so A applies it), and list keys must then move a list the
+// user can see. tab switches between the two.
+func (m Model) flowOwnsNarrowBody() bool {
+	return m.flow != flowNone && m.focus != focusList
 }
 
 func (m Model) viewTitle() string {

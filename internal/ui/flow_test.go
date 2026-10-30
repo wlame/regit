@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -188,5 +189,47 @@ func TestRedateFlow_reopeningDiscardsPartlyTypedQuota(t *testing.T) {
 
 	if got := m.activeStrat().quotas[day]; got != 1 {
 		t.Errorf("quota = %d after reopening and typing 1; want 1", got)
+	}
+}
+
+// narrowSizes are terminals below the two-column breakpoint, down to the
+// minimum the app allows.
+var narrowSizes = [][2]int{{80, 24}, {70, 20}, {60, 16}}
+
+func TestRedateFlow_narrowTerminalShowsTheFocusedPane(t *testing.T) {
+	for _, size := range narrowSizes {
+		m := resizeTo(newTestModelN(t, 12), size[0], size[1])
+		cursorHash := short(m.commitAtCursor().Hash)
+
+		m = send(m, "m", "d") // open the flow; focus lands on the calendar
+		flowView := stripANSI(m.View())
+		if strings.Contains(flowView, cursorHash) {
+			t.Errorf("%dx%d: the open flow should replace the list:\n%s", size[0], size[1], flowView)
+		}
+		// Below 20 rows the strategy pane is cut by the height budget at any
+		// width, so only check for it where it fits.
+		if size[1] >= 20 && !strings.Contains(flowView, "STRATEGY") {
+			t.Errorf("%dx%d: the flow's strategy pane is missing:\n%s", size[0], size[1], flowView)
+		}
+		assertFrameFits(t, m, size[0], size[1])
+
+		m = send(m, "tab", "tab") // calendar -> params -> list, flow still open
+		listView := stripANSI(m.View())
+		if m.flow != flowRedate || !strings.Contains(listView, cursorHash) {
+			t.Errorf("%dx%d: with focus back on the list, the list should show:\n%s", size[0], size[1], listView)
+		}
+	}
+}
+
+func TestRedactFlow_narrowTerminalShowsTheFlow(t *testing.T) {
+	for _, size := range narrowSizes {
+		m := resizeTo(newTestModelN(t, 12), size[0], size[1])
+
+		m = send(m, "m", "r")
+
+		if view := stripANSI(m.View()); !strings.Contains(view, "REDACT") {
+			t.Errorf("%dx%d: the redact flow is open but not shown:\n%s", size[0], size[1], view)
+		}
+		assertFrameFits(t, m, size[0], size[1])
 	}
 }

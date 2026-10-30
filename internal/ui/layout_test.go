@@ -9,11 +9,11 @@ func TestComputeLayout_ListWidthBounds(t *testing.T) {
 		wantList     int
 		wantFlow     int
 	}{
-		{"zero width renders at the 120 target floor", 0, 40, 76, 40},  // 120-44, 2-col
-		{"narrow drops the flow zone", 80, 40, 78, 0},                  // 80 < 88 -> list-only, 80-2
-		{"target floor width", 120, 40, 76, 40},                        // 120-44, 2-col
-		{"wide terminal: list caps, flow stretches", 220, 40, 80, 136}, // flow=220-80-4
-		{"ultrawide: list caps, flow stretches", 400, 40, 80, 156},     // usable 240; flow=240-80-4
+		{"zero width renders at the 120 target floor", 0, 40, 76, 40},      // 120-44, 2-col
+		{"narrow: one column, flow gets the list's width", 80, 40, 78, 78}, // 80 < 88 -> one column, 80-2
+		{"target floor width", 120, 40, 76, 40},                            // 120-44, 2-col
+		{"wide terminal: list caps, flow stretches", 220, 40, 80, 136},     // flow=220-80-4
+		{"ultrawide: list caps, flow stretches", 400, 40, 80, 156},         // usable 240; flow=240-80-4
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

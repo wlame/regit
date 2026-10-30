@@ -148,7 +148,12 @@ rather than refusing the new one. `redate --commits=A^..B` (or a comma-separated
 list) is the headless equivalent of making an explicit selection before staging.
 
 The commit backbone is the list — capped at 80 columns (layout.go `listCeilWidth`) —
-beside a detail panel that stretches to fill the rest of a wide terminal. The
+beside a detail panel that stretches to fill the rest of a wide terminal. Below
+88 columns (`computeLayout`'s `showRight`) there is one column: the list alone,
+or an open flow in the list's place while the flow has focus
+(view.go `flowOwnsNarrowBody`); when the flow hands focus back to the list, the
+list shows again, and `tab` switches between them (redate only; redact never
+gives focus to the list). The
 detail's changed-files list is bounded to the pane height: overflow collapses to a
 `… +N more files` line and the whole body is hard-clamped (detail.go `clampLines`),
 so a many-file commit can never push the frame past the screen. `d` toggles
