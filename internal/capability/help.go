@@ -78,17 +78,46 @@ func HelpCommand(c Command) string {
 	if ph := positionalHelp(c); ph != "" {
 		b.WriteString("\nArguments:\n" + ph)
 	}
+	b.WriteString(flagSection(c.Params))
+	return b.String()
+}
+
+// flagSection renders the "Flags:" heading and one aligned line per flag, or
+// "" when the command takes no flags. Both help projections use it, so the
+// per-verb --help and --llm-help always show the same markers.
+func flagSection(params []Param) string {
+	if len(params) == 0 {
+		return ""
+	}
+	width := 0
+	for _, p := range params {
+		width = max(width, len(flagToken(p)))
+	}
+	var b strings.Builder
 	b.WriteString("\nFlags:\n")
-	for _, p := range c.Params {
-		def := ""
-		if p.Default != "" {
-			def = " (default: " + p.Default + ")"
-		}
-		applies := ""
-		if p.AppliesIf != "" {
-			applies = " [only with " + humanPredicate(p.AppliesIf) + "]"
-		}
-		b.WriteString(fmt.Sprintf("  --%-16s %s%s%s\n", p.Name+"="+typeHint(p), p.Help, def, applies))
+	for _, p := range params {
+		fmt.Fprintf(&b, "  %-*s  %s%s\n", width, flagToken(p), p.Help, flagMarkers(p))
+	}
+	return b.String()
+}
+
+// flagToken is the "--name=TYPE" form a flag takes in help text.
+func flagToken(p Param) string { return "--" + p.Name + "=" + typeHint(p) }
+
+// flagMarkers renders the required, default, and applies-if notes after a
+// flag's help text. A false bool default is left out: it is the implied
+// state of every switch and only adds noise.
+func flagMarkers(p Param) string {
+	var b strings.Builder
+	if p.Required {
+		b.WriteString(" (required)")
+	}
+	isImpliedDefault := p.Type == ParamBool && p.Default == "false"
+	if p.Default != "" && !isImpliedDefault {
+		b.WriteString(" (default: " + p.Default + ")")
+	}
+	if p.AppliesIf != "" {
+		b.WriteString(" [only with " + humanPredicate(p.AppliesIf) + "]")
 	}
 	return b.String()
 }
@@ -147,8 +176,10 @@ func LLMHelp(format string) (string, error) {
 	var b strings.Builder
 	b.WriteString(h1("regit — headless command reference"))
 	b.WriteString("regit safely rewrites git history: spread commit/author dates across a\n")
-	b.WriteString("calendar (redate), split or reword commits with an LLM, and bulk-edit\n")
-	b.WriteString("titles/bodies. Core concepts: day-strategies × time-models (redate),\n")
+	b.WriteString("calendar (redate); split, reword, or squash commits with an LLM; fold merges\n")
+	b.WriteString("into a straight line (linearize); bulk-edit titles, bodies, and authors\n")
+	b.WriteString("(retitle, drop-bodies, reauthor); and remove a file or a secret from every\n")
+	b.WriteString("commit (purge, redact). Core concepts: day-strategies × time-models (redate),\n")
 	b.WriteString("a backup ref before every apply, and the dry-run/--execute/--force gradient.\n\n")
 	b.WriteString("Convention: mutating commands PREVIEW by default; pass --execute to apply,\n")
 	b.WriteString("and --execute --force to rewrite already-pushed commits. `undo`, `install`,\n")
@@ -164,18 +195,7 @@ func LLMHelp(format string) (string, error) {
 		if ph := positionalHelp(c); ph != "" {
 			b.WriteString("Arguments:\n" + ph)
 		}
-		b.WriteString("\nFlags:\n")
-		for _, p := range c.Params {
-			applies := ""
-			if p.AppliesIf != "" {
-				applies = " [only with " + humanPredicate(p.AppliesIf) + "]"
-			}
-			req := ""
-			if p.Required {
-				req = " (required)"
-			}
-			b.WriteString(fmt.Sprintf("  --%-16s %s%s%s\n", p.Name+"="+typeHint(p), p.Help, req, applies))
-		}
+		b.WriteString(flagSection(c.Params))
 		if len(c.Examples) > 0 {
 			b.WriteString("\nExamples:\n")
 			for _, e := range c.Examples {
@@ -193,13 +213,13 @@ func LLMHelp(format string) (string, error) {
 			}
 		}
 		if len(c.ExitCodes) > 0 {
-			b.WriteString("\nExit codes: ")
+			var codes []string
 			for _, code := range []int{0, 1, 2, 3} {
 				if msg, ok := c.ExitCodes[code]; ok {
-					b.WriteString(fmt.Sprintf("%d=%s  ", code, msg))
+					codes = append(codes, fmt.Sprintf("%d=%s", code, msg))
 				}
 			}
-			b.WriteString("\n")
+			b.WriteString("\nExit codes: " + strings.Join(codes, "  ") + "\n")
 		}
 	}
 

@@ -171,3 +171,78 @@ func TestExampleCmd_RewritesOnlyCanonicalPrefix(t *testing.T) {
 		t.Fatalf("exampleCmd should leave non-canonical text alone, got %q", got)
 	}
 }
+
+// flagLinesOf returns the lines of the "Flags:" section of a help render.
+func flagLinesOf(out string) []string {
+	var lines []string
+	in := false
+	for _, line := range strings.Split(out, "\n") {
+		switch {
+		case strings.TrimSpace(line) == "Flags:":
+			in = true
+		case in && strings.HasPrefix(line, "  --"):
+			lines = append(lines, line)
+		case in:
+			return lines
+		}
+	}
+	return lines
+}
+
+func TestHelpCommand_marksRequiredFlags(t *testing.T) {
+	c, _ := Lookup("redate")
+	for _, line := range flagLinesOf(HelpCommand(c)) {
+		if strings.HasPrefix(line, "  --strategy=") && !strings.Contains(line, "(required)") {
+			t.Errorf("required --strategy not marked: %q", line)
+		}
+	}
+}
+
+func TestLLMHelp_showsFlagDefaults(t *testing.T) {
+	out, err := LLMHelp("text")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "(default: .)") {
+		t.Error("LLMHelp should show the --repo default")
+	}
+}
+
+func TestHelpCommand_omitsFalseBoolDefault(t *testing.T) {
+	c, _ := Lookup("split")
+	if out := HelpCommand(c); strings.Contains(out, "(default: false)") {
+		t.Errorf("a false bool default is noise and doubles --execute's own note:\n%s", out)
+	}
+}
+
+func TestHelpCommand_separatesEveryFlagFromItsHelp(t *testing.T) {
+	for _, c := range Registry() {
+		for _, line := range flagLinesOf(HelpCommand(c)) {
+			flag := strings.Fields(line)[0]
+			rest := strings.TrimPrefix(line, "  "+flag)
+			if !strings.HasPrefix(rest, "  ") {
+				t.Errorf("%s: flag runs into its help text: %q", c.Name, line)
+			}
+		}
+	}
+}
+
+func TestHelpCommand_skipsEmptyFlagsHeading(t *testing.T) {
+	for _, c := range Registry() {
+		if len(c.Params) == 0 && strings.Contains(HelpCommand(c), "Flags:") {
+			t.Errorf("%s has no flags but prints a Flags: heading", c.Name)
+		}
+	}
+}
+
+func TestLLMHelp_hasNoTrailingWhitespace(t *testing.T) {
+	out, err := LLMHelp("text")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, line := range strings.Split(out, "\n") {
+		if line != strings.TrimRight(line, " \t") {
+			t.Errorf("line %d has trailing whitespace: %q", i+1, line)
+		}
+	}
+}
