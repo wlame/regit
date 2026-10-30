@@ -28,7 +28,7 @@ func assertFrameFits(t *testing.T, m Model, w, h int) {
 }
 
 func TestActionPanel_narrowTerminalFitsHeight(t *testing.T) {
-	for _, size := range [][2]int{{60, 20}, {66, 20}, {72, 16}} {
+	for _, size := range [][2]int{{60, 16}, {66, 16}, {60, 20}, {66, 20}, {72, 16}} {
 		for _, keys := range [][]string{{"m"}, {"L", "m"}} {
 			m := resizeTo(newTestModelN(t, 12), size[0], size[1])
 			m = send(m, keys...)
