@@ -247,12 +247,15 @@ func (m Model) renderPanelRow(r panelRow, selected bool, cols panelColumns) stri
 		}
 	}
 
+	// Each cell's text is cut to its column first: lipgloss Width wraps an
+	// over-long string onto extra lines, which the panel's row budget never
+	// counted, and MaxWidth limits only the width, not the line count.
 	gap := strings.Repeat(" ", panelColGap)
 	title := "[" + r.Key + "] " + r.Title
 	return marker +
-		titleStyle.Width(cols.title).MaxWidth(cols.title).Render(title) + gap +
-		middleStyle.Width(cols.desc).MaxWidth(cols.desc).Render(middle) + gap +
-		m.st.help.Width(cols.verb).MaxWidth(cols.verb).Render(r.Verb)
+		titleStyle.Width(cols.title).Render(truncate(title, cols.title)) + gap +
+		middleStyle.Width(cols.desc).Render(truncate(middle, cols.desc)) + gap +
+		m.st.help.Width(cols.verb).Render(truncate(r.Verb, cols.verb))
 }
 
 // viewActionPanel renders the bottom panel at the given full terminal width.

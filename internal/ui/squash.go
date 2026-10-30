@@ -474,8 +474,10 @@ func squashTwoColumn(st squashState, usable, visible int, s styles) string {
 	left := append([]string{fmt.Sprintf("COMMITS (%d → 1)", len(st.active().Members))},
 		squashCommitLines(st, lw, visible, s)...)
 	right := append([]string{squashResultHeader(st)}, squashResultLines(st, rw)...)
-	leftBox := s.pane.Width(lw).Render(strings.Join(left, "\n"))
-	rightBox := s.pane.Width(rw).Render(strings.Join(right, "\n"))
+	// lipgloss Width counts the padding but not the border, so a content width
+	// of lw needs Width(lw+2); Width(lw) would wrap every full-width row.
+	leftBox := s.pane.Width(lw + 2).Render(strings.Join(left, "\n"))
+	rightBox := s.pane.Width(rw + 2).Render(strings.Join(right, "\n"))
 	return lipgloss.JoinHorizontal(lipgloss.Top, leftBox, " ", rightBox)
 }
 
