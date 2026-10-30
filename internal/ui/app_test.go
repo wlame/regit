@@ -1138,7 +1138,7 @@ func TestCalendarQuotas_twoDigitEntry(t *testing.T) {
 // TestPinWithEviction_RepinMustDeleteStaleEntryFirst: it drives the identical
 // shared-boundary shape — a 3-commit segment and a 24-commit segment meeting at
 // one calendar day — through real key presses on the calendar, to prove
-// moveCursor's digit handler performs the HARD CONTRACT's delete-before-repin
+// moveCalendarCursor's digit handler performs the HARD CONTRACT's delete-before-repin
 // step. Without it, that same topology corrupts AttributePins' segment
 // resolution and wrongly evicts the unrelated day's pin outright (see the
 // sibling TestPinWithEviction_MissingDeleteCorruptsSharedBoundaryAttribution).

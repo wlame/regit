@@ -740,7 +740,7 @@ func (m Model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	default:
 		if m.focus == focusCalendar {
-			m.moveCursor(msg)
+			m.moveCalendarCursor(msg)
 		}
 		m.syncListViewport()
 		return m, m.markAndFetch()
@@ -1040,22 +1040,10 @@ func (m *Model) dayJump(dir int) {
 	}
 }
 
-// moveCursor handles navigation keys for whichever pane is focused.
-func (m *Model) moveCursor(msg tea.KeyMsg) {
-	if m.focus == focusList {
-		switch msg.String() {
-		case "up", "k":
-			if m.listCursor > 0 {
-				m.listCursor--
-			}
-		case "down", "j":
-			if m.listCursor < len(m.plan.Commits)-1 {
-				m.listCursor++
-			}
-		}
-		return
-	}
-	// Calendar focus. The heatmap is GitHub-style: weekdays run top-to-bottom
+// moveCalendarCursor handles a navigation key while the calendar is focused
+// (list movement goes through listNavKey).
+func (m *Model) moveCalendarCursor(msg tea.KeyMsg) {
+	// The heatmap is GitHub-style: weekdays run top-to-bottom
 	// within a week column, weeks run left-to-right — so vertical arrows move
 	// by one day and horizontal arrows jump a whole week. Movement snaps to
 	// the nearest available day in the direction of travel (see
