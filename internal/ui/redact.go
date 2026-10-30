@@ -79,6 +79,18 @@ const redactModeFieldCount = 3
 
 // newRedactState builds a fresh wizard at step 1, both textinputs sized from
 // the caller's layout (mirrors newPurgeState/newRetitleState's convention).
+// redactLabelWidth is the label column of every redact text field, sized to
+// the longest label ("Secret to find").
+const redactLabelWidth = 14
+
+// redactInputWidth fits a redact text field inside the flow pane: the pane's
+// border and padding (4), the "▸ " cursor (2), the label column and its gap,
+// and the text input's own cursor cell. A longer value scrolls in the field
+// instead of wrapping onto a second row.
+func redactInputWidth(flowWidth int) int {
+	return max(10, flowWidth-4-2-redactLabelWidth-1-1)
+}
+
 func newRedactState(inputW int) redactState {
 	newField := func() textinput.Model {
 		f := textinput.New()
@@ -89,10 +101,12 @@ func newRedactState(inputW int) redactState {
 	}
 	match := newField()
 	match.Focus()
+	glob := newField()
+	glob.Placeholder = "all files"
 	return redactState{
 		step:         redactStepMatch,
 		matchInput:   match,
-		globInput:    newField(),
+		globInput:    glob,
 		patternInput: newField(),
 		replaceInput: newField(),
 		expanded:     map[int]bool{},
@@ -640,14 +654,21 @@ func renderRedactFlow(st redactState, s styles) string {
 // wrapping and breaking the frame.
 const redactRowTruncWidth = 40
 
+// redactFieldHints explains the focused step-1 field, indexed by fieldFocus.
+var redactFieldHints = [2]string{
+	"The exact text of the secret, as it appears in your files. Not a pattern.",
+	"Optional. Comma-separated globs such as *.env, config/** — leave empty to search every file.",
+}
+
 func renderRedactMatch(st redactState, s styles) string {
 	var b strings.Builder
 	b.WriteString(s.modalTitle.Render("REDACT — find a secret") + "\n\n")
 	cursors := [2]string{"  ", "  "}
 	cursors[st.fieldFocus] = s.listCursor.Render("▸ ")
-	b.WriteString(fmt.Sprintf("%s%-11s %s\n", cursors[0], "Match:", st.matchInput.View()))
-	b.WriteString(fmt.Sprintf("%s%-11s %s\n", cursors[1], "In (glob):", st.globInput.View()))
-	b.WriteString("\n" + s.dim.Render("Match is a literal substring, not a regex — same as headless --match.") + "\n")
+	fmt.Fprintf(&b, "%s%-*s %s\n", cursors[0], redactLabelWidth, "Secret to find", st.matchInput.View())
+	fmt.Fprintf(&b, "%s%-*s %s\n", cursors[1], redactLabelWidth, "Only in files", st.globInput.View())
+	b.WriteString("\n" + s.dim.Render(redactFieldHints[st.fieldFocus]) + "\n")
+	b.WriteString("\n" + s.dim.Render("Next, regit lists every commit that added or removed this text, and you choose which ones to clean.") + "\n")
 	if st.errMsg != "" {
 		b.WriteString("\n" + s.statusErr.Render("⚠ "+st.errMsg) + "\n")
 	}
@@ -754,8 +775,8 @@ func renderRedactMode(st redactState, s styles) string {
 		if st.modeFocus >= 1 {
 			cursors[st.modeFocus-1] = s.listCursor.Render("▸ ")
 		}
-		b.WriteString(fmt.Sprintf("%s%-13s %s\n", cursors[0], "Pattern:", st.patternInput.View()))
-		b.WriteString(fmt.Sprintf("%s%-13s %s\n", cursors[1], "Replacement:", st.replaceInput.View()))
+		fmt.Fprintf(&b, "%s%-*s %s\n", cursors[0], redactLabelWidth, "Pattern:", st.patternInput.View())
+		fmt.Fprintf(&b, "%s%-*s %s\n", cursors[1], redactLabelWidth, "Replacement:", st.replaceInput.View())
 		if example := redactLiveExample(st); example != "" {
 			b.WriteString(s.dim.Render(example) + "\n")
 		}

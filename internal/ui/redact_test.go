@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/wlame/regit/internal/capability"
 	"github.com/wlame/regit/internal/config"
@@ -910,5 +911,36 @@ func TestRedactChange_guardPassesCleanRedact(t *testing.T) {
 	g := rc.guard(model.RepoState{})
 	if g.Blocked || g.NeedsConfirmation {
 		t.Fatalf("a clean redact should pass guard() unconditionally, got: %+v", g)
+	}
+}
+
+func TestRedactMatchStep_explainsTheFocusedField(t *testing.T) {
+	m := send(resizeTo(newTestModelN(t, 3), 120, 40), "m", "r")
+
+	secretStep := stripANSI(m.viewRedactFlow())
+	m = send(m, "tab")
+	filesStep := stripANSI(m.viewRedactFlow())
+
+	for _, label := range []string{"Secret to find", "Only in files"} {
+		if !strings.Contains(secretStep, label) {
+			t.Errorf("step 1 should label a field %q:\n%s", label, secretStep)
+		}
+	}
+	if !strings.Contains(secretStep, "exact text") {
+		t.Errorf("with the secret field focused, the hint should explain it:\n%s", secretStep)
+	}
+	if !strings.Contains(filesStep, "every file") {
+		t.Errorf("with the files field focused, the hint should explain it:\n%s", filesStep)
+	}
+}
+
+func TestRedactMatchStep_longSecretStaysOnOneLine(t *testing.T) {
+	m := send(resizeTo(newTestModelN(t, 3), 120, 40), "m", "r")
+	short := lipgloss.Height(m.viewRedactFlow())
+
+	m = send(m, strings.Repeat("x", 60))
+
+	if got := lipgloss.Height(m.viewRedactFlow()); got != short {
+		t.Errorf("a 60-character secret grew the step from %d to %d rows; the field should scroll", short, got)
 	}
 }
