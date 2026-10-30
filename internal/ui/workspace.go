@@ -74,18 +74,47 @@ func (m Model) viewFlowZone() string {
 const detailPaneMinHeight = 13
 
 // viewDetailPaneForZone sizes the commit-detail pane for the flow zone's
-// default (no-flow) arm. Detail keeps priority: it renders at its usual height,
-// matched to the list pane (viewDetailPane's normal m.listHeight()+1), unless
-// the zone budget has enough slack beyond detailPaneMinHeight to also reserve
-// exactly minAuthorsPaneHeight rows for the AUTHORS pane below it — mirroring
-// the redate arm, where AUTHORS gets whatever the widget doesn't need — in
-// which case detail gives up exactly those rows and no more.
+// default (no-flow) arm, leaving the rest of the zone budget to the AUTHORS
+// pane below it (viewFlowZone hands AUTHORS whatever this pane does not use).
+// Both panes hold a list that shortens itself ("… +N more files" / "… +N
+// more"), so neither may starve the other:
+//   - AUTHORS is promised a share: all its authors, up to a third of the zone;
+//   - the detail pane yields down to that share even when its content is
+//     longer, and stretches when AUTHORS cannot use the rows;
+//   - the detail pane never drops below detailPaneMinHeight, nor grows taller
+//     than the list pane beside it.
 func (m Model) viewDetailPaneForZone(width, budget int) string {
+	const paneBorderRows = 2
 	full := m.listHeight() + 1
-	shrunk := budget - 2 /* pane border */ - minAuthorsPaneHeight
-	height := full
-	if shrunk >= detailPaneMinHeight && shrunk < full {
-		height = shrunk
+	authorsNatural := m.authorsPaneNaturalHeight()
+	authorsShare := min(authorsNatural, max(minAuthorsPaneHeight, budget/3))
+	detailNeed := max(m.detailContentHeight(width, full), detailPaneMinHeight)
+
+	height := min(detailNeed, budget-paneBorderRows-authorsShare)
+	height = max(height, budget-paneBorderRows-authorsNatural)
+	height = max(height, detailPaneMinHeight)
+	return m.viewDetailPane(width, min(height, full))
+}
+
+// detailContentHeight is the pane height (border excluded) the cursor commit's
+// detail needs to show without clamping, capped at limit. It mirrors
+// viewDetailPane, which gives the body one row less than the pane height.
+func (m Model) detailContentHeight(width, limit int) int {
+	if len(m.plan.Commits) == 0 {
+		return 0
 	}
-	return m.viewDetailPane(width, height)
+	c := m.commitAtCursor()
+	stat, have := m.statCache[c.Hash]
+	body := renderDetail(c, stat, have, m.statErr[c.Hash], m.plan, m.loc, width-2,
+		limit-1, m.st, m.authorColorStyle(c))
+	return lipgloss.Height(body) + 1
+}
+
+// authorsPaneNaturalHeight is the AUTHORS pane's height with every author
+// listed: the border, the title row, and one row per author.
+func (m Model) authorsPaneNaturalHeight() int {
+	if len(m.contribs) == 0 {
+		return 0
+	}
+	return 2 /* border */ + 1 /* title */ + len(m.contribs)
 }
