@@ -199,3 +199,27 @@ func TestListHeight_shortTerminalUsesFloor(t *testing.T) {
 		t.Errorf("listHeight() = %d, want 8 for a short terminal", got)
 	}
 }
+
+func TestListViewport_openingPanelOrLogKeepsCursorVisible(t *testing.T) {
+	for _, toggle := range []string{"m", "L"} {
+		t.Run(toggle, func(t *testing.T) {
+			m := resizeTo(newTestModelN(t, 30), 120, 30)
+			for range 15 {
+				m = send(m, "j")
+			}
+
+			m = send(m, toggle)
+
+			cursorHash := short(m.commitAtCursor().Hash)
+			if !strings.Contains(stripANSI(m.viewCommitList()), cursorHash) {
+				t.Errorf("cursor commit %s scrolled out of view after %q", cursorHash, toggle)
+			}
+		})
+	}
+}
+
+// resizeTo delivers a terminal resize to the model.
+func resizeTo(m Model, w, h int) Model {
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
+	return updated.(Model)
+}

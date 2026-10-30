@@ -828,6 +828,7 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	case "L":
 		m.logVisible = !m.logVisible
+		m.syncListViewport() // the log takes rows from the list
 		return m, nil, true
 	case "m":
 		// Opening/closing the panel only flips panel state; it never touches
@@ -835,6 +836,7 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		// a mutator of it (TestPanelOpenPreservesSelection pins this).
 		m.panel.open = !m.panel.open
 		m.panel.cursor = 0
+		m.syncListViewport() // the panel takes rows from the list
 		return m, nil, true
 	}
 	return m, nil, false
