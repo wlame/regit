@@ -64,14 +64,26 @@ func renderDetail(
 	var files []string
 	if haveStat {
 		budget := maxHeight - len(head) - 1 - len(msg)
-		files = renderFileLines(st.Files, budget, sty)
+		files = renderFileLines(st.Files, budget, width, sty)
 	}
 
 	all := head
 	all = append(all, "")
 	all = append(all, files...)
 	all = append(all, msg...)
-	return clampLines(all, maxHeight)
+	return clampLines(fitLinesToWidth(all, width), maxHeight)
+}
+
+// fitLinesToWidth cuts every line to width display cells. The pane would
+// otherwise wrap a long line (the full hash, an email) onto extra screen rows
+// that the height budget never counted.
+func fitLinesToWidth(lines []string, width int) []string {
+	cut := lipgloss.NewStyle().MaxWidth(width)
+	out := make([]string, len(lines))
+	for i, line := range lines {
+		out[i] = cut.Render(line)
+	}
+	return out
 }
 
 // appendLines splits s on newlines and appends each visual line, so later height
@@ -85,14 +97,14 @@ func appendLines(dst []string, s string) []string {
 // shows the first (budget-1) and a dim "… +N more files" summary so the message
 // below stays visible. A budget < 1 (a very long body) yields no file rows — the
 // diffstat header still reports the total count.
-func renderFileLines(filesStat []gitio.FileStat, budget int, sty styles) []string {
+func renderFileLines(filesStat []gitio.FileStat, budget, width int, sty styles) []string {
 	if budget < 1 || len(filesStat) == 0 {
 		return nil
 	}
 	if len(filesStat) <= budget {
 		out := make([]string, 0, len(filesStat))
 		for _, f := range filesStat {
-			out = append(out, renderFileLine(f, sty))
+			out = append(out, renderFileLine(f, width, sty))
 		}
 		return out
 	}
@@ -100,7 +112,7 @@ func renderFileLines(filesStat []gitio.FileStat, budget int, sty styles) []strin
 	show := budget - 1
 	out := make([]string, 0, budget)
 	for _, f := range filesStat[:show] {
-		out = append(out, renderFileLine(f, sty))
+		out = append(out, renderFileLine(f, width, sty))
 	}
 	return append(out, sty.dim.Render(fmt.Sprintf("… +%d more files", len(filesStat)-show)))
 }
@@ -137,11 +149,17 @@ func renderDiffstat(st gitio.Stat, haveStat bool, statErr string, sty styles) st
 }
 
 // renderFileLine renders one "<status> <path> +x −y" file row, with the counts
-// colored and binary files marked "Bin".
-func renderFileLine(f gitio.FileStat, sty styles) string {
+// colored and binary files marked "Bin". A path too long for width is cut, so
+// the counts at the end of the row stay visible.
+func renderFileLine(f gitio.FileStat, width int, sty styles) string {
 	counts := sty.dim.Render("Bin")
 	if !f.Binary {
 		counts = sty.newDate.Render(fmt.Sprintf("+%d", f.Add)) + " " + sty.statusErr.Render(fmt.Sprintf("−%d", f.Del))
 	}
-	return fmt.Sprintf(" %s %s  %s", sty.hash.Render(f.Status), termsafe.Line(f.Path), counts)
+	status := sty.hash.Render(f.Status)
+	// The row's fixed parts: a leading space, the status, a space, and two
+	// spaces before the counts.
+	fixed := 1 + lipgloss.Width(status) + 1 + 2 + lipgloss.Width(counts)
+	path := truncate(termsafe.Line(f.Path), width-fixed)
+	return fmt.Sprintf(" %s %s  %s", status, path, counts)
 }

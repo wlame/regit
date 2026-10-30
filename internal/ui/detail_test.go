@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/lipgloss"
 	"time"
 
 	"github.com/wlame/regit/internal/gitio"
@@ -179,5 +181,28 @@ func TestRenderDetail_boundsFileListAndKeepsMessage(t *testing.T) {
 	}
 	if !strings.Contains(out, "Fix login bug") {
 		t.Errorf("the message must stay visible when the file list overflows, got:\n%s", out)
+	}
+}
+
+// TestRenderDetail_longLinesFitWidthAndKeepFileCounts covers the narrow flow
+// pane: a line wider than the pane wraps, and every wrap adds a screen row the
+// height budget did not count. Long paths are cut so the counts stay visible.
+func TestRenderDetail_longLinesFitWidthAndKeepFileCounts(t *testing.T) {
+	const width = 38
+	c := detailCommit()
+	plan := model.NewPlan([]model.Commit{c})
+	st := gitio.Stat{Files: []gitio.FileStat{
+		{Status: "M", Path: "internal/capability/some_rather_long_file_name.go", Add: 12, Del: 3},
+	}}
+
+	out := renderDetail(c, st, true, "", plan, time.UTC, width, 40, newStyles(), newStyles().author)
+
+	for _, line := range strings.Split(out, "\n") {
+		if w := lipgloss.Width(line); w > width {
+			t.Errorf("line is %d columns, pane is %d: %q", w, width, line)
+		}
+	}
+	if !strings.Contains(out, "+12 −3") {
+		t.Errorf("file row lost its counts:\n%s", out)
 	}
 }
