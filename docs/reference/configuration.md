@@ -48,8 +48,8 @@ Values are resolved lowest to highest precedence:
 | `workday_end` | HH:MM | `18:00` | `REGIT_WORKDAY_END` | End of the working-hours window. Must be after `workday_start`. |
 | `lunch_start` | HH:MM | *(empty)* | — | Start of an optional lunch gap that time models avoid. Empty disables the gap. |
 | `lunch_end` | HH:MM | *(empty)* | — | End of the lunch gap. |
-| `default_strategy` | string | `Even Spread` | `REGIT_DEFAULT_STRATEGY` | Day-assignment strategy pre-selected when the TUI launches. |
-| `default_time_model` | string | `Working hours` | `REGIT_DEFAULT_TIME_MODEL` | Time-of-day model pre-selected when the TUI launches. |
+| `default_strategy` | string | `Even Spread` | `REGIT_DEFAULT_STRATEGY` | Day-assignment strategy pre-selected when the TUI launches. Must match a strategy name exactly, e.g. `Picked Days`; an unknown name is a load error. |
+| `default_time_model` | string | `Working hours` | `REGIT_DEFAULT_TIME_MODEL` | Time-of-day model pre-selected when the TUI launches. Must match a model name exactly, e.g. `Non-working hours`; an unknown name is a load error. |
 | `jitter_minutes` | int | `20` | — | Default ± spread (in minutes) for the Jitter time model. |
 | `link_dates` | bool | `true` | `REGIT_LINK_DATES` | Keep author and committer dates equal by default. |
 | `weekdays` | list of strings | `[mon, tue, wed, thu, fri]` | — | Enabled weekday short names (`sun`…`sat`) for weekday-masked strategies. |

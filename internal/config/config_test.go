@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -83,7 +84,7 @@ func TestLoad_allEnvOverrides(t *testing.T) {
 	t.Setenv("REGIT_TIMEZONE", "UTC")
 	t.Setenv("REGIT_WORKDAY_START", "07:30")
 	t.Setenv("REGIT_WORKDAY_END", "19:00")
-	t.Setenv("REGIT_DEFAULT_TIME_MODEL", "Evening")
+	t.Setenv("REGIT_DEFAULT_TIME_MODEL", "Evening hours")
 	t.Setenv("REGIT_SEED", "42")
 	t.Setenv("REGIT_LINK_DATES", "false")
 
@@ -94,7 +95,7 @@ func TestLoad_allEnvOverrides(t *testing.T) {
 	if c.Timezone != "UTC" || c.WorkdayStartMin() != 7*60+30 || c.WorkdayEndMin() != 19*60 {
 		t.Errorf("env window/timezone not applied: %+v", c)
 	}
-	if c.DefaultTimeModel != "Evening" || c.Seed != 42 || c.LinkDates {
+	if c.DefaultTimeModel != "Evening hours" || c.Seed != 42 || c.LinkDates {
 		t.Errorf("env scalar overrides not applied: %+v", c)
 	}
 }
@@ -296,5 +297,35 @@ func TestLoad_badEnvTimezoneErrors(t *testing.T) {
 	t.Setenv("REGIT_TIMEZONE", "Nowhere/Nope")
 	if _, err := Load(); err == nil {
 		t.Fatal("bad REGIT_TIMEZONE should be a load error")
+	}
+}
+
+func TestValidate_unknownDefaultNamesError(t *testing.T) {
+	cases := []struct {
+		name    string
+		edit    func(*Config)
+		wantErr string
+	}{
+		{"strategy with wrong case", func(c *Config) { c.DefaultStrategy = "Picked days" }, `"Picked Days"`},
+		{"unknown time model", func(c *Config) { c.DefaultTimeModel = "Night" }, `"Non-working hours"`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := Default()
+			tc.edit(&c)
+			err := c.Validate()
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("Validate() = %v, want an error listing %s", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidate_knownDefaultNamesPass(t *testing.T) {
+	c := Default()
+	c.DefaultStrategy = "Picked Days"
+	c.DefaultTimeModel = "Non-working hours"
+	if err := c.Validate(); err != nil {
+		t.Errorf("Validate() = %v, want nil", err)
 	}
 }

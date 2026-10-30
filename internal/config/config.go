@@ -11,10 +11,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/wlame/regit/internal/strategy"
 )
 
 // LLMConfig configures the optional LLM used for commit splitting. Off unless a
@@ -150,7 +154,8 @@ func Load() (Config, error) {
 }
 
 // Validate reports configuration values that cannot work: an unresolvable
-// timezone, an unparsable workday clock, or an inverted workday window. Load
+// timezone, an unparsable workday clock, an inverted workday window, or a
+// default strategy or time model that names none of the real ones. Load
 // calls it after the file and environment are applied, so a bad value fails
 // fast at startup instead of silently falling back mid-run (the old behavior
 // dated everything at the workday start when end <= start).
@@ -171,7 +176,42 @@ func (c Config) Validate() error {
 	if end <= start {
 		return fmt.Errorf("workday_end %q must be after workday_start %q", c.WorkdayEnd, c.WorkdayStart)
 	}
-	return nil
+	if err := checkName("default_strategy", c.DefaultStrategy, strategyNames()); err != nil {
+		return err
+	}
+	return checkName("default_time_model", c.DefaultTimeModel, timeModelNames())
+}
+
+// checkName reports a value that is not one of the exact names, listing them.
+// The TUI matches these names exactly, so a near miss would otherwise fall back
+// to the first entry without a word.
+func checkName(key, value string, names []string) error {
+	if slices.Contains(names, value) {
+		return nil
+	}
+	quoted := make([]string, len(names))
+	for i, n := range names {
+		quoted[i] = strconv.Quote(n)
+	}
+	return fmt.Errorf("%s %q is not one of: %s", key, value, strings.Join(quoted, ", "))
+}
+
+// strategyNames returns every day-strategy name, in registry order.
+func strategyNames() []string {
+	var names []string
+	for _, s := range strategy.Strategies() {
+		names = append(names, s.Name())
+	}
+	return names
+}
+
+// timeModelNames returns every time-model name, in registry order.
+func timeModelNames() []string {
+	var names []string
+	for _, tm := range strategy.TimeModels() {
+		names = append(names, tm.Name())
+	}
+	return names
 }
 
 // parseClock parses a required "HH:MM" value to minutes from midnight. Unlike
