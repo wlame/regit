@@ -58,7 +58,7 @@ var registry = []Command{
 		Params: []Param{
 			{Name: "llm", Type: ParamString, Help: "provider/model, e.g. ollama/qwen2.5-coder"},
 			{Name: "agent", Type: ParamString, Help: "agent CLI to drive instead of HTTP"},
-			{Name: "agent-args", Type: ParamString, Help: "replace default agent args"},
+			{Name: "agent-args", Type: ParamString, Help: "replace default agent args (appended to them instead with --agent-scan)"},
 			{Name: "agent-scan", Type: ParamBool, Default: "false", Help: "agent may browse repo files read-only for extra context (requires --agent)"},
 			{Name: "llm-base-url", Type: ParamString, Help: "override the OpenAI-compatible endpoint"},
 			{Name: "prompt", Type: ParamString, Help: "short guidance passed to the LLM"},
@@ -195,7 +195,7 @@ var registry = []Command{
 			{Cmd: "regit redate --strategy=Even-Spread --start=2026-01-01 --end=2026-03-01 --execute", Why: "a range containing a merge commit is refused without --allow-merges", Bad: true},
 		},
 		Limitations: []string{
-			"Strategy/time names come from strategy.Strategies()/TimeModels(); accepts kebab or quoted spaced.",
+			"Strategy and time-model names are case-insensitive and accept kebab-case or a quoted spaced form; an unknown name is rejected with the full list.",
 			"start/end are validated by the engine per strategy, not by --help.",
 		},
 		ExitCodes: map[int]string{0: "ok / dry-run", 1: "usage error", 2: "guard blocked", 3: "apply error"},
@@ -340,7 +340,7 @@ var registry = []Command{
 			{Cmd: `regit redact --match='sk-.*'`, Why: "WRONG: --match is a literal substring (git pickaxe -S), not a regex — metacharacters are matched verbatim, not as a wildcard", Bad: true},
 		},
 		Limitations: []string{
-			"Only the first-parent chain is rewritten; a match with history on a merged side branch is reported as an advisory note, never redacted from that branch's own commits — see gitio.SecretInSideHistory.",
+			"Only the first-parent chain is rewritten; a match with history on a merged side branch is reported as an advisory note, never redacted from that branch's own commits.",
 			"Blocks if a merge commit sits in the rewritten range (like purge).",
 			"--match is matched as a literal substring, never a regex; use --mode=replace with --replace-pattern for regex-based edits within a matched line.",
 			"Headless has no picker: every occurrence Scan finds is redacted, including cascaded descendants (rotations/renames) unless --no-cascade.",

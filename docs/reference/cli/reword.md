@@ -27,7 +27,7 @@ Headless runs request exactly one proposal per commit and preview it until `--ex
 |---|---|---|---|
 | `--llm` | VALUE | — | provider/model, e.g. `ollama/qwen2.5-coder`. |
 | `--agent` | VALUE | — | Agent CLI to drive instead of HTTP. |
-| `--agent-args` | VALUE | — | Replace default agent args. |
+| `--agent-args` | VALUE | — | Replace default agent args (appended to them instead with `--agent-scan`). |
 | `--agent-scan` | BOOL | `false` | Agent may browse repo files read-only for extra context (requires `--agent`). |
 | `--llm-base-url` | VALUE | — | Override the OpenAI-compatible endpoint. |
 | `--prompt` | VALUE | — | Short guidance passed to the LLM. |
