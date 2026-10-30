@@ -19,6 +19,7 @@ const (
 func (m *Model) enterRedateFlow() {
 	m.flow = flowRedate
 	m.focus = focusCalendar
+	m.quotaTyping = false // a digit typed before the last exit starts no quota
 	if !m.hasExplicitSelection() {
 		m.sel.mode = SelActive
 	}
@@ -31,6 +32,7 @@ func (m *Model) enterRedateFlow() {
 func (m *Model) exitFlow() {
 	m.flow = flowNone
 	m.focus = focusList
+	m.quotaTyping = false
 	if m.sel.mode == SelActive {
 		m.sel.reset()
 	}

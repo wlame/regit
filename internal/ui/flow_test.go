@@ -168,3 +168,25 @@ func TestReload_keepsOpenFlowsActiveScope(t *testing.T) {
 		t.Errorf("reload should keep the flow's Active scope, got %v", m.sel.mode)
 	}
 }
+
+func TestRedateFlow_reopeningDiscardsPartlyTypedQuota(t *testing.T) {
+	m := newTestModelN(t, 12)
+	manualPin := -1
+	for i, s := range m.strategies {
+		if s.Name() == "Manual Pin" {
+			manualPin = i
+		}
+	}
+	m = selectStrategy(m, manualPin)
+	m = send(m, "esc", "tab") // params -> list -> calendar
+	day := m.calCursor.Format(dateLayout)
+	m = send(m, "2")      // start typing a quota
+	m = send(m, "esc")    // leave the flow
+	m = send(m, "m", "d") // reopen it
+
+	m = send(m, "1")
+
+	if got := m.activeStrat().quotas[day]; got != 1 {
+		t.Errorf("quota = %d after reopening and typing 1; want 1", got)
+	}
+}
