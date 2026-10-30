@@ -401,3 +401,20 @@ func TestUndoNothingToUndoExitsZero(t *testing.T) {
 		t.Errorf("expected a 'Nothing to undo' notice:\n%s", out.String())
 	}
 }
+
+// TestRunUndo_unknownBackupHintMatchesInvocation: the "--list" hint in the
+// not-found error must use the form the user launched, so `git re` users get a
+// command they can paste.
+func TestRunUndo_unknownBackupHintMatchesInvocation(t *testing.T) {
+	_, repo := newTestRepo(t, 3)
+	ctx := &RunContext{Repo: repo, Cfg: config.Default(), Stdout: io.Discard, Stderr: io.Discard, Now: time.Unix(1000, 0)}
+	applyRedatePlan(t, ctx)
+	SetInvocation("git re")
+	t.Cleanup(func() { SetInvocation("") })
+
+	err := runUndo(ctx, newParsedArgs(map[string]any{"to": "no-such-backup"}, nil))
+
+	if err == nil || !strings.Contains(err.Error(), "try git re undo --list") {
+		t.Errorf("error = %v, want a `git re undo --list` hint", err)
+	}
+}

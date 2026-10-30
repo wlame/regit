@@ -56,7 +56,7 @@ func runUndo(ctx *RunContext, a ParsedArgs) error {
 			}
 		}
 		if !found {
-			return usageErr("backup %q not found (try regit undo --list)", to)
+			return usageErr("backup %q not found (try %s)", to, Invocation()+" undo --list")
 		}
 		switch {
 		case target.Branch == "":
@@ -90,7 +90,8 @@ func runUndo(ctx *RunContext, a ParsedArgs) error {
 				return guardErr("nothing to undo for branch %s (%d legacy backup(s) exist; restore one explicitly with --to=<ref>)",
 					state.Branch, legacy)
 			}
-			return guardErr("nothing to undo for branch %s (regit undo --list shows all backups)", state.Branch)
+			return guardErr("nothing to undo for branch %s (%s shows all backups)",
+				state.Branch, Invocation()+" undo --list")
 		}
 	}
 
