@@ -160,7 +160,10 @@ so a many-file commit can never push the frame past the screen. `d` toggles
 date-grouping in the list (`[d]ates`); off renders a flat newest-first list. `a`
 toggles an author column (`[a]uthor`, off by default) showing each commit's author
 name — or the email username when the name is blank; select-all in a selection
-lives on `s`. On an
+lives on `s`. On load the
+list freezes (dims) every pushed commit and every commit shared with the base
+branch, whichever boundary is newer (app.go `applyAutoBase`; the title shows
+`base: pushed` or the branch name). On an
 in-sync trunk branch (main/master with everything already pushed) history starts
 fully editable instead of freezing all but the newest commit (base.go
 `startsUnlocked`); the apply-time pushed-commit confirmation is unchanged, so this

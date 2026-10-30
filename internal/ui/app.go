@@ -1399,49 +1399,56 @@ func (m Model) focusAfterList() focusArea {
 	return focusList
 }
 
-// applyAutoBase detects the base branch (per chooseBaseBranch's precedence) and freezes the
-// commits up to and including the merge-base. It is best-effort: any git failure
-// leaves the freeze unchanged rather than erroring. Called on load and after
-// every reload, so the freeze re-establishes itself (and survives apply/undo).
+// applyAutoBase freezes the history that should not be rewritten by default:
+// every pushed commit, and every commit shared with the base branch (per
+// chooseBaseBranch's precedence) up to their merge-base — whichever boundary is
+// newer. An in-sync trunk branch is the exception and starts fully editable.
+// It is best-effort: a git failure on the merge-base side just drops that
+// boundary. Called on load and after every reload, so the freeze re-establishes
+// itself (and survives apply/undo).
 //
 // baseBranch and plan.Base are always set together: baseBranch is non-empty ONLY
 // when a freeze was actually computed, so the title bar can never show a base
-// branch whose cone is not frozen. A Branches() failure leaves both unchanged.
+// whose cone is not frozen. It names the base branch, or pushedBaseLabel when
+// the pushed boundary is the newer one.
 func (m *Model) applyAutoBase() {
-	// Req #6: on an in-sync trunk branch, start with everything editable. The
-	// merge-base would otherwise equal HEAD and freeze all but the newest commit.
+	// On an in-sync trunk branch, start with everything editable. Every commit
+	// is pushed there, so the pushed boundary would freeze all but the newest.
 	if startsUnlocked(m.state) {
 		m.baseBranch = ""
 		m.plan.SetBase(0)
 		return
 	}
+	label, idx := m.mergeBaseFreeze()
+	if pushed := pushedBaseIndex(m.plan.Commits); pushed > idx {
+		label, idx = pushedBaseLabel, pushed
+	}
+	m.baseBranch = label
+	m.plan.SetBase(idx)
+}
+
+// mergeBaseFreeze returns the base branch and the plan Base that freezes the
+// history shared with it, or ("", 0) when there is no base branch, git fails,
+// or the merge-base is off the first-parent line (e.g. the base branch was
+// merged in), where there is no honest cone to freeze.
+func (m *Model) mergeBaseFreeze() (string, int) {
 	branches, err := m.repo.Branches()
 	if err != nil {
-		return // can't determine; leave baseBranch and plan.Base unchanged together
+		return "", 0
 	}
 	base := chooseBaseBranch(m.state, branches)
 	if base == "" {
-		m.baseBranch = ""
-		m.plan.SetBase(0)
-		return
+		return "", 0
 	}
 	mergeBase, err := m.repo.MergeBase(m.state.Branch, base)
 	if err != nil {
-		m.baseBranch = ""
-		m.plan.SetBase(0)
-		return
+		return "", 0
 	}
 	idx := baseIndexForMergeBase(m.plan.Commits, mergeBase)
 	if idx == 0 {
-		// The merge-base is off the first-parent line (e.g. the base branch was
-		// merged in), so there is no honest cone to freeze on this linear
-		// history. Claim no base rather than show a label without a freeze.
-		m.baseBranch = ""
-		m.plan.SetBase(0)
-		return
+		return "", 0
 	}
-	m.baseBranch = base
-	m.plan.SetBase(idx)
+	return base, idx
 }
 
 // firstEditableDisplayIndex returns the display-order index (newest = 0) where

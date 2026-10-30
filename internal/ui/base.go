@@ -54,3 +54,21 @@ func startsUnlocked(state model.RepoState) bool {
 	}
 	return state.HasUpstream && state.UpstreamRef != "" && state.AheadOfRemote == 0
 }
+
+// pushedBaseLabel is the title-bar base label when the freeze comes from pushed
+// history rather than from a base branch's merge-base.
+const pushedBaseLabel = "pushed"
+
+// pushedBaseIndex returns the plan Base that freezes every pushed commit: the
+// storage index just after the newest commit on a remote-tracking ref. commits
+// are root-first. Pushed history is closed under ancestry, so the pushed
+// commits form a prefix and the newest one marks its end. It returns 0 when
+// nothing is pushed.
+func pushedBaseIndex(commits []model.Commit) int {
+	for i := len(commits) - 1; i >= 0; i-- {
+		if commits[i].IsPushed {
+			return i + 1
+		}
+	}
+	return 0
+}
