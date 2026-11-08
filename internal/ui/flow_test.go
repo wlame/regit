@@ -270,3 +270,20 @@ func TestRedateFlow_bracketKeysAlsoWorkFromStrategyPane(t *testing.T) {
 		t.Errorf("] in the strategy pane should select the next strategy (focus=%v idx %d -> %d)", m.focus, strat, m.stratIdx)
 	}
 }
+
+// TestRedateFlow_calendarGetsItsFullWidth: the calendar needs rightPaneWidth
+// columns. A narrower flow column wraps every week row, doubles the calendar's
+// height, and pushes the strategy pane off the screen.
+func TestRedateFlow_calendarGetsItsFullWidth(t *testing.T) {
+	for _, size := range [][2]int{{120, 40}, {100, 40}} {
+		m := send(resizeTo(newTestModelN(t, 6), size[0], size[1]), "m", "d")
+
+		if w := m.layout().flowWidth; w < rightPaneWidth {
+			t.Errorf("%dx%d: flow column is %d wide, the calendar needs %d", size[0], size[1], w, rightPaneWidth)
+		}
+		if view := stripANSI(m.View()); !strings.Contains(view, "STRATEGY") {
+			t.Errorf("%dx%d: the strategy pane is off the screen:\n%s", size[0], size[1], view)
+		}
+		assertFrameFits(t, m, size[0], size[1])
+	}
+}

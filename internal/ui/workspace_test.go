@@ -74,7 +74,7 @@ func TestViewAuthorsPane_widthClampsToFlowColumnInNarrowRedate(t *testing.T) {
 	m.width, m.height = 100, 40
 	m.enterRedateFlow()
 
-	flowColumnBudget := computeLayout(m.width, m.height).flowWidth + 2 // +border
+	flowColumnBudget := m.layout().flowWidth + 2 // +border
 	pane := m.viewAuthorsPane(12)
 	if pane == "" {
 		t.Fatal("expected a non-empty AUTHORS pane at budget 12")

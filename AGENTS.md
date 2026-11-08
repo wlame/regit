@@ -152,8 +152,11 @@ rather than refusing the new one. `redate --commits=A^..B` (or a comma-separated
 list) is the headless equivalent of making an explicit selection before staging.
 
 The commit backbone is the list — capped at 80 columns (layout.go `listCeilWidth`) —
-beside a detail panel that stretches to fill the rest of a wide terminal. Below
-88 columns (`computeLayout`'s `showRight`) there is one column: the list alone,
+beside a detail panel that stretches to fill the rest of a wide terminal. The
+flow column has a per-flow minimum width (layout.go `flowZoneMinWidths`; the
+redate calendar needs `rightPaneWidth`), and the list shrinks to make room. When
+the list floor plus that minimum does not fit (below 88 columns, or 110 with the
+redate flow open; `showRight`) there is one column: the list alone,
 or an open flow in the list's place while the flow has focus
 (view.go `flowOwnsNarrowBody`); when the flow hands focus back to the list, the
 list shows again, and `tab` switches between them (redate only; redact never

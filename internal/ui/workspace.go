@@ -22,7 +22,7 @@ func (m Model) viewFlowZone() string {
 		case flowRedact:
 			return m.viewRedactFlow()
 		}
-		return m.viewDetailPane(computeLayout(m.width, m.height).flowWidth, m.listHeight()+1)
+		return m.viewDetailPane(m.layout().flowWidth, m.listHeight()+1)
 	}
 
 	budget := m.height - 3
@@ -43,7 +43,7 @@ func (m Model) viewFlowZone() string {
 	case flowRedact:
 		widget = m.viewRedactFlow()
 	default:
-		widget = m.viewDetailPaneForZone(computeLayout(m.width, m.height).flowWidth, budget)
+		widget = m.viewDetailPaneForZone(m.layout().flowWidth, budget)
 	}
 	widgetH := lipgloss.Height(widget)
 	if widgetH >= budget {

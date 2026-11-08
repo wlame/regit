@@ -221,6 +221,6 @@ func (m Model) viewAuthorsPane(budget int) string {
 	// column (e.g. ~100-140 columns, where the calendar has already clamped)
 	// would still render this pane at the full rightPaneWidth and truncate its
 	// right border.
-	width := min(rightPaneWidth, computeLayout(m.width, m.height).flowWidth)
+	width := min(rightPaneWidth, m.layout().flowWidth)
 	return m.st.pane.Width(width).Render(strings.Join(lines, "\n"))
 }

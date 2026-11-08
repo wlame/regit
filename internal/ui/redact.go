@@ -629,7 +629,7 @@ func (c redactChange) apply(mgr *safety.Manager, state model.RepoState, opts saf
 // spliced in as a post-processing step, mirroring viewPurge/viewSquash: the
 // pure renderRedactFlow stays testable without a live spinner.
 func (m Model) viewRedactFlow() string {
-	width := computeLayout(m.width, m.height).flowWidth
+	width := m.layout().flowWidth
 	body := renderRedactFlow(m.redactSt, m.st)
 	if m.redactSt.scanning {
 		body = strings.ReplaceAll(body, "scanning history…", m.spinner.View()+" scanning history…")

@@ -199,7 +199,7 @@ func (m Model) beginReauthor() (tea.Model, tea.Cmd, bool) {
 	}
 	oldest := targets[0]
 	m.reauthorSt = newReauthorState(oldest.AuthorName, oldest.AuthorEmail, targets,
-		computeLayout(m.width, m.height).inputWidth)
+		m.layout().inputWidth)
 	m.mode = modeReauthor
 	return m, nil, true
 }

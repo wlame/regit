@@ -79,7 +79,8 @@ The TUI opens on your current branch's commits. Press `?` for the full key overl
 red letter: press it to focus that pane (++o++ commits, ++c++ calendar, ++t++
 strategy).
 
-On a terminal narrower than 88 columns the TUI uses one column. An open flow,
+On a terminal narrower than 88 columns (110 while the date calendar is open)
+the TUI uses one column. An open flow,
 such as the date calendar or the redact wizard, then takes the place of the
 commit list. In the date flow, press ++tab++ to switch between the flow and the
 list.

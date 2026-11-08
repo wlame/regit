@@ -100,7 +100,7 @@ func (m Model) viewCalendarPane() string {
 	// The calendar no longer dictates the flow zone's width: it renders at its
 	// natural width when the column is wide enough, else clamps down to
 	// whatever the layout gave the zone (flowWidth, layout.go).
-	width := min(rightPaneWidth, computeLayout(m.width, m.height).flowWidth)
+	width := min(rightPaneWidth, m.layout().flowWidth)
 	return withBorderTitle(pane.Width(width).Render(content), pane, m.paneTitle("CALENDAR", "", m.focus == focusCalendar))
 }
 
@@ -117,7 +117,7 @@ func (m Model) viewStrategyPane() string {
 	// The strategy pane shares the calendar's width policy: natural width
 	// (rightPaneWidth) when the flow zone is wide enough, else clamped down to
 	// it (layout.go's flowWidth).
-	width := min(rightPaneWidth, computeLayout(m.width, m.height).flowWidth)
+	width := min(rightPaneWidth, m.layout().flowWidth)
 	// MaxWidth guards against long labels/errors wrapping inside the pane,
 	// which would inflate its height.
 	rendered := pane.Width(width).Render(lipgloss.NewStyle().MaxWidth(width - 2).Render(content))

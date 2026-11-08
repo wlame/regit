@@ -178,7 +178,7 @@ func newPurgeState(inputW int) purgeState {
 // recognizable as stale once the new one lands.
 func (m Model) beginPurge() (tea.Model, tea.Cmd, bool) {
 	seq := m.purgeSt.scanSeq + 1
-	m.purgeSt = newPurgeState(computeLayout(m.width, m.height).inputWidth)
+	m.purgeSt = newPurgeState(m.layout().inputWidth)
 	m.purgeSt.scanSeq = seq
 	m.mode = modePurge
 	repo := m.repo

@@ -382,6 +382,6 @@ func (f paramsForm) view(st styles) string {
 		b.WriteString(st.statusErr.Render("✗ "+truncate(f.errMsg, 56)) + "\n")
 	}
 
-	b.WriteString(st.help.Render("←/→ change strategy (top row) / time model · ↑/↓ field · enter apply · tab back"))
+	b.WriteString(st.help.Render("[ ] strategy · < > time · ↑/↓ field · enter apply · tab back"))
 	return b.String()
 }

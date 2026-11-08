@@ -53,7 +53,7 @@ func (m *Model) exitFlow() {
 // still-in-flight scan from an abandoned EARLIER session collide with a scan
 // the new session goes on to start.
 func (m *Model) enterRedactFlow() {
-	m.redactSt = newRedactState(redactInputWidth(computeLayout(m.width, m.height).flowWidth))
+	m.redactSt = newRedactState(redactInputWidth(m.layout().flowWidth))
 	m.flow = flowRedact
 	m.focus = focusRedact
 }

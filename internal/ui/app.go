@@ -830,7 +830,7 @@ func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 			m.setStatus("List branches: "+err.Error(), statusErr)
 			return m, nil, true
 		}
-		m.picker = newPicker("Branches", branches, computeLayout(m.width, m.height).inputWidth)
+		m.picker = newPicker("Branches", branches, m.layout().inputWidth)
 		m.mode = modePicker
 		return m, nil, true
 	case "L":
@@ -977,7 +977,7 @@ func (m Model) openEditorAtCursor() (tea.Model, tea.Cmd) {
 // computeLayout (layout.go) so every region shares one source of truth; the
 // field stays within a readable [inputMinWidth, inputMaxWidth] band.
 func (m Model) editorFieldWidth() int {
-	return computeLayout(m.width, m.height).inputWidth
+	return m.layout().inputWidth
 }
 
 // listNavKey handles fast list-navigation keys when the commit list is focused.
@@ -2311,7 +2311,7 @@ func (m Model) View() string {
 		overlay = m.editor.view(m.commitByHash(m.editor.hash), m.st)
 	case modePipeline:
 		overlay = viewPipeline(m.pending.preview(m.st), m.previewOffset, m.previewVisibleRows(),
-			m.pipelineApply, computeLayout(m.width, m.height).previewWidth, m.st)
+			m.pipelineApply, m.layout().previewWidth, m.st)
 	case modeConfirm:
 		overlay = m.viewConfirm()
 	case modeHelp:
@@ -2355,7 +2355,7 @@ func (m Model) View() string {
 		c := m.commitAtCursor()
 		stat, have := m.statCache[c.Hash]
 		overlay = m.st.modal.Render(renderDetail(c, stat, have, m.statErr[c.Hash], m.plan, m.loc,
-			computeLayout(m.width, m.height).detailOverlayWidth,
+			m.layout().detailOverlayWidth,
 			max(8, m.height-6), m.st, m.authorColorStyle(c)))
 	case modePicker:
 		overlay = viewPicker(m.picker, "enter switch · tab set base · ↑/↓ move · esc cancel", m.st)

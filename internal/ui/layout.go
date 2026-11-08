@@ -81,6 +81,29 @@ type layoutDims struct {
 // Before the first size message, all computed field values assume this 120-column
 // floor, so no hard-coded pre-size width should be treated as load-bearing.
 func computeLayout(termW, termH int) layoutDims {
+	return computeLayoutWith(termW, termH, flowMinWidth)
+}
+
+// flowZoneMinWidths is the flow column's minimum width per open flow, for flows
+// whose widget needs more than flowMinWidth beside the list. The redate flow's
+// calendar wraps every week row below its natural width.
+var flowZoneMinWidths = map[flowID]int{
+	flowRedate: rightPaneWidth,
+}
+
+// layout is the screen layout for the model's size and open flow.
+func (m Model) layout() layoutDims {
+	flowMin, ok := flowZoneMinWidths[m.flow]
+	if !ok {
+		flowMin = flowMinWidth
+	}
+	return computeLayoutWith(m.width, m.height, flowMin)
+}
+
+// computeLayoutWith is computeLayout with the flow column's minimum width as a
+// parameter. A terminal too narrow for the list floor plus flowMin beside it
+// gets the one-column layout.
+func computeLayoutWith(termW, termH, flowMin int) layoutDims {
 	if termW <= 0 {
 		termW = 120
 	}
@@ -94,7 +117,7 @@ func computeLayout(termW, termH int) layoutDims {
 	// seat even the list floor plus a usable flow column, drop the flow zone
 	// entirely and give the whole width to the list, rather than joining a
 	// floor-width list to a too-narrow flow column and overflowing the frame.
-	showRight := usable >= listFloorWidth+flowMinWidth+paneFrames
+	showRight := usable >= listFloorWidth+flowMin+paneFrames
 
 	var listW, flowW int
 	switch {
@@ -112,7 +135,7 @@ func computeLayout(termW, termH int) layoutDims {
 		// Two-column: list + flow zone. The list keeps priority: it grows to
 		// listCeilWidth first, the flow zone absorbs whatever remains — unlike
 		// the old fixed calendar column, nothing here caps how wide it gets.
-		listW = usable - flowMinWidth - paneFrames
+		listW = usable - flowMin - paneFrames
 		if listW > listCeilWidth {
 			listW = listCeilWidth
 		}

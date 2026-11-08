@@ -14,7 +14,7 @@ func (m Model) viewMain() string {
 	title := m.viewTitle()
 
 	var body string
-	switch dims := computeLayout(m.width, m.height); {
+	switch dims := m.layout(); {
 	case !dims.showRight && m.flowOwnsNarrowBody():
 		body = m.viewFlowZone()
 	case !dims.showRight:
@@ -82,7 +82,7 @@ func (m Model) viewTitle() string {
 // sizing math lives in computeLayout (layout.go) so the list grows to fill a
 // wide terminal — up to listCeilWidth — instead of the old fixed 66-column cap.
 func (m Model) listWidth() int {
-	return computeLayout(m.width, m.height).listWidth
+	return m.layout().listWidth
 }
 
 // viewDetailPane frames the commit-detail panel for the cursor commit at the
