@@ -91,13 +91,20 @@ var flowZoneMinWidths = map[flowID]int{
 	flowRedate: rightPaneWidth,
 }
 
-// layout is the screen layout for the model's size and open flow.
+// layout is the screen layout for the model's size, open flow, and open
+// wizard.
 func (m Model) layout() layoutDims {
+	return m.layoutWithWizard(m.zoneWizardOpen())
+}
+
+// layoutWithWizard is the layout with or without a wizard in the flow zone.
+// Launching a wizard sizes its fields with true before its mode is set.
+func (m Model) layoutWithWizard(wizardOpen bool) layoutDims {
 	flowMin, ok := flowZoneMinWidths[m.flow]
 	if !ok {
 		flowMin = flowMinWidth
 	}
-	if m.zoneWizardOpen() {
+	if wizardOpen {
 		flowMin = max(flowMin, zoneWizardMinWidth)
 	}
 	return computeLayoutWith(m.width, m.height, flowMin)

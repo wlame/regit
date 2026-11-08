@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/wlame/regit/internal/reword"
 )
 
@@ -66,6 +68,27 @@ func TestSquashWizard_drawsInTheFlowZoneAndFits(t *testing.T) {
 
 		if view := stripANSI(m.View()); !hasBorderTitle(view, "SQUASH") {
 			t.Errorf("%dx%d: squash should be a titled pane in the flow zone:\n%s", size[0], size[1], view)
+		}
+		assertFrameFits(t, m, size[0], size[1])
+	}
+}
+
+func TestRetitleWizard_drawsInTheFlowZoneAndFits(t *testing.T) {
+	for _, size := range [][2]int{{120, 40}, {80, 24}, {60, 16}} {
+		m := resizeTo(newTestModelN(t, 6), size[0], size[1])
+		m = send(m, "m", "t")
+		if m.mode != modeRetitle {
+			t.Fatalf("expected the retitle wizard, got mode %v", m.mode)
+		}
+		short := lipgloss.Height(m.View())
+		m = send(m, strings.Repeat("x", 70)) // a long pattern scrolls in its field
+
+		view := stripANSI(m.View())
+		if !hasBorderTitle(view, "RETITLE") {
+			t.Errorf("%dx%d: retitle should be a titled pane in the flow zone:\n%s", size[0], size[1], view)
+		}
+		if got := lipgloss.Height(m.View()); got != short {
+			t.Errorf("%dx%d: a long pattern changed the frame from %d to %d rows", size[0], size[1], short, got)
 		}
 		assertFrameFits(t, m, size[0], size[1])
 	}

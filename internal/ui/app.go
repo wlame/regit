@@ -2362,8 +2362,6 @@ func (m Model) View() string {
 			body += "\n" + m.st.help.Render("↑/↓ scroll · esc close")
 		}
 		overlay = m.st.modal.Render(body)
-	case modeRetitle:
-		overlay = m.retitle.view(m.affectedCommits(), m.plan, m.st)
 	case modeDropBodies:
 		overlay = m.viewDropBodies()
 	case modeReauthor:

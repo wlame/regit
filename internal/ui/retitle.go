@@ -177,8 +177,11 @@ func retitlePreview(scope []model.Commit, plan *model.Plan, s retitleState) (cha
 	return changed, example, nil
 }
 
-// view renders the retitle modal with a live preview of the transformation.
-func (s retitleState) view(scope []model.Commit, plan *model.Plan, st styles) string {
+// retitleLabelWidth is the label column of the pattern and replacement fields.
+const retitleLabelWidth = 13
+
+// body renders the retitle form with a live preview of the transformation.
+func (s retitleState) body(scope []model.Commit, plan *model.Plan, st styles) string {
 	var b strings.Builder
 	b.WriteString(st.modalTitle.Render("Bulk retitle (regex)") + "\n")
 	b.WriteString(st.dim.Render(fmt.Sprintf("Rewrites %d commit title(s) in scope", len(scope))) + "\n\n")
@@ -195,8 +198,8 @@ func (s retitleState) view(scope []model.Commit, plan *model.Plan, st styles) st
 		}
 		return "[ ]"
 	}
-	b.WriteString(fmt.Sprintf("%s%-13s %s\n", cursors[0], "Pattern:", s.pattern.View()))
-	b.WriteString(fmt.Sprintf("%s%-13s %s\n", cursors[1], "Replacement:", s.replace.View()))
+	fmt.Fprintf(&b, "%s%-*s %s\n", cursors[0], retitleLabelWidth, "Pattern:", s.pattern.View())
+	fmt.Fprintf(&b, "%s%-*s %s\n", cursors[1], retitleLabelWidth, "Replacement:", s.replace.View())
 	b.WriteString(fmt.Sprintf("%s%s Capitalize the first letter\n", cursors[2], checkbox(s.capitalize)))
 	b.WriteString(fmt.Sprintf("%s%s End the title with \".\"\n\n", cursors[3], checkbox(s.ensureDot)))
 
@@ -215,5 +218,5 @@ func (s retitleState) view(scope []model.Commit, plan *model.Plan, st styles) st
 		b.WriteString(st.statusErr.Render("✗ "+s.errMsg) + "\n")
 	}
 	b.WriteString("\n" + st.help.Render("tab next · space toggle · enter apply · esc cancel"))
-	return st.modal.Render(b.String())
+	return b.String()
 }

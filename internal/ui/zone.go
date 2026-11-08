@@ -19,14 +19,23 @@ type zoneWizard struct {
 
 // zoneWizards maps each wizard mode drawn in the flow zone to its pane.
 var zoneWizards = map[mode]zoneWizard{
-	modeReword: {title: "REWORD", body: Model.rewordWizardBody},
-	modeSquash: {title: "SQUASH", body: Model.squashWizardBody},
+	modeReword:  {title: "REWORD", body: Model.rewordWizardBody},
+	modeSquash:  {title: "SQUASH", body: Model.squashWizardBody},
+	modeRetitle: {title: "RETITLE", body: Model.retitleWizardBody},
 }
 
 // zoneWizardMinWidth is the flow column's minimum width while a wizard is in
 // it, matching the redate calendar: room for a commit title and its body
 // without heavy wrapping.
 const zoneWizardMinWidth = rightPaneWidth
+
+// zoneInputWidth is the width of a wizard text field in the flow zone, after
+// the pane's border and padding (4), the "▸ " cursor (2), a label column of
+// labelWidth and its gap (1), and the field's own cursor cell (1). A longer
+// value scrolls in the field instead of wrapping onto a second row.
+func (m Model) zoneInputWidth(labelWidth int) int {
+	return max(10, m.layoutWithWizard(true).flowWidth-4-2-labelWidth-1-1)
+}
 
 // zoneWizardOpen reports whether the open mode draws a wizard in the flow zone.
 func (m Model) zoneWizardOpen() bool {
@@ -59,4 +68,9 @@ func (m Model) rewordWizardBody(width, _ int) string {
 	default:
 		return lipgloss.NewStyle().Width(width).Render(renderRewordPicker(reword.Result{}, m.rewordSt.sel, m.rewordSt.errMsg))
 	}
+}
+
+// retitleWizardBody is the retitle form over the commits in scope.
+func (m Model) retitleWizardBody(_, _ int) string {
+	return m.retitle.body(m.affectedCommits(), m.plan, m.st)
 }
