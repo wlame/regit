@@ -199,7 +199,7 @@ func (m Model) beginReauthor() (tea.Model, tea.Cmd, bool) {
 	}
 	oldest := targets[0]
 	m.reauthorSt = newReauthorState(oldest.AuthorName, oldest.AuthorEmail, targets,
-		m.layout().inputWidth)
+		m.zoneInputWidth(reauthorLabelWidth))
 	m.mode = modeReauthor
 	return m, nil, true
 }
@@ -299,6 +299,10 @@ func (m Model) stageReauthor() (tea.Model, tea.Cmd) {
 
 // renderReauthorWizard renders the modal body (pure, testable). The focused
 // textinput draws its own cursor; focusBar marks the active row.
+// reauthorLabelWidth is the label column before a text field ("Email" plus
+// padding); the focus bar and its space take the field cursor's 2 columns.
+const reauthorLabelWidth = 7
+
 func renderReauthorWizard(st reauthorState, s styles) string {
 	var b strings.Builder
 	b.WriteString(s.modalTitle.Render(fmt.Sprintf("CHANGE AUTHOR · %d commit(s)", len(st.targets))) + "\n\n")
@@ -331,9 +335,4 @@ func focusBar(field, want reauthorField) string {
 		return "┃"
 	}
 	return " "
-}
-
-// viewReauthor frames the wizard in the modal style.
-func (m Model) viewReauthor() string {
-	return m.st.modal.Render(renderReauthorWizard(m.reauthorSt, m.st))
 }

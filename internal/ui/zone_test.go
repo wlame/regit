@@ -93,3 +93,24 @@ func TestRetitleWizard_drawsInTheFlowZoneAndFits(t *testing.T) {
 		assertFrameFits(t, m, size[0], size[1])
 	}
 }
+
+func TestReauthorWizard_drawsInTheFlowZoneAndFits(t *testing.T) {
+	for _, size := range [][2]int{{120, 40}, {80, 24}, {60, 16}} {
+		m := resizeTo(newTestModelN(t, 6), size[0], size[1])
+		m = send(m, "s", "m", "a") // reauthor acts on marked commits
+		if m.mode != modeReauthor {
+			t.Fatalf("expected the reauthor wizard, got mode %v", m.mode)
+		}
+		short := lipgloss.Height(m.View())
+		m = send(m, strings.Repeat("x", 70)) // a long name scrolls in its field
+
+		view := stripANSI(m.View())
+		if !hasBorderTitle(view, "CHANGE AUTHOR") {
+			t.Errorf("%dx%d: reauthor should be a titled pane in the flow zone:\n%s", size[0], size[1], view)
+		}
+		if got := lipgloss.Height(m.View()); got != short {
+			t.Errorf("%dx%d: a long name changed the frame from %d to %d rows", size[0], size[1], short, got)
+		}
+		assertFrameFits(t, m, size[0], size[1])
+	}
+}

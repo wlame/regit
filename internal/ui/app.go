@@ -2364,8 +2364,6 @@ func (m Model) View() string {
 		overlay = m.st.modal.Render(body)
 	case modeDropBodies:
 		overlay = m.viewDropBodies()
-	case modeReauthor:
-		overlay = m.viewReauthor()
 	case modePurge:
 		overlay = m.viewPurge()
 	case modeSplitGen:

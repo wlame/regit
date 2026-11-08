@@ -19,9 +19,10 @@ type zoneWizard struct {
 
 // zoneWizards maps each wizard mode drawn in the flow zone to its pane.
 var zoneWizards = map[mode]zoneWizard{
-	modeReword:  {title: "REWORD", body: Model.rewordWizardBody},
-	modeSquash:  {title: "SQUASH", body: Model.squashWizardBody},
-	modeRetitle: {title: "RETITLE", body: Model.retitleWizardBody},
+	modeReword:   {title: "REWORD", body: Model.rewordWizardBody},
+	modeSquash:   {title: "SQUASH", body: Model.squashWizardBody},
+	modeRetitle:  {title: "RETITLE", body: Model.retitleWizardBody},
+	modeReauthor: {title: "CHANGE AUTHOR", body: Model.reauthorWizardBody},
 }
 
 // zoneWizardMinWidth is the flow column's minimum width while a wizard is in
@@ -50,7 +51,9 @@ func (m Model) viewZoneWizard(budget int) string {
 	width := m.layout().flowWidth
 	pane := m.st.paneActive
 	const paneBorderRows = 2
-	body := lipgloss.NewStyle().MaxWidth(width - 2).Render(w.body(m, width-2, budget-paneBorderRows))
+	// The pane wraps a line longer than its inner width (a key-hint line, say);
+	// the final MaxHeight keeps the result inside the zone's rows.
+	body := w.body(m, width-2, budget-paneBorderRows)
 	rendered := withBorderTitle(pane.Width(width).Render(body), pane, m.paneTitle(w.title, "", true))
 	return lipgloss.NewStyle().MaxHeight(budget).Render(rendered)
 }
@@ -73,4 +76,9 @@ func (m Model) rewordWizardBody(width, _ int) string {
 // retitleWizardBody is the retitle form over the commits in scope.
 func (m Model) retitleWizardBody(_, _ int) string {
 	return m.retitle.body(m.affectedCommits(), m.plan, m.st)
+}
+
+// reauthorWizardBody is the change-author form.
+func (m Model) reauthorWizardBody(_, _ int) string {
+	return renderReauthorWizard(m.reauthorSt, m.st)
 }
