@@ -723,7 +723,7 @@ func TestViewRedactFlow_rendersAtEveryStepWithoutPanicking(t *testing.T) {
 
 	fresh := newRedactState(40)
 	match := renderRedactFlow(fresh, m.st)
-	if !strings.Contains(match, "REDACT") || !strings.Contains(match, "Match:") {
+	if !strings.Contains(match, "REDACT") || !strings.Contains(match, "Secret to find") {
 		t.Errorf("step 1 render missing expected content:\n%s", match)
 	}
 
