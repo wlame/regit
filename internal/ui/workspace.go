@@ -36,6 +36,9 @@ func (m Model) viewFlowZone() string {
 		budget = minListRows
 	}
 
+	if m.zoneWizardOpen() {
+		return m.viewZoneWizard(budget)
+	}
 	var widget string
 	switch m.flow {
 	case flowRedate:

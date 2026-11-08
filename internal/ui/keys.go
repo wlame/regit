@@ -43,6 +43,7 @@ const (
 	ctxRedate               // the redate flow (calendar/strategy) is open
 	ctxRedact               // the redact flow (match/pick/mode wizard) is open
 	ctxPanel                // the action panel owns the keybar
+	ctxWizard               // a wizard in the flow zone owns every key; it shows its own key hints
 )
 
 // exclusiveKeyCtx marks contexts whose keybar shows ONLY their own rows,
@@ -60,6 +61,7 @@ const (
 var exclusiveKeyCtx = map[keyCtx]bool{
 	ctxPanel:  true,
 	ctxRedact: true,
+	ctxWizard: true,
 }
 
 // keybarRowVisible reports whether row belongs on the keybar for ctx: its own
@@ -295,6 +297,8 @@ func (m Model) currentKeyCtx() keyCtx {
 	switch {
 	case m.panel.open:
 		return ctxPanel
+	case m.zoneWizardOpen():
+		return ctxWizard
 	case m.flow == flowRedate:
 		return ctxRedate
 	case m.flow == flowRedact:

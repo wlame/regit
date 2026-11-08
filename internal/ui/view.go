@@ -48,13 +48,14 @@ func (m Model) viewMain() string {
 	return lipgloss.JoinVertical(lipgloss.Left, regions...)
 }
 
-// flowOwnsNarrowBody reports whether a one-column terminal shows the open flow
-// instead of the commit list. The focused pane wins: a flow can hand focus
+// flowOwnsNarrowBody reports whether a one-column terminal shows the flow zone
+// instead of the commit list: always while a zone wizard owns the keys, and for
+// an open flow when it has focus. The focused pane wins: a flow can hand focus
 // back to the list while it stays open (tab or esc from the strategy pane, or
 // staging a strategy so A applies it), and list keys must then move a list the
 // user can see. tab switches between the two.
 func (m Model) flowOwnsNarrowBody() bool {
-	return m.flow != flowNone && m.focus != focusList
+	return m.zoneWizardOpen() || (m.flow != flowNone && m.focus != focusList)
 }
 
 func (m Model) viewTitle() string {

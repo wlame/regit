@@ -215,11 +215,12 @@ func (m Model) viewCommitList() string {
 		b.WriteString(m.renderCommitRow(r.displayIdx, inner, calKey) + "\n")
 	}
 
+	listFocused := m.focus == focusList && !m.zoneWizardOpen()
 	pane := m.st.pane
-	if m.focus == focusList {
+	if listFocused {
 		pane = m.st.paneActive
 	}
-	title := m.paneTitle("COMMITS", fmt.Sprintf(" (%d) · %s", len(m.plan.Commits), m.markSummary()), m.focus == focusList)
+	title := m.paneTitle("COMMITS", fmt.Sprintf(" (%d) · %s", len(m.plan.Commits), m.markSummary()), listFocused)
 	return withBorderTitle(pane.Width(width).Height(height+1).Render(b.String()), pane, title)
 }
 

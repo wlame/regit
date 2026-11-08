@@ -2336,6 +2336,9 @@ func (m Model) View() string {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.st.statusWarn.Render(msg))
 	}
 	main := m.viewMain()
+	if m.zoneWizardOpen() {
+		return main // drawn in the flow zone by viewFlowZone
+	}
 
 	var overlay string
 	switch m.mode {
@@ -2363,18 +2366,6 @@ func (m Model) View() string {
 		overlay = m.retitle.view(m.affectedCommits(), m.plan, m.st)
 	case modeDropBodies:
 		overlay = m.viewDropBodies()
-	case modeReword:
-		// Show the buffered result if available; otherwise a generating indicator
-		// (the shared spinner) or the failure once the call has errored.
-		result, ok := m.rewordSt.buffer[m.rewordSt.commit.Hash]
-		switch {
-		case ok:
-			overlay = m.st.modal.Render(renderRewordPicker(result, m.rewordSt.sel, m.rewordSt.errMsg))
-		case m.rewordSt.errMsg == "":
-			overlay = m.st.modal.Render(m.spinner.View() + " generating reword variants…\n\nesc cancel")
-		default:
-			overlay = m.st.modal.Render(renderRewordPicker(reword.Result{}, m.rewordSt.sel, m.rewordSt.errMsg))
-		}
 	case modeSquash:
 		overlay = m.viewSquash()
 	case modeReauthor:

@@ -1,0 +1,60 @@
+package ui
+
+import (
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/wlame/regit/internal/reword"
+)
+
+// zone.go draws wizards inside the flow zone, beside the commit list, instead
+// of as a popup centered over the whole screen. The wizard still owns every
+// key through its mode; only where it renders changes.
+
+// zoneWizard is one wizard drawn in the flow zone: the title in its pane's
+// top border and a renderer for its body at an inner width.
+type zoneWizard struct {
+	title string
+	body  func(m Model, width int) string
+}
+
+// zoneWizards maps each wizard mode drawn in the flow zone to its pane.
+var zoneWizards = map[mode]zoneWizard{
+	modeReword: {title: "REWORD", body: Model.rewordWizardBody},
+}
+
+// zoneWizardMinWidth is the flow column's minimum width while a wizard is in
+// it, matching the redate calendar: room for a commit title and its body
+// without heavy wrapping.
+const zoneWizardMinWidth = rightPaneWidth
+
+// zoneWizardOpen reports whether the open mode draws a wizard in the flow zone.
+func (m Model) zoneWizardOpen() bool {
+	_, ok := zoneWizards[m.mode]
+	return ok
+}
+
+// viewZoneWizard renders the open wizard as the flow zone's pane, clamped to
+// the zone's row budget.
+func (m Model) viewZoneWizard(budget int) string {
+	w := zoneWizards[m.mode]
+	width := m.layout().flowWidth
+	pane := m.st.paneActive
+	body := lipgloss.NewStyle().MaxWidth(width - 2).Render(w.body(m, width-2))
+	rendered := withBorderTitle(pane.Width(width).Render(body), pane, m.paneTitle(w.title, "", true))
+	return lipgloss.NewStyle().MaxHeight(budget).Render(rendered)
+}
+
+// rewordWizardBody is the reword picker for the commit being reworded: the
+// buffered variants, a generating indicator while the call runs, or the
+// failure once it has errored.
+func (m Model) rewordWizardBody(width int) string {
+	result, ok := m.rewordSt.buffer[m.rewordSt.commit.Hash]
+	switch {
+	case ok:
+		return lipgloss.NewStyle().Width(width).Render(renderRewordPicker(result, m.rewordSt.sel, m.rewordSt.errMsg))
+	case m.rewordSt.errMsg == "":
+		return m.spinner.View() + " generating reword variants…\n\nesc cancel"
+	default:
+		return lipgloss.NewStyle().Width(width).Render(renderRewordPicker(reword.Result{}, m.rewordSt.sel, m.rewordSt.errMsg))
+	}
+}

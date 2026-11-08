@@ -97,6 +97,9 @@ func (m Model) layout() layoutDims {
 	if !ok {
 		flowMin = flowMinWidth
 	}
+	if m.zoneWizardOpen() {
+		flowMin = max(flowMin, zoneWizardMinWidth)
+	}
 	return computeLayoutWith(m.width, m.height, flowMin)
 }
 
