@@ -196,6 +196,8 @@ consumer reads. Every editable row carries a checkbox beside the ▸ caret
 dim ● for every row under the redate flow's whole-range scope, ○ otherwise;
 frozen rows have none), and the list title says what an action will touch
 (`markSummary`: "3 will change" / "all 9 will change" / "all 9 editable").
+An "already pushed" divider row (`pushedDividerRow`) sits above the newest
+commit on a remote-tracking ref; it is information, while dimming means frozen.
 Other modes: Single (▸ cursor), Active (whole non-frozen range,
 frozen cone dimmed), Global (list dimmed). The mode defaults to Single everywhere (`newSelection`/`reset`); the
 one exception is entering the redate flow with no explicit selection already

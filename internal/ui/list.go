@@ -15,20 +15,42 @@ import (
 // (identified by its display index, newest = 0) or a non-selectable date
 // divider that heads a same-day group. The cursor only ever lands on commits.
 type listRow struct {
-	isDivider  bool
-	label      string // divider text, e.g. "──── 2026-03-02 (Mon) · 3 commits ────"
-	displayIdx int    // commit display index when !isDivider
+	isDivider       bool
+	isPushedDivider bool   // the divider above the newest pushed commit (also isDivider)
+	label           string // divider text, e.g. "──── 2026-03-02 (Mon) · 3 commits ────"
+	displayIdx      int    // commit display index when !isDivider
+}
+
+// pushedDividerRow heads the pushed part of the history: everything below it is
+// already on a remote. It is information only; what is frozen is the dimming.
+var pushedDividerRow = listRow{isDivider: true, isPushedDivider: true, label: "──── already pushed ────"}
+
+// newestPushedDisplayIndex returns the display index (newest = 0) of the newest
+// commit on a remote-tracking ref, or -1 when nothing is pushed.
+func (m Model) newestPushedDisplayIndex() int {
+	for i := range len(m.plan.Commits) {
+		if m.commitAtDisplayIndex(i).IsPushed {
+			return i
+		}
+	}
+	return -1
 }
 
 // buildListRows produces the full newest-first row sequence, inserting a date
 // divider before the first commit of each distinct author-date day. The day a
 // commit falls on uses its EFFECTIVE date so pending date edits regroup it live.
+// The pushed divider goes right above the newest pushed commit, and above its
+// day's divider when that commit opens a day group.
 func (m Model) buildListRows() []listRow {
 	n := len(m.plan.Commits)
-	rows := make([]listRow, 0, n+8)
+	rows := make([]listRow, 0, n+9)
+	pushedAt := m.newestPushedDisplayIndex()
 
 	if !m.groupByDate {
 		for i := 0; i < n; i++ {
+			if i == pushedAt {
+				rows = append(rows, pushedDividerRow)
+			}
 			rows = append(rows, listRow{displayIdx: i})
 		}
 		return rows
@@ -46,6 +68,9 @@ func (m Model) buildListRows() []listRow {
 		c := m.commitAtDisplayIndex(i)
 		day := m.plan.EffectiveAuthorDate(c).In(m.loc)
 		key := day.Format(dateLayout)
+		if i == pushedAt {
+			rows = append(rows, pushedDividerRow)
+		}
 		if key != prevKey {
 			label := fmt.Sprintf("──── %s (%s) · %d commit(s) ────",
 				key, day.Weekday().String()[:3], dayTotals[key])
@@ -180,7 +205,11 @@ func (m Model) viewCommitList() string {
 
 	for _, r := range rows[offset:end] {
 		if r.isDivider {
-			b.WriteString(m.st.dim.Render(truncate(r.label, inner)) + "\n")
+			style := m.st.dim
+			if r.isPushedDivider {
+				style = m.st.marker
+			}
+			b.WriteString(style.Render(truncate(r.label, inner)) + "\n")
 			continue
 		}
 		b.WriteString(m.renderCommitRow(r.displayIdx, inner, calKey) + "\n")

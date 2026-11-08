@@ -223,3 +223,48 @@ func resizeTo(m Model, w, h int) Model {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 	return updated.(Model)
 }
+
+// TestBuildListRows_pushedDividerMarksTheBoundary: a divider row sits right
+// above the newest pushed commit, in both the date-grouped and the flat list.
+func TestBuildListRows_pushedDividerMarksTheBoundary(t *testing.T) {
+	for _, grouped := range []bool{true, false} {
+		m := cloneWithOrigin(t, "main", func(_ func(...string), commit func(string)) {
+			commit("m1")
+			commit("m2")
+		})
+		m.groupByDate = grouped
+
+		rows := m.buildListRows()
+
+		pushedRow := -1
+		for i, r := range rows {
+			if r.isPushedDivider {
+				pushedRow = i
+			}
+		}
+		if pushedRow < 0 {
+			t.Fatalf("grouped=%v: no pushed divider row", grouped)
+		}
+		if next := nextCommitRow(rows, pushedRow); next != 2 {
+			t.Errorf("grouped=%v: the divider should head display index 2 (newest pushed), heads %d", grouped, next)
+		}
+	}
+}
+
+// nextCommitRow returns the display index of the first commit row after row i.
+func nextCommitRow(rows []listRow, i int) int {
+	for _, r := range rows[i+1:] {
+		if !r.isDivider {
+			return r.displayIdx
+		}
+	}
+	return -1
+}
+
+func TestBuildListRows_noDividerWithoutPushedHistory(t *testing.T) {
+	for _, r := range newTestModelN(t, 4).buildListRows() {
+		if r.isPushedDivider {
+			t.Fatal("a repo with no remote has nothing pushed and needs no divider")
+		}
+	}
+}
