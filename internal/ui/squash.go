@@ -266,11 +266,15 @@ func (s squashState) applySummary(chainKey string, p squash.Proposal) squashStat
 // terminals fall back to a single stacked column. The caller frames the result in
 // the modal style.
 func renderSquashWizard(st squashState, width, height int, s styles) string {
+	return renderSquashWizardIn(st, squashUsableWidth(width), squashVisibleRows(height), s)
+}
+
+// renderSquashWizardIn renders the wizard body into usable columns, showing up
+// to visible commit rows before the list scrolls.
+func renderSquashWizardIn(st squashState, usable, visible int, s styles) string {
 	if len(st.chains) == 0 {
 		return "No chains to squash."
 	}
-	usable := squashUsableWidth(width)
-	visible := squashVisibleRows(height)
 
 	var body string
 	if usable < squashNarrowWidth {
@@ -657,16 +661,20 @@ func chainsToSpec(chains []model.SquashChain) string {
 	return strings.Join(parts, ",")
 }
 
-// viewSquash renders the wizard overlay. renderSquashWizard is a pure function
-// (used directly in tests without a spinner), so the shared spinner is spliced
-// in here as a post-processing step: when the active chain's summary is still
-// loading, its static "(summarizing…)" header is swapped for the ticking frame.
-func (m Model) viewSquash() string {
-	body := renderSquashWizard(m.squashSt, m.width, m.height, m.st)
+// squashWizardBody renders the squash wizard into the flow zone's inner width
+// and height. The wizard's fixed rows (header, RESULT editor, footer) are
+// measured from a render with the minimum commit rows, and the commit list
+// gets whatever height remains. The shared spinner replaces the static
+// "(summarizing…)" header while the active chain's summary loads.
+func (m Model) squashWizardBody(width, height int) string {
+	const minRows = 3
+	probe := renderSquashWizardIn(m.squashSt, width, minRows, m.st)
+	visible := max(minRows, minRows+height-lipgloss.Height(probe))
+	body := renderSquashWizardIn(m.squashSt, width, visible, m.st)
 	if len(m.squashSt.chains) > 0 && m.squashSt.loading[m.squashSt.active().Last().Hash] {
 		body = strings.ReplaceAll(body, "(summarizing…)", m.spinner.View()+" summarizing…")
 	}
-	return m.st.modal.Render(body)
+	return body
 }
 
 // buildSquashEngine builds a squash.Engine from the TUI config, or returns

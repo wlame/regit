@@ -11,15 +11,16 @@ import (
 // key through its mode; only where it renders changes.
 
 // zoneWizard is one wizard drawn in the flow zone: the title in its pane's
-// top border and a renderer for its body at an inner width.
+// top border and a renderer for its body at an inner width and height.
 type zoneWizard struct {
 	title string
-	body  func(m Model, width int) string
+	body  func(m Model, width, height int) string
 }
 
 // zoneWizards maps each wizard mode drawn in the flow zone to its pane.
 var zoneWizards = map[mode]zoneWizard{
 	modeReword: {title: "REWORD", body: Model.rewordWizardBody},
+	modeSquash: {title: "SQUASH", body: Model.squashWizardBody},
 }
 
 // zoneWizardMinWidth is the flow column's minimum width while a wizard is in
@@ -39,7 +40,8 @@ func (m Model) viewZoneWizard(budget int) string {
 	w := zoneWizards[m.mode]
 	width := m.layout().flowWidth
 	pane := m.st.paneActive
-	body := lipgloss.NewStyle().MaxWidth(width - 2).Render(w.body(m, width-2))
+	const paneBorderRows = 2
+	body := lipgloss.NewStyle().MaxWidth(width - 2).Render(w.body(m, width-2, budget-paneBorderRows))
 	rendered := withBorderTitle(pane.Width(width).Render(body), pane, m.paneTitle(w.title, "", true))
 	return lipgloss.NewStyle().MaxHeight(budget).Render(rendered)
 }
@@ -47,7 +49,7 @@ func (m Model) viewZoneWizard(budget int) string {
 // rewordWizardBody is the reword picker for the commit being reworded: the
 // buffered variants, a generating indicator while the call runs, or the
 // failure once it has errored.
-func (m Model) rewordWizardBody(width int) string {
+func (m Model) rewordWizardBody(width, _ int) string {
 	result, ok := m.rewordSt.buffer[m.rewordSt.commit.Hash]
 	switch {
 	case ok:

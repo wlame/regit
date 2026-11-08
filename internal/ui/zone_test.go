@@ -55,3 +55,18 @@ func TestRewordWizard_keybarDropsListKeys(t *testing.T) {
 		t.Errorf("the wizard owns the keys; the keybar must not offer list keys: %q", bar)
 	}
 }
+
+func TestSquashWizard_drawsInTheFlowZoneAndFits(t *testing.T) {
+	for _, size := range [][2]int{{120, 40}, {100, 30}, {80, 24}, {60, 16}} {
+		m := resizeTo(newTestModelN(t, 12), size[0], size[1])
+		m = send(m, "s", "m", "q") // mark all, open the panel, run squash
+		if m.mode != modeSquash {
+			t.Fatalf("expected the squash wizard, got mode %v", m.mode)
+		}
+
+		if view := stripANSI(m.View()); !hasBorderTitle(view, "SQUASH") {
+			t.Errorf("%dx%d: squash should be a titled pane in the flow zone:\n%s", size[0], size[1], view)
+		}
+		assertFrameFits(t, m, size[0], size[1])
+	}
+}

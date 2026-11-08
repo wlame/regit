@@ -2366,8 +2366,6 @@ func (m Model) View() string {
 		overlay = m.retitle.view(m.affectedCommits(), m.plan, m.st)
 	case modeDropBodies:
 		overlay = m.viewDropBodies()
-	case modeSquash:
-		overlay = m.viewSquash()
 	case modeReauthor:
 		overlay = m.viewReauthor()
 	case modePurge:

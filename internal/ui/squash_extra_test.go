@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/wlame/regit/internal/model"
 )
@@ -387,18 +388,18 @@ func TestStageSquash_invalidDateSetsError(t *testing.T) {
 	}
 }
 
-// TestViewSquash_rendersNonEmpty verifies that viewSquash returns a non-empty
-// string that includes the wizard header.
-func TestViewSquash_rendersNonEmpty(t *testing.T) {
+// TestSquashWizardBody_rendersHeaderInTheGivenHeight verifies the flow-zone
+// body includes the wizard header and stays within the height it is given.
+func TestSquashWizardBody_rendersHeaderInTheGivenHeight(t *testing.T) {
 	commits := linearModelCommits("a", "b", "c")
 	m := squashModelReady(commits, "a", "b")
 	m.st = newStyles()
-	got := m.viewSquash()
-	if got == "" {
-		t.Error("viewSquash should return a non-empty string")
-	}
+	got := m.squashWizardBody(60, 30)
 	if !strings.Contains(got, "SQUASH") {
-		t.Error("viewSquash output should contain the wizard header 'SQUASH'")
+		t.Error("the squash body should contain the wizard header 'SQUASH'")
+	}
+	if h := lipgloss.Height(got); h > 30 {
+		t.Errorf("the squash body is %d rows, given 30", h)
 	}
 }
 
