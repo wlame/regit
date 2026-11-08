@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 
 	"github.com/wlame/regit/internal/model"
@@ -189,7 +190,7 @@ func (m Model) viewCommitList() string {
 	if m.focus == focusList {
 		pane = m.st.paneActive
 	}
-	title := m.paneTitle("COMMITS", fmt.Sprintf(" (%d)", len(m.plan.Commits)), m.focus == focusList)
+	title := m.paneTitle("COMMITS", fmt.Sprintf(" (%d) · %s", len(m.plan.Commits), m.markSummary()), m.focus == focusList)
 	return withBorderTitle(pane.Width(width).Height(height+1).Render(b.String()), pane, title)
 }
 
@@ -245,10 +246,11 @@ func (m Model) styleAuthor(c model.Commit, text string) string {
 	return m.authorColorStyle(c).Render(text)
 }
 
-// renderCommitRow renders a single commit line. The leading two-column gutter
-// reflects the selection mode: a ○/● circle in Set mode, a ┃ band in Range mode,
-// or the ▸/▌/space caret in Single/Active mode. Frozen commits are never
-// selectable, so they always take the dimmed Single/Active path.
+// renderCommitRow renders a single commit line. The gutter is two columns: the
+// cursor caret (▸, or ▌ on the calendar's cursor day) and a checkbox that every
+// editable row carries — ● marked (or inside the band being marked, or targeted
+// by the redate flow's whole-range scope), ○ not. Frozen commits are never
+// selectable, so they get no checkbox and render dimmed.
 func (m Model) renderCommitRow(displayIdx, inner int, calKey string) string {
 	c := m.commitAtDisplayIndex(displayIdx)
 	edit, edited := m.plan.EditFor(c.Hash)
@@ -265,8 +267,9 @@ func (m Model) renderCommitRow(displayIdx, inner int, calKey string) string {
 	// width is subtracted from the subject so the line never wraps.
 	auth, authWidth := m.authorCell(c)
 
-	// Fixed columns before the subject: gutter(2) + hash(8) + gap(1) + marker(1) + gap(1).
-	const fixed = 13
+	// Fixed columns before the subject: caret(1) + checkbox(1) + gap(1) +
+	// hash(8) + gap(1) + marker(1) + gap(1).
+	const fixed = 14
 	subj := truncate(termsafe.Line(m.plan.EffectiveSubject(c)), max(1, inner-fixed-authWidth))
 
 	frozen := m.plan.IsFrozen(len(m.plan.Commits) - 1 - displayIdx)
@@ -274,84 +277,70 @@ func (m Model) renderCommitRow(displayIdx, inner int, calKey string) string {
 
 	// Global mode dims the whole list — it is context only; focus is elsewhere.
 	if m.sel.mode == SelGlobal {
-		return m.st.dim.Render(fmt.Sprintf("  %s %s %s%s", short(c.Hash), marker, auth, subj))
-	}
-	// Set / Range gutters apply only to editable (non-frozen) rows; frozen rows
-	// fall through to the dimmed Single/Active path below.
-	if !frozen {
-		switch m.sel.mode {
-		case SelSet:
-			return m.renderSetRow(c, isCursor, marker, auth, subj)
-		case SelRange:
-			return m.renderRangeRow(c, displayIdx, isCursor, marker, auth, subj)
-		}
+		return m.st.dim.Render(fmt.Sprintf("   %s %s %s%s", short(c.Hash), marker, auth, subj))
 	}
 
-	// ---- Single / Active (and any frozen row) ----
 	onDay := calKey != "" && m.plan.EffectiveAuthorDate(c).In(m.loc).Format(dateLayout) == calKey
-	prefix := "  "
+	caret := " "
 	switch {
 	case isCursor:
-		prefix = "▸ "
+		caret = "▸"
 	case onDay:
-		prefix = "▌ "
+		caret = "▌"
 	}
-	plain := fmt.Sprintf("%s%s %s %s%s", prefix, short(c.Hash), marker, auth, subj)
+	box, boxStyle := m.checkbox(c.Hash, displayIdx, frozen)
+
 	if frozen {
-		return m.st.dim.Render(plain)
+		return m.st.dim.Render(fmt.Sprintf("%s%s %s %s %s%s", caret, box, short(c.Hash), marker, auth, subj))
 	}
 	if onDay {
-		return m.st.dayHighlight.Render(plain)
+		return m.st.dayHighlight.Render(fmt.Sprintf("%s%s %s %s %s%s", caret, box, short(c.Hash), marker, auth, subj))
 	}
-	styledPrefix := prefix
+	styledCaret := caret
 	if isCursor {
-		styledPrefix = m.st.listCursor.Render("▸ ")
+		styledCaret = m.st.listCursor.Render(caret)
 	}
 	styledMarker := marker
 	if marker != " " {
 		styledMarker = m.st.marker.Render(marker)
 	}
-	return fmt.Sprintf("%s%s %s %s%s",
-		styledPrefix, m.hashStyleFor(c).Render(short(c.Hash)), styledMarker, m.styleAuthor(c, auth), subj)
-}
-
-// renderSetRow renders a row in Set mode: a ○ (unselected) / ● (selected) gutter,
-// then hash, marker, subject. The cursor row's circle takes the cursor color so
-// the pick position stays visible while toggling.
-func (m Model) renderSetRow(c model.Commit, isCursor bool, marker, auth, subj string) string {
-	circle := "○"
-	circleStyle := m.st.dim
-	if m.sel.isSet(c.Hash) {
-		circle, circleStyle = "●", m.st.picked
-	}
-	if isCursor {
-		circleStyle = m.st.listCursor
-	}
-	styledMarker := marker
-	if marker != " " {
-		styledMarker = m.st.marker.Render(marker)
-	}
-	return fmt.Sprintf("%s %s %s %s%s",
-		circleStyle.Render(circle), m.st.hash.Render(short(c.Hash)), styledMarker,
+	return fmt.Sprintf("%s%s %s %s %s%s",
+		styledCaret, boxStyle.Render(box), m.hashStyleFor(c).Render(short(c.Hash)), styledMarker,
 		m.styleAuthor(c, auth), subj)
 }
 
-// renderRangeRow renders a row in Range visual mode: in-range rows carry a ┃ band
-// at the left edge (the cursor row colored); out-of-range rows dim.
-func (m Model) renderRangeRow(
-	c model.Commit, displayIdx int, isCursor bool, marker, auth, subj string,
-) string {
-	if !m.sel.inRange(displayIdx, m.listCursor) {
-		return m.st.dim.Render(fmt.Sprintf("  %s %s %s%s", short(c.Hash), marker, auth, subj))
+// checkbox returns a row's checkbox glyph and style. A commit inside the band
+// being marked is ● in the marker color, so the user sees exactly what v/enter
+// will add; a marked commit is ● in the picked color; with the redate flow's
+// whole-range scope every editable commit is a target, shown as a dim ●.
+func (m Model) checkbox(hash string, displayIdx int, frozen bool) (string, lipgloss.Style) {
+	switch {
+	case frozen:
+		return " ", m.st.dim
+	case m.sel.inRange(displayIdx, m.listCursor):
+		return "●", m.st.marker
+	case m.sel.isSet(hash):
+		return "●", m.st.picked
+	case m.sel.mode == SelActive:
+		return "●", m.st.dim
+	default:
+		return "○", m.st.dim
 	}
-	bar := m.st.marker.Render("┃")
-	if isCursor {
-		bar = m.st.listCursor.Render("┃")
+}
+
+// markSummary is the list title's note on what an action will touch: the
+// marked commits, the whole editable range in the redate flow's default
+// scope, or — with nothing marked outside a flow — how much is editable.
+func (m Model) markSummary() string {
+	editable := len(m.plan.Active())
+	switch {
+	case m.hasExplicitSelection():
+		return fmt.Sprintf("%d will change", len(m.affectedCommits()))
+	case editable == 0:
+		return "nothing editable"
+	case m.sel.mode == SelActive:
+		return fmt.Sprintf("all %d will change", editable)
+	default:
+		return fmt.Sprintf("all %d editable", editable)
 	}
-	styledMarker := marker
-	if marker != " " {
-		styledMarker = m.st.marker.Render(marker)
-	}
-	return fmt.Sprintf("%s %s %s %s%s",
-		bar, m.st.hash.Render(short(c.Hash)), styledMarker, m.styleAuthor(c, auth), subj)
 }

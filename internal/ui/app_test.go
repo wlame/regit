@@ -2020,22 +2020,59 @@ func TestListVisuals_setModeShowsCircleGutter(t *testing.T) {
 		t.Errorf("exactly one ● (selected) expected in the list, got %d", got)
 	}
 	if !strings.Contains(list, "○") {
-		t.Error("unselected commits should show the ○ gutter")
+		t.Error("unmarked commits should show the ○ checkbox")
 	}
-	if strings.Contains(list, "▸ ") {
-		t.Error("Set mode replaces the list's ▸ caret with the circle gutter")
+	if !strings.Contains(list, "▸") {
+		t.Error("the cursor caret stays visible beside the checkboxes")
 	}
 }
 
-func TestListVisuals_rangeModeShowsBand(t *testing.T) {
+func TestListVisuals_rangeBeingMarkedShowsFilledCheckboxes(t *testing.T) {
 	m := newTestModelN(t, 5) // 5 commits, none frozen
 	m.sel.mode = SelRange
 	m.sel.anchor = 0 // anchor at the newest
 	m.listCursor = 2 // cursor 2 below it -> range [0,2]
 
 	list := m.viewCommitList()
-	if got := strings.Count(list, "┃"); got != 3 {
-		t.Errorf("a 3-commit range should draw 3 ┃ band marks, got %d", got)
+	if got := strings.Count(list, "●"); got != 3 {
+		t.Errorf("a 3-commit band should show 3 filled checkboxes, got %d", got)
+	}
+}
+
+func TestListVisuals_frozenRowsHaveNoCheckbox(t *testing.T) {
+	m := newTestModelN(t, 5)
+	m.plan.SetBase(3) // freeze the three oldest
+
+	list := stripANSI(m.viewCommitList())
+
+	if got := strings.Count(list, "○"); got != 2 {
+		t.Errorf("only the 2 editable rows should show a checkbox, got %d", got)
+	}
+}
+
+func TestListVisuals_redateFlowWithoutMarksFillsEveryEditableRow(t *testing.T) {
+	m := send(newTestModelN(t, 4), "m", "d") // Active scope: every editable commit is a target
+
+	list := m.viewCommitList()
+
+	if got := strings.Count(list, "●"); got != 4 || strings.Contains(list, "○") {
+		t.Errorf("Active scope should fill all 4 checkboxes, got %d ● (and ○ present: %v)",
+			got, strings.Contains(list, "○"))
+	}
+}
+
+func TestListTitle_saysWhatWillChange(t *testing.T) {
+	m := newTestModelN(t, 6)
+	if title := stripANSI(m.viewCommitList()); !strings.Contains(title, "all 6 editable") {
+		t.Errorf("unmarked list title should say every commit is editable:\n%s", title)
+	}
+	m = send(m, " ", "down", " ")
+	if title := stripANSI(m.viewCommitList()); !strings.Contains(title, "2 will change") {
+		t.Errorf("list title should count the marks:\n%s", title)
+	}
+	m = send(m, "n", "m", "d")
+	if title := stripANSI(m.viewCommitList()); !strings.Contains(title, "all 6 will change") {
+		t.Errorf("redate flow title should say the whole range will change:\n%s", title)
 	}
 }
 
@@ -2047,18 +2084,14 @@ func TestListVisuals_globalModeDimsAndDropsCaret(t *testing.T) {
 	}
 }
 
-func TestListVisuals_defaultModeUnchanged(t *testing.T) {
-	// Regression: the default (Single/Active) render keeps the ▸ caret and shows
-	// none of the new selection glyphs.
-	m := newTestModel(t)
+func TestListVisuals_defaultModeShowsCaretAndEmptyCheckboxes(t *testing.T) {
+	m := newTestModel(t) // 3 commits, none frozen, nothing marked
 	list := m.viewCommitList()
-	if !strings.Contains(list, "▸ ") {
-		t.Error("default mode should still show the ▸ cursor caret")
+	if !strings.Contains(list, "▸") {
+		t.Error("default mode should show the ▸ cursor caret")
 	}
-	for _, g := range []string{"●", "○", "┃"} {
-		if strings.Contains(list, g) {
-			t.Errorf("default mode should not show selection glyph %q", g)
-		}
+	if got := strings.Count(list, "○"); got != 3 || strings.Contains(list, "●") {
+		t.Errorf("default mode should show 3 empty checkboxes and no filled one, got %d ○", got)
 	}
 }
 

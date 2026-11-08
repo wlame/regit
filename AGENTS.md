@@ -191,7 +191,12 @@ selection it needs. The user MARKS commits: Space toggles one, `s` marks all,
 until `v`/`enter` adds it to the marks (Set mode); `esc` drops a pending band
 and keeps earlier marks, then a second `esc` clears them. `markedHashes()` (the
 set plus any pending band, frozen commits excluded) is the single source every
-consumer reads. Other modes: Single (▸ cursor), Active (whole non-frozen range,
+consumer reads. Every editable row carries a checkbox beside the ▸ caret
+(list.go `checkbox`: ● marked, ● in the marker color inside a pending band, a
+dim ● for every row under the redate flow's whole-range scope, ○ otherwise;
+frozen rows have none), and the list title says what an action will touch
+(`markSummary`: "3 will change" / "all 9 will change" / "all 9 editable").
+Other modes: Single (▸ cursor), Active (whole non-frozen range,
 frozen cone dimmed), Global (list dimmed). The mode defaults to Single everywhere (`newSelection`/`reset`); the
 one exception is entering the redate flow with no explicit selection already
 made, which scopes it to the whole active range (`SelActive`) instead —

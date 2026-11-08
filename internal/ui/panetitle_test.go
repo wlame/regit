@@ -49,11 +49,11 @@ func TestPaneTitles_drawnIntoTheTopBorder(t *testing.T) {
 	}
 }
 
-// hasBorderTitle reports whether some line of view carries title inside a
-// rounded top border ("╭─ TITLE ─…╮").
+// hasBorderTitle reports whether some line of view carries a title starting
+// with title inside a rounded top border ("╭─ TITLE…─╮").
 func hasBorderTitle(view, title string) bool {
 	for _, line := range strings.Split(view, "\n") {
-		if strings.Contains(line, "╭─ "+title+" ─") {
+		if strings.Contains(line, "╭─ "+title) {
 			return true
 		}
 	}
