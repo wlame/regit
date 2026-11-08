@@ -27,6 +27,7 @@ type styles struct {
 	selected     lipgloss.Style
 	dim          lipgloss.Style
 	help         lipgloss.Style
+	paneHotkey   lipgloss.Style // the focus-key letter in a pane title (panetitle.go)
 
 	// heatLevels are the five GitHub-style contribution shades, from empty to
 	// most intense.
@@ -58,6 +59,7 @@ func newStyles() styles {
 		selected:   lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")).Background(lipgloss.Color("63")),
 		dim:        lipgloss.NewStyle().Foreground(lipgloss.Color("240")),
 		help:       lipgloss.NewStyle().Foreground(lipgloss.Color("250")),
+		paneHotkey: lipgloss.NewStyle().Bold(true).Underline(true).Foreground(lipgloss.Color("196")),
 		heatLevels: []lipgloss.Style{
 			lipgloss.NewStyle().Foreground(lipgloss.Color("236")), // empty
 			lipgloss.NewStyle().Foreground(lipgloss.Color("22")),  // light

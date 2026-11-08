@@ -102,7 +102,7 @@ func scrollOffset(prevOffset, cursorRow, totalRows, visible int) int {
 // moves) — never in View — so scrolling is stable state, not recomputed per frame.
 func (m *Model) syncListViewport() {
 	rows := m.buildListRows()
-	visible := max(1, m.listHeight()-1)
+	visible := m.listVisibleRows()
 	m.listOffset = scrollOffset(m.listOffset, rowOfCommit(rows, m.listCursor), len(rows), visible)
 }
 
@@ -156,10 +156,9 @@ func (m Model) viewCommitList() string {
 	width := m.listWidth()
 	height := m.listHeight()
 	inner := width - 2
-	visible := max(1, height-1) // the COMMITS header takes one line
+	visible := m.listVisibleRows()
 
 	var b strings.Builder
-	b.WriteString(m.st.modalTitle.Render(fmt.Sprintf("COMMITS (%d)", len(m.plan.Commits))) + "\n")
 
 	rows := m.buildListRows()
 	offset := m.listOffset
@@ -190,7 +189,15 @@ func (m Model) viewCommitList() string {
 	if m.focus == focusList {
 		pane = m.st.paneActive
 	}
-	return pane.Width(width).Height(height + 1).Render(b.String())
+	title := m.paneTitle("COMMITS", fmt.Sprintf(" (%d)", len(m.plan.Commits)), m.focus == focusList)
+	return withBorderTitle(pane.Width(width).Height(height+1).Render(b.String()), pane, title)
+}
+
+// listVisibleRows is how many list rows (commits and day dividers) fit in the
+// list pane. The pane title sits in the border, so every content row is a list
+// row. The viewport sync, the page keys, and the render all use it.
+func (m Model) listVisibleRows() int {
+	return max(1, m.listHeight())
 }
 
 // authorColWidth is the fixed character width of the optional author column. A

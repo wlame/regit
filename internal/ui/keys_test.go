@@ -198,3 +198,9 @@ func TestKeybarHintFor_contextKeysComeFirst(t *testing.T) {
 		t.Errorf("redate keybar at 120 columns lost its own keys: %q", bar)
 	}
 }
+
+func TestHelpText_documentsPaneFocusKeys(t *testing.T) {
+	if !strings.Contains(helpText(), "o / c / t") {
+		t.Error("help should document the o / c / t pane focus keys")
+	}
+}

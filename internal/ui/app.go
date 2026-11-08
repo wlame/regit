@@ -757,6 +757,9 @@ func (m Model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // pane-local, everything else is global. It reports whether the key was
 // consumed.
 func (m Model) globalAction(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
+	if m.focusPaneByKey(msg.String()) {
+		return m, nil, true
+	}
 	switch msg.String() {
 	case "q":
 		m.quitting = true
@@ -986,7 +989,7 @@ func (m *Model) listNavKey(key string) bool {
 	if last < 0 {
 		return false
 	}
-	page := max(1, m.listHeight()-1)
+	page := m.listVisibleRows()
 	switch key {
 	case "up", "k":
 		m.moveListCursor(-1)

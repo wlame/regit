@@ -88,6 +88,7 @@ var keymap = []keyBinding{
 	{Key: "?", Scope: scopeGlobal, Desc: "toggle this help", Bar: "[?]help"},
 	{Key: "q / ctrl+c", Scope: scopeGlobal, Desc: "quit", Bar: "[q]uit"},
 	{Key: "tab", Scope: scopeGlobal, Desc: "cycle focus across the list and the active flow's widget", Bar: "[tab]focus"},
+	{Key: "o / c / t", Scope: scopeGlobal, Desc: "focus the commit list / calendar / strategy pane (the red letter in each pane's title)"},
 
 	// Flow zone
 	{Key: "tab", Scope: scopeFlow, Desc: "focus the active flow's widget (the calendar), when one is open"},

@@ -417,11 +417,11 @@ func TestView_commitEntriesAreSingleLine(t *testing.T) {
 	}
 
 	// All test commits share one day, so the list shows exactly one date divider
-	// plus one line per visible commit within the listHeight-1 window.
+	// plus one line per visible commit within the list's visible rows.
 	if !strings.Contains(list, "commit(s)") {
 		t.Error("a date divider should head the day group")
 	}
-	window := m.listHeight() - 1
+	window := m.listVisibleRows()
 	gotVisible := 0
 	for _, c := range m.plan.Commits {
 		if strings.Contains(list, c.Hash[:8]) {
@@ -1761,7 +1761,7 @@ func TestListNav_fastJumps(t *testing.T) {
 	before := m.listCursor
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
 	m = updated.(Model)
-	half := (m.listHeight() - 1) / 2
+	half := m.listVisibleRows() / 2
 	if m.listCursor != before+half {
 		t.Fatalf("Ctrl-D should move a half page (%d), got %d", half, m.listCursor)
 	}

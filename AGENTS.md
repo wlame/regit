@@ -95,7 +95,11 @@ exits the flow and returns the zone to the detail pane (`exitFlow`); `tab`
 cycles focus list → calendar → params → list while a flow is open
 (`focusAfterList`, `updateParamsPane`). With no flow open `tab` is a no-op —
 `focusAfterList` returns `focusList` again, since the detail pane is not a
-focusable target.
+focusable target. `o` / `c` / `t` jump straight to the commit list, calendar,
+or strategy pane (panetitle.go `paneFocusKeys`; each pane draws its title into
+its top border with that letter highlighted), and `[`/`]` and `<`/`>` change
+the strategy and time model from the calendar or strategy pane
+(`redateHelperKeys`).
 
 Every action is launched from the `m` action panel (actionpanel.go), a
 full-width bottom region that replaced the old per-tab feature menus. Its rows

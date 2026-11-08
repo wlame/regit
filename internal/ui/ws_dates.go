@@ -101,16 +101,14 @@ func (m Model) viewCalendarPane() string {
 	// natural width when the column is wide enough, else clamps down to
 	// whatever the layout gave the zone (flowWidth, layout.go).
 	width := min(rightPaneWidth, computeLayout(m.width, m.height).flowWidth)
-	return pane.Width(width).Render(content)
+	return withBorderTitle(pane.Width(width).Render(content), pane, m.paneTitle("CALENDAR", "", m.focus == focusCalendar))
 }
 
 // viewStrategyPane shows the currently selected strategy with its editable
 // parameters. The form's view now renders the carousel as the top row, so the
 // pane simply frames the form output. Tab focuses it; enter re-applies.
 func (m Model) viewStrategyPane() string {
-	// The carousel row in form.view() replaces the old separate title; we keep
-	// a compact "STRATEGY" label for the pane title so the panel is still labelled.
-	content := m.st.modalTitle.Render("STRATEGY") + "\n" + m.activeStrat().form.view(m.st)
+	content := m.activeStrat().form.view(m.st)
 
 	pane := m.st.pane
 	if m.focus == focusParams {
@@ -122,6 +120,6 @@ func (m Model) viewStrategyPane() string {
 	width := min(rightPaneWidth, computeLayout(m.width, m.height).flowWidth)
 	// MaxWidth guards against long labels/errors wrapping inside the pane,
 	// which would inflate its height.
-	return pane.Width(width).Render(
-		lipgloss.NewStyle().MaxWidth(width - 2).Render(content))
+	rendered := pane.Width(width).Render(lipgloss.NewStyle().MaxWidth(width - 2).Render(content))
+	return withBorderTitle(rendered, pane, m.paneTitle("STRATEGY", "", m.focus == focusParams))
 }
