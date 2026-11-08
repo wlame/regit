@@ -12,7 +12,7 @@ import (
 func TestSelectionKindClassification(t *testing.T) {
 	set := selectionState{mode: SelSet, set: map[string]bool{"a": true}}
 	emptySet := selectionState{mode: SelSet, set: map[string]bool{}}
-	rng := selectionState{mode: SelRange, anchor: 0, fixed: true, end: 1}
+	rng := selectionState{mode: SelRange, anchor: 0}
 	cases := []struct {
 		name string
 		sel  selectionState
@@ -21,7 +21,7 @@ func TestSelectionKindClassification(t *testing.T) {
 		{"single default", newSelection(), selKindCursor},
 		{"non-empty set", set, selKindSet},
 		{"empty set is cursor", emptySet, selKindCursor},
-		{"fixed range", rng, selKindRange},
+		{"range being marked", rng, selKindRange},
 		{"active mode is cursor", selectionState{mode: SelActive}, selKindCursor},
 	}
 	for _, tc := range cases {

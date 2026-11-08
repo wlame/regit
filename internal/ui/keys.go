@@ -114,12 +114,12 @@ var keymap = []keyBinding{
 	{Key: "} / {", Scope: scopeList, Ctx: ctxList, Desc: "next / previous day group"},
 
 	// Selection (commit list)
-	{Key: "space", Scope: scopeSelection, Ctx: ctxList, Desc: "toggle the cursor commit in the selection set", Bar: "[space]select"},
-	{Key: "s", Scope: scopeSelection, Ctx: ctxList, Desc: "select all active commits"},
-	{Key: "n", Scope: scopeSelection, Ctx: ctxList, Desc: "clear the selection"},
-	{Key: "v", Scope: scopeSelection, Ctx: ctxList, Desc: "visual range — anchor, move to extend, v/enter to fix, esc to cancel"},
-	{Key: "esc", Scope: scopeSelection, Ctx: ctxList, Desc: "cancel the selection (back to Active if a flow is open, else Single)"},
-	{Key: "(reword)", Scope: scopeSelection, Ctx: ctxList, Desc: "with a set selected, Reword runs multi-reword over every chosen commit"},
+	{Key: "space", Scope: scopeSelection, Ctx: ctxList, Desc: "mark / unmark the cursor commit", Bar: "[space]mark"},
+	{Key: "s", Scope: scopeSelection, Ctx: ctxList, Desc: "mark every editable commit"},
+	{Key: "n", Scope: scopeSelection, Ctx: ctxList, Desc: "clear every mark"},
+	{Key: "v", Scope: scopeSelection, Ctx: ctxList, Desc: "mark a range — move to extend it, v/enter to add it to the marks"},
+	{Key: "esc", Scope: scopeSelection, Ctx: ctxList, Desc: "drop the range being marked (earlier marks stay); with no range, clear every mark"},
+	{Key: "(reword)", Scope: scopeSelection, Ctx: ctxList, Desc: "with commits marked, Reword runs multi-reword over every marked commit"},
 
 	// Branch & base
 	{Key: "B", Scope: scopeBranch, Desc: "open the branch picker — enter switches branch, tab sets it as the base", Bar: "[B]ranch"},

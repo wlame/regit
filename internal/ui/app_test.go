@@ -2110,16 +2110,51 @@ func TestAuthorToggle_keyTogglesColumnAndDefaultsOff(t *testing.T) {
 func TestSelectionKeys_visualRangeExtendsWithMovement(t *testing.T) {
 	m := newTestModelN(t, 5)
 	m = send(m, "v")
-	if m.sel.mode != SelRange || !m.sel.visual {
-		t.Fatalf("v should enter visual Range mode, got mode=%v visual=%v", m.sel.mode, m.sel.visual)
+	if m.sel.mode != SelRange {
+		t.Fatalf("v should start marking a range, got mode=%v", m.sel.mode)
 	}
 	m = send(m, "down", "down") // cursor 0 -> 2, range extends to [0,2]
 	if lo, hi := m.sel.rangeBounds(m.listCursor); lo != 0 || hi != 2 {
 		t.Errorf("range after two downs = [%d,%d], want [0,2]", lo, hi)
 	}
-	m = send(m, "v") // confirm
-	if m.sel.visual {
-		t.Error("a second v should fix the range")
+	m = send(m, "v") // add the range to the marks
+	if m.sel.mode != SelSet || len(m.markedHashes()) != 3 {
+		t.Errorf("a second v should add the range to the marks: mode=%v marked=%d", m.sel.mode, len(m.markedHashes()))
+	}
+}
+
+func TestSelectionKeys_rangeJoinsEarlierMarks(t *testing.T) {
+	m := newTestModelN(t, 6)
+	m = send(m, " ")                    // mark display 0
+	m = send(m, "down", "down", "down") // cursor -> 3
+	m = send(m, "v", "down", "enter")   // mark the range 3..4
+
+	if got := len(m.markedHashes()); got != 3 {
+		t.Errorf("marks after space + a range of 2 = %d, want 3", got)
+	}
+}
+
+func TestSelectionKeys_escDropsOnlyThePendingRange(t *testing.T) {
+	m := newTestModelN(t, 6)
+	m = send(m, " ", "down", "down", "v", "down") // one mark, then a pending band of 2
+
+	m = send(m, "esc")
+
+	if m.sel.mode != SelSet || len(m.markedHashes()) != 1 {
+		t.Fatalf("esc during a range should keep earlier marks: mode=%v marked=%d", m.sel.mode, len(m.markedHashes()))
+	}
+	m = send(m, "esc")
+	if len(m.markedHashes()) != 0 {
+		t.Errorf("a second esc should clear the marks, %d left", len(m.markedHashes()))
+	}
+}
+
+func TestReword_rangeMarksTriggerMultiReword(t *testing.T) {
+	m := newTestModelN(t, 5)
+	m = send(m, "v", "down", "down", "v") // mark display 0..2
+
+	if got := len(m.rewordTargets()); got != 3 {
+		t.Errorf("reword targets after marking a range of 3 = %d, want 3", got)
 	}
 }
 
@@ -2514,11 +2549,11 @@ func TestAffectedCommits_rangeExcludesFrozenRootFirst(t *testing.T) {
 	}
 }
 
-// selectedHashSet feeds both squash (affectedChains) and reauthor
+// markedHashes feeds both squash (affectedChains) and reauthor
 // (reauthorTargetCommits). A Range dragged across the base boundary, or a stale Set
 // carrying frozen hashes, must never leak a frozen commit into that set — otherwise
 // squash/reauthor would rewrite the frozen cone the UI renders as protected.
-func TestSelectedHashSet_excludesFrozenCommits(t *testing.T) {
+func TestMarkedHashes_excludesFrozenCommits(t *testing.T) {
 	m := newTestModelN(t, 5) // storage 0..4 root-first; display d ↔ storage 4-d
 	m.plan.SetBase(2)        // freeze storage indices 0 and 1
 	frozen := map[string]bool{m.plan.Commits[0].Hash: true, m.plan.Commits[1].Hash: true}
@@ -2527,19 +2562,19 @@ func TestSelectedHashSet_excludesFrozenCommits(t *testing.T) {
 	m.sel.mode = SelRange
 	m.sel.anchor = 2
 	m.listCursor = 4
-	for h := range m.selectedHashSet() {
+	for h := range m.markedHashes() {
 		if frozen[h] {
 			t.Errorf("range selection leaked frozen commit %s", short(h))
 		}
 	}
-	if got := len(m.selectedHashSet()); got != 1 { // only storage 2 is editable
+	if got := len(m.markedHashes()); got != 1 { // only storage 2 is editable
 		t.Fatalf("range should cover 1 editable commit, got %d", got)
 	}
 
 	// A Set that still carries a frozen hash must also drop it.
 	m.sel.mode = SelSet
 	m.sel.set = map[string]bool{m.plan.Commits[0].Hash: true, m.plan.Commits[3].Hash: true}
-	got := m.selectedHashSet()
+	got := m.markedHashes()
 	if got[m.plan.Commits[0].Hash] {
 		t.Error("set selection leaked frozen commit")
 	}
@@ -3140,7 +3175,7 @@ func TestRedateCommitSpec_allSelectionForms(t *testing.T) {
 	rangeModel.listCursor = 1
 	rangeModel.sel.beginVisual(rangeModel.listCursor)
 	rangeModel.listCursor = 2
-	rangeModel.sel.confirmVisual(rangeModel.listCursor)
+	rangeModel.finishRange()
 	wantRange := short(commits[2].Hash) + "^.." + short(commits[3].Hash)
 	if got := rangeModel.redateCommitSpec(); got != wantRange {
 		t.Errorf("contiguous Range spec = %q, want %q", got, wantRange)

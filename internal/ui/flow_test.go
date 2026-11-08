@@ -30,19 +30,20 @@ func TestEnterRedateFlowKeepsExplicitSelection(t *testing.T) {
 	}
 }
 
-// TestEnterRedateFlowKeepsExplicitRangeSelection: a confirmed visual Range
-// survives entering the flow too (Set is covered by
+// TestEnterRedateFlowKeepsExplicitRangeSelection: a marked range (added to the
+// marks with v/enter) survives entering the flow too (Set is covered by
 // TestEnterRedateFlowKeepsExplicitSelection above).
 func TestEnterRedateFlowKeepsExplicitRangeSelection(t *testing.T) {
 	m := newTestModel(t)
 	m.sel.beginVisual(0)
-	m.sel.confirmVisual(1)
+	m.listCursor = 1
+	m.finishRange()
 
 	m.enterRedateFlow()
 
-	if m.sel.mode != SelRange || !m.sel.fixed {
-		t.Fatalf("explicit Range selection lost entering the flow: mode=%v fixed=%v",
-			m.sel.mode, m.sel.fixed)
+	if m.sel.mode != SelSet || len(m.markedHashes()) != 2 {
+		t.Fatalf("marked range lost entering the flow: mode=%v marked=%d",
+			m.sel.mode, len(m.markedHashes()))
 	}
 }
 

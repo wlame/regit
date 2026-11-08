@@ -350,12 +350,14 @@ func (m Model) redateCommitSpec() string {
 	return strings.Join(parts, ",")
 }
 
-// hasExplicitSelection reports whether the user picked specific commits (Set or
-// Range) as opposed to the redate flow's default whole-active-range selection.
-// Used wherever staging or a preview must describe its scope ("the selection"
-// vs "the editable range").
+// hasExplicitSelection reports whether the user marked specific commits, or is
+// marking a range right now, as opposed to the redate flow's default
+// whole-active-range selection. Used wherever staging or a preview must
+// describe its scope ("the selection" vs "the editable range"). A band being
+// marked counts even while it covers no editable commit, so the scope does not
+// flip under the user mid-gesture.
 func (m Model) hasExplicitSelection() bool {
-	return (m.sel.mode == SelSet && len(m.sel.set) > 0) || m.sel.mode == SelRange
+	return len(m.markedHashes()) > 0 || m.sel.mode == SelRange
 }
 
 // segmentWindows returns the current selection's day windows, one per segment,
@@ -859,14 +861,14 @@ func (m Model) listSelectionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	}
 	switch msg.String() {
 	case "v":
-		if m.sel.mode == SelRange && m.sel.visual {
-			m.sel.confirmVisual(m.listCursor)
-			m.setStatus("Range fixed", statusOK)
+		if m.sel.mode == SelRange {
+			m.finishRange()
+			m.setStatus(fmt.Sprintf("%d commit(s) marked", len(m.markedHashes())), statusOK)
 		} else {
 			m.sel.beginVisual(m.listCursor)
-			m.setStatus("Visual range — move to extend, v/enter to fix, esc to cancel", statusNone)
+			m.setStatus("Marking a range — move to extend, v/enter to add it, esc to drop it", statusNone)
 		}
-		m.onDatesSelectionChanged()
+		m.afterSelectionChange()
 		return m, nil, true
 	case " ":
 		if m.plan.IsFrozen(m.storageIndexAtCursor()) {
@@ -874,8 +876,8 @@ func (m Model) listSelectionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 			return m, nil, true
 		}
 		m.sel.toggle(m.commitAtCursor().Hash, false)
-		m.setStatus(fmt.Sprintf("%d commit(s) selected", len(m.sel.set)), statusOK)
-		m.onDatesSelectionChanged()
+		m.setStatus(fmt.Sprintf("%d commit(s) marked", len(m.markedHashes())), statusOK)
+		m.afterSelectionChange()
 		return m, nil, true
 	case "s":
 		var hashes []string
@@ -883,33 +885,47 @@ func (m Model) listSelectionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 			hashes = append(hashes, c.Hash)
 		}
 		m.sel.selectAll(hashes)
-		m.setStatus(fmt.Sprintf("Selected all %d active commit(s)", len(hashes)), statusOK)
-		m.onDatesSelectionChanged()
+		m.setStatus(fmt.Sprintf("Marked all %d editable commit(s)", len(hashes)), statusOK)
+		m.afterSelectionChange()
 		return m, nil, true
 	case "n":
 		m.sel.clear()
-		m.setStatus("Selection cleared", statusOK)
-		m.onDatesSelectionChanged()
+		m.setStatus("Marks cleared", statusOK)
+		m.afterSelectionChange()
 		return m, nil, true
 	case "enter":
-		if m.sel.mode == SelRange && m.sel.visual {
-			m.sel.confirmVisual(m.listCursor)
-			m.setStatus("Range fixed", statusOK)
-			m.onDatesSelectionChanged()
+		if m.sel.mode == SelRange {
+			m.finishRange()
+			m.setStatus(fmt.Sprintf("%d commit(s) marked", len(m.markedHashes())), statusOK)
+			m.afterSelectionChange()
 			return m, nil, true
 		}
-		return m, nil, false // not visual: fall through to open the editor
+		return m, nil, false // not marking a range: fall through to open the editor
 	case "esc":
-		if m.sel.mode == SelSet || m.sel.mode == SelRange {
+		// esc undoes one level: a range being marked is dropped (earlier marks
+		// stay); otherwise every mark is cleared.
+		switch m.sel.mode {
+		case SelRange:
+			m.sel.endBand()
+			m.setStatus("Range dropped — earlier marks kept", statusNone)
+		case SelSet:
 			m.sel.reset()
-			m.restoreFlowSelectionScope()
-			m.setStatus("Selection reset", statusNone)
-			m.onDatesSelectionChanged()
-			return m, nil, true
+			m.setStatus("Marks cleared", statusNone)
+		default:
+			return m, nil, false
 		}
-		return m, nil, false
+		m.afterSelectionChange()
+		return m, nil, true
 	}
 	return m, nil, false
+}
+
+// afterSelectionChange runs after any change to the marks: it restores the
+// redate flow's whole-range scope when nothing is marked any more, then
+// re-syncs the flow's staging to the new selection.
+func (m *Model) afterSelectionChange() {
+	m.restoreFlowSelectionScope()
+	m.onDatesSelectionChanged()
 }
 
 // onDatesSelectionChanged re-syncs the active strategy's pins/picks and staged
@@ -1327,18 +1343,65 @@ func (m Model) spinnerBusy() bool {
 }
 
 // affectedCommits returns the commits a bulk action or the action-panel count
-// applies to, under the "selection wins, else all-active" rule: the explicit
-// Set/Range selection when present (filtered to the editable range), otherwise the
-// whole active range. Returned root-first (oldest → newest) to match plan.Active.
+// applies to, under the "selection wins, else all-active" rule: the marked
+// commits when there are any, otherwise the whole active range. Returned
+// root-first (oldest → newest) to match plan.Active.
 func (m Model) affectedCommits() []model.Commit {
-	switch {
-	case m.sel.mode == SelSet && len(m.sel.set) > 0:
-		return m.commitsInSet()
-	case m.sel.mode == SelRange:
-		return m.commitsInRange()
-	default:
+	if !m.hasExplicitSelection() {
 		return m.plan.Active()
 	}
+	marked := m.markedHashes()
+	var out []model.Commit
+	for _, c := range m.plan.Active() {
+		if marked[c.Hash] {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// markedHashes is the single source of what the user has marked: every
+// editable commit in the set plus, while a range is being marked, the pending
+// band. Frozen commits are excluded even when a band is dragged across the base
+// boundary, so no consumer (squash, reauthor, reword, redate, the panel count)
+// can rewrite the frozen cone the UI renders as protected.
+func (m Model) markedHashes() map[string]bool {
+	out := map[string]bool{}
+	for _, c := range m.plan.Active() {
+		if m.sel.isSet(c.Hash) {
+			out[c.Hash] = true
+		}
+	}
+	for _, h := range m.bandHashes() {
+		out[h] = true
+	}
+	return out
+}
+
+// bandHashes returns the editable commits inside the band being marked, or nil
+// when no range is being marked.
+func (m Model) bandHashes() []string {
+	if m.sel.mode != SelRange {
+		return nil
+	}
+	lo, hi := m.sel.rangeBounds(m.listCursor)
+	var out []string
+	for d := lo; d <= hi; d++ {
+		storage := len(m.plan.Commits) - 1 - d
+		if storage < 0 || storage >= len(m.plan.Commits) || m.plan.IsFrozen(storage) {
+			continue
+		}
+		out = append(out, m.plan.Commits[storage].Hash)
+	}
+	return out
+}
+
+// finishRange adds the band being marked to the marked set and stops marking.
+func (m *Model) finishRange() {
+	for _, h := range m.bandHashes() {
+		m.sel.set[h] = true
+	}
+	m.sel.endBand()
 }
 
 // selectionCommitSpec renders the current explicit selection as a headless
@@ -1363,37 +1426,6 @@ func (m Model) selectionCommitSpec() (spec string, expressible bool) {
 		return "", false
 	}
 	return short(affected[0].Hash) + "^.." + short(affected[len(affected)-1].Hash), true
-}
-
-// commitsInSet returns the selected (Set-mode) commits that are still editable,
-// in root-first order.
-func (m Model) commitsInSet() []model.Commit {
-	var out []model.Commit
-	for _, c := range m.plan.Active() {
-		if m.sel.isSet(c.Hash) {
-			out = append(out, c)
-		}
-	}
-	return out
-}
-
-// commitsInRange returns the visual-range commits that are editable, in root-first
-// order. The range is expressed in display indices (newest-first), so it walks the
-// span and reverses to root-first.
-func (m Model) commitsInRange() []model.Commit {
-	lo, hi := m.sel.rangeBounds(m.listCursor)
-	var out []model.Commit
-	for d := lo; d <= hi; d++ {
-		storage := len(m.plan.Commits) - 1 - d
-		if storage < 0 || storage >= len(m.plan.Commits) || m.plan.IsFrozen(storage) {
-			continue
-		}
-		out = append(out, m.plan.Commits[storage])
-	}
-	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
-		out[i], out[j] = out[j], out[i]
-	}
-	return out
 }
 
 // focusAfterList is where tab moves focus from the commit list: into the

@@ -1,7 +1,7 @@
 package ui
 
 // squash_extra_test.go covers the functions left uncovered by squash_test.go:
-// selectedHashSet (SelRange branch), guard (all cases), chainsToSpec,
+// markedHashes (SelRange branch), guard (all cases), chainsToSpec,
 // beginSquash (no-chains and chains), updateSquash (all key paths),
 // stageSquash (happy path), and viewSquash.
 
@@ -22,9 +22,9 @@ func squashModelReady(commits []model.Commit, selected ...string) Model {
 	return out.(Model)
 }
 
-// TestSelectedHashSet_rangeMode verifies that selectedHashSet covers the
+// TestMarkedHashes_rangeMode verifies that markedHashes covers the
 // SelRange case: all display indices from anchor to cursor map to commit hashes.
-func TestSelectedHashSet_rangeMode(t *testing.T) {
+func TestMarkedHashes_rangeMode(t *testing.T) {
 	// Root-first: a(oldest) b c d(newest). Display-index 0=d,1=c,2=b,3=a.
 	commits := linearModelCommits("a", "b", "c", "d")
 	m := Model{plan: model.NewPlan(commits)}
@@ -33,7 +33,7 @@ func TestSelectedHashSet_rangeMode(t *testing.T) {
 	m.sel.anchor = 0 // anchor at newest (d)
 	m.listCursor = 2 // extend to b
 
-	got := m.selectedHashSet()
+	got := m.markedHashes()
 	// rangeBounds(2) with anchor 0 → [0,2] → d, c, b
 	for _, h := range []string{"d", "c", "b"} {
 		if !got[h] {

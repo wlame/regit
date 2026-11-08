@@ -6,15 +6,15 @@ package ui
 // the newest commit), matching m.listCursor. These helpers are pure so the
 // transitions are unit-testable without a terminal.
 
-// selectionState is the live selection on the commit list. Only the fields
-// relevant to the current mode are used: Range uses anchor/visual, Set uses set.
+// selectionState is the live selection on the commit list. Marked commits live
+// in set. SelRange means a range is being marked right now: anchor is where it
+// started, the live cursor is its other end, and the commits between them are
+// a pending band that joins set when the range is finished (see
+// Model.finishRange).
 type selectionState struct {
 	mode   SelectionMode
-	anchor int             // range anchor (display index), set when visual mode starts
-	end    int             // fixed second endpoint, set by confirmVisual; used only when fixed
-	visual bool            // true while a range is being extended (v pressed, not yet fixed)
-	fixed  bool            // true once a visual range is confirmed: the span stops following the cursor
-	set    map[string]bool // selected commit hashes (SelSet)
+	anchor int             // band anchor (display index) while a range is being marked
+	set    map[string]bool // marked commit hashes
 }
 
 // newSelection returns a fresh Single-mode selection (cursor only).
@@ -22,56 +22,46 @@ func newSelection() selectionState {
 	return selectionState{mode: SelSingle, set: map[string]bool{}}
 }
 
-// reset returns the selection to a clean Single mode, dropping any range/set
-// state. Used when leaving a flow or reloading so a stale multi-selection never
-// leaks across contexts.
+// reset returns the selection to a clean Single mode, dropping every mark and
+// any pending band. Used when leaving a flow or reloading so a stale
+// multi-selection never leaks across contexts.
 func (s *selectionState) reset() {
 	s.mode = SelSingle
-	s.visual = false
-	s.fixed = false
 	s.anchor = 0
-	s.end = 0
 	s.set = map[string]bool{}
 }
 
-// beginVisual starts range visual mode anchored at the cursor's display index.
-// Movement then extends the range live; rangeBounds derives the span from the
-// anchor and the current cursor, so no per-keystroke extend bookkeeping is needed.
+// beginVisual starts marking a range anchored at the cursor's display index.
+// Earlier marks are kept. Movement extends the band live; rangeBounds derives
+// it from the anchor and the current cursor.
 func (s *selectionState) beginVisual(cursor int) {
 	s.mode = SelRange
-	s.visual = true
-	s.fixed = false
 	s.anchor = cursor
 }
 
-// confirmVisual fixes the current range at [anchor, cursor] and stops it extending.
-// The span is stored (s.end) so it no longer follows the cursor — the user can move
-// the cursor to navigate without silently growing the range a consuming feature
-// (retitle, drop-bodies, squash, reauthor) will act on.
-func (s *selectionState) confirmVisual(cursor int) {
-	s.visual = false
-	s.fixed = true
-	s.end = cursor
+// endBand stops marking a range: the selection becomes the marked set, or the
+// plain cursor when nothing is marked. Model.finishRange adds the band's
+// commits to the set first; cancelling a range calls this alone.
+func (s *selectionState) endBand() {
+	if len(s.set) > 0 {
+		s.mode = SelSet
+	} else {
+		s.mode = SelSingle
+	}
 }
 
-// rangeBounds returns the inclusive [lo, hi] display-index span of the range.
-// While the range is being extended (visual) it follows the live cursor; once
-// confirmed (fixed) it uses the stored endpoint and ignores cursor drift. A Range
-// that was never confirmed through confirmVisual (e.g. set directly) falls back to
-// the live cursor. Indices are newest-first, so lo <= hi numerically.
+// rangeBounds returns the inclusive [lo, hi] display-index span of the band
+// being marked: from the anchor to the live cursor. Indices are newest-first,
+// so lo <= hi numerically.
 func (s selectionState) rangeBounds(cursor int) (int, int) {
-	other := cursor
-	if s.fixed && !s.visual {
-		other = s.end
-	}
-	lo, hi := s.anchor, other
+	lo, hi := s.anchor, cursor
 	if lo > hi {
 		lo, hi = hi, lo
 	}
 	return lo, hi
 }
 
-// inRange reports whether a display index falls inside the current range span.
+// inRange reports whether a display index falls inside the band being marked.
 func (s selectionState) inRange(displayIdx, cursor int) bool {
 	if s.mode != SelRange {
 		return false
@@ -80,13 +70,16 @@ func (s selectionState) inRange(displayIdx, cursor int) bool {
 	return displayIdx >= lo && displayIdx <= hi
 }
 
-// toggle flips a commit's membership in the Set, switching the list into Set mode.
-// Frozen commits are never selectable, so a frozen hash is ignored.
+// toggle flips a commit's mark, switching the list into Set mode (a band being
+// marked stays open). Frozen commits are never selectable, so a frozen hash is
+// ignored.
 func (s *selectionState) toggle(hash string, frozen bool) {
 	if frozen {
 		return
 	}
-	s.mode = SelSet
+	if s.mode != SelRange {
+		s.mode = SelSet
+	}
 	if s.set == nil {
 		s.set = map[string]bool{}
 	}
@@ -106,8 +99,10 @@ func (s *selectionState) selectAll(activeHashes []string) {
 	}
 }
 
-// clear empties the Set, staying in Set mode so the user can re-pick.
+// clear removes every mark and any pending band, staying in Set mode so the
+// user can re-pick.
 func (s *selectionState) clear() {
+	s.mode = SelSet
 	s.set = map[string]bool{}
 }
 

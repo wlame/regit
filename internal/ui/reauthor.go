@@ -173,7 +173,7 @@ func (st reauthorState) cycleField(delta int) reauthorState {
 // reauthorTargetCommits returns the commits the wizard will act on: the Set/Range
 // selection when present, otherwise the single cursor commit. Root-first.
 func reauthorTargetCommits(m Model) []model.Commit {
-	hashes := m.selectedHashSet()
+	hashes := m.markedHashes()
 	if len(hashes) == 0 {
 		if len(m.plan.Commits) == 0 {
 			return nil

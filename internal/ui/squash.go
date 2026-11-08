@@ -18,38 +18,10 @@ import (
 	"github.com/wlame/regit/internal/squash"
 )
 
-// selectedHashSet returns the EDITABLE commit hashes the current selection covers:
-// the Set directly, or the inclusive Range span; empty for other modes. Frozen
-// commits (before the base) are excluded even when a selection or a range dragged
-// across the base boundary includes them — the same filtering commitsInSet /
-// commitsInRange apply — so squash and reauthor (which both consume this set) can
-// never rewrite the frozen cone the UI renders as protected.
-func (m Model) selectedHashSet() map[string]bool {
-	out := map[string]bool{}
-	switch m.sel.mode {
-	case SelSet:
-		for _, c := range m.plan.Active() {
-			if m.sel.isSet(c.Hash) {
-				out[c.Hash] = true
-			}
-		}
-	case SelRange:
-		lo, hi := m.sel.rangeBounds(m.listCursor)
-		for d := lo; d <= hi; d++ {
-			storage := len(m.plan.Commits) - 1 - d
-			if storage < 0 || storage >= len(m.plan.Commits) || m.plan.IsFrozen(storage) {
-				continue
-			}
-			out[m.plan.Commits[storage].Hash] = true
-		}
-	}
-	return out
-}
-
 // affectedChains derives the squash chains (and ignored singletons) from the
 // current selection over the root-first plan commits.
 func (m Model) affectedChains() ([]model.SquashChain, []string) {
-	return model.DetectChains(m.plan.Commits, m.selectedHashSet())
+	return model.DetectChains(m.plan.Commits, m.markedHashes())
 }
 
 // squashChange is the staged squash mutation that drops into the apply pipeline.

@@ -41,8 +41,8 @@ func TestSelection_selectAllAndClear(t *testing.T) {
 func TestSelection_visualRangeBounds(t *testing.T) {
 	s := newSelection()
 	s.beginVisual(5) // anchor at display index 5
-	if s.mode != SelRange || !s.visual || s.anchor != 5 {
-		t.Fatalf("beginVisual should enter visual Range at anchor 5, got mode=%v visual=%v anchor=%d", s.mode, s.visual, s.anchor)
+	if s.mode != SelRange || s.anchor != 5 {
+		t.Fatalf("beginVisual should start a band at anchor 5, got mode=%v anchor=%d", s.mode, s.anchor)
 	}
 	// Cursor moved up to 2: range spans [2,5] regardless of direction.
 	if lo, hi := s.rangeBounds(2); lo != 2 || hi != 5 {
@@ -54,21 +54,17 @@ func TestSelection_visualRangeBounds(t *testing.T) {
 	if !s.inRange(3, 2) || s.inRange(6, 2) {
 		t.Error("inRange should include 3 and exclude 6 for range [2,5]")
 	}
-	// Confirm the range at cursor 2 → span fixed at [2,5].
-	s.confirmVisual(2)
-	if s.visual {
-		t.Error("confirmVisual should stop extending")
+	// Ending the band with nothing marked returns to the plain cursor; with
+	// marks it leaves the marked set.
+	s.endBand()
+	if s.mode != SelSingle || s.inRange(3, 2) {
+		t.Errorf("endBand with no marks: mode=%v, want Single and no band", s.mode)
 	}
-	if s.mode != SelRange {
-		t.Error("confirmVisual should keep the Range mode/selection")
-	}
-	// Cursor now moves to 8 for navigation — the FIXED range must NOT drift; it must
-	// stay [2,5] regardless of the live cursor.
-	if lo, hi := s.rangeBounds(8); lo != 2 || hi != 5 {
-		t.Errorf("fixed rangeBounds drifted with cursor: [%d,%d], want [2,5]", lo, hi)
-	}
-	if lo, hi := s.rangeBounds(0); lo != 2 || hi != 5 {
-		t.Errorf("fixed rangeBounds drifted with cursor: [%d,%d], want [2,5]", lo, hi)
+	s.set["x"] = true
+	s.beginVisual(1)
+	s.endBand()
+	if s.mode != SelSet {
+		t.Errorf("endBand with marks: mode=%v, want Set", s.mode)
 	}
 }
 
@@ -77,7 +73,7 @@ func TestSelection_reset(t *testing.T) {
 	s.toggle("x", false)
 	s.beginVisual(3)
 	s.reset()
-	if s.mode != SelSingle || s.visual || len(s.set) != 0 {
-		t.Errorf("reset should return to clean Single, got mode=%v visual=%v set=%d", s.mode, s.visual, len(s.set))
+	if s.mode != SelSingle || s.inRange(3, 3) || len(s.set) != 0 {
+		t.Errorf("reset should return to clean Single, got mode=%v set=%d", s.mode, len(s.set))
 	}
 }

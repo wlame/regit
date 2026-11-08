@@ -176,21 +176,19 @@ func generateRewordCmd(eng *reword.Engine, c model.Commit, parentTree, readme st
 	}
 }
 
-// rewordTargets returns the commits to reword: the active Set selection (in
-// display order, newest first, frozen excluded) when a non-empty Set exists,
-// otherwise just the commit under the cursor (single reword).
+// rewordTargets returns the commits to reword: the marked commits (in display
+// order, newest first; markedHashes already excludes frozen ones) when any are
+// marked, otherwise just the commit under the cursor (single reword).
 func (m Model) rewordTargets() []string {
-	if m.sel.mode == SelSet && len(m.sel.set) > 0 {
-		var out []string
-		for i := 0; i < len(m.plan.Commits); i++ {
-			c := m.commitAtDisplayIndex(i)
-			if m.sel.isSet(c.Hash) && !m.plan.IsFrozen(len(m.plan.Commits)-1-i) {
-				out = append(out, c.Hash)
-			}
+	marked := m.markedHashes()
+	var out []string
+	for i := 0; i < len(m.plan.Commits); i++ {
+		if h := m.commitAtDisplayIndex(i).Hash; marked[h] {
+			out = append(out, h)
 		}
-		if len(out) > 0 {
-			return out
-		}
+	}
+	if len(out) > 0 {
+		return out
 	}
 	return []string{m.commitAtCursor().Hash}
 }
@@ -207,10 +205,10 @@ func (m Model) beginReword() (tea.Model, tea.Cmd, bool) {
 		m.setStatus("No commit selected", statusWarn)
 		return m, nil, true
 	}
-	// With no active Set the cursor IS the target, so a frozen cursor is refused.
-	// With a Set, rewordTargets already excludes frozen hashes, so the cursor's
-	// own frozen state is irrelevant.
-	if (m.sel.mode != SelSet || len(m.sel.set) == 0) && m.plan.IsFrozen(m.storageIndexAtCursor()) {
+	// With nothing marked the cursor IS the target, so a frozen cursor is
+	// refused. With marks, rewordTargets already excludes frozen hashes, so the
+	// cursor's own frozen state is irrelevant.
+	if len(m.markedHashes()) == 0 && m.plan.IsFrozen(m.storageIndexAtCursor()) {
 		m.setStatus("Cannot reword a frozen commit — press b to move the base", statusWarn)
 		return m, nil, true
 	}

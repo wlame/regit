@@ -186,10 +186,13 @@ original tree and verifies it). Headless: `regit reauthor --name=… --email=…
 --commits=A..B [--committer=false] [--execute]`.
 
 The commit list has a selection mode (selection.go) that gives each feature the
-selection it needs with a distinct visual language: Single (▸ cursor), Range (┃
-band, built with vim visual mode `v`), Set (○/● gutter, Space toggles · `a` all ·
-`n` clear), Active (whole non-frozen range, frozen cone dimmed), Global (list
-dimmed). The mode defaults to Single everywhere (`newSelection`/`reset`); the
+selection it needs. The user MARKS commits: Space toggles one, `s` marks all,
+`n` clears, and `v` marks a range — the band follows the cursor (Range mode)
+until `v`/`enter` adds it to the marks (Set mode); `esc` drops a pending band
+and keeps earlier marks, then a second `esc` clears them. `markedHashes()` (the
+set plus any pending band, frozen commits excluded) is the single source every
+consumer reads. Other modes: Single (▸ cursor), Active (whole non-frozen range,
+frozen cone dimmed), Global (list dimmed). The mode defaults to Single everywhere (`newSelection`/`reset`); the
 one exception is entering the redate flow with no explicit selection already
 made, which scopes it to the whole active range (`SelActive`) instead —
 `enterRedateFlow`'s own default, mirrored by a bare `redate --commits=`. An
@@ -206,8 +209,8 @@ frozen commits are never selectable. Global ignores the selection entirely:
 key instead of the panel.
 
 Bulk actions (Drop bodies, Retitle) and the action panel's affected-commit
-count operate on `affectedCommits()` — the explicit Set/Range selection when one
-exists, else the whole active range. Drop bodies opens a confirmation popup
+count operate on `affectedCommits()` — the marked commits when there are any,
+else the whole active range. Drop bodies opens a confirmation popup
 (`modeDropBodies`) reporting how many commits would change before any edit is staged.
 
 Every history mutation funnels through one stage → preview → confirm → apply
@@ -646,7 +649,7 @@ internal/ui/
   workspace.go          viewFlowZone: renders the flow zone (detail by default, active flow's widget otherwise) + the AUTHORS pane
   actionpanel.go        The `m` action panel: panelRows projection, selectionKind/actionCompat, arrow-nav + letter hotkeys, row windowing
   ws_dates.go           Redate flow widget (calendar + strategy form)
-  selection.go          Commit-list selection model: Single/Range/Set/Active/Global + visual-mode range, set toggling
+  selection.go          Commit-list selection model: marks (Set), a pending range band (Range), Single/Active/Global
   pipeline.go           Apply pipeline: pendingChange interface + planChange/splitChange + the preview overlay
   view.go               Layout incl. viewCommandLog (the L-toggle transparency panel)
   keys.go               Data-driven keymap table ([L]og toggle); generates the help overlay and keybar

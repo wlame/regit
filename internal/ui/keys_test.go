@@ -59,7 +59,7 @@ func TestView_helpOverlayUsesGeneratedText(t *testing.T) {
 
 func TestHelpText_documentsSelectionKeys(t *testing.T) {
 	help := helpText()
-	for _, want := range []string{"SELECTION", "visual range", "select all active", "multi-reword"} {
+	for _, want := range []string{"SELECTION", "mark a range", "mark every editable commit", "multi-reword"} {
 		if !strings.Contains(help, want) {
 			t.Errorf("help should document selection: missing %q", want)
 		}
@@ -67,8 +67,8 @@ func TestHelpText_documentsSelectionKeys(t *testing.T) {
 }
 
 func TestKeybarHint_includesSelect(t *testing.T) {
-	if !strings.Contains(keybarHint(), "select") {
-		t.Errorf("keybar should advertise selection, got: %s", keybarHint())
+	if !strings.Contains(keybarHint(), "[space]mark") {
+		t.Errorf("keybar should advertise marking, got: %s", keybarHint())
 	}
 }
 
@@ -100,7 +100,7 @@ func TestKeymap_authorToggleAndRelocatedSelectAll(t *testing.T) {
 	}
 	// select-all moved off 'a' to 's'; its keymap row must now read 's'.
 	for _, b := range keymap {
-		if b.Scope == scopeSelection && strings.Contains(b.Desc, "select all active") && b.Key != "s" {
+		if b.Scope == scopeSelection && strings.Contains(b.Desc, "mark every editable commit") && b.Key != "s" {
 			t.Errorf("select all should be bound to 's', got %q", b.Key)
 		}
 	}
