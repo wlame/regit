@@ -702,6 +702,10 @@ func (m Model) updateMain(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return model, cmd
 		}
 	}
+	if helper, ok := redateHelperKeys[msg.String()]; ok && m.inRedatePane() {
+		helper(&m)
+		return m, nil
+	}
 	if m.focus == focusParams {
 		return m.updateParamsPane(msg)
 	}
@@ -1522,6 +1526,29 @@ func (m *Model) cycleStrategy(delta int) {
 	m.stratIdx = (m.stratIdx + delta + n) % n
 	m.activeStrat().form.focusIdx = 0
 	m.reattributeActivePins()
+	m.stageActive()
+}
+
+// redateHelperKeys are the left/right helper pairs of the redate flow: they
+// change the strategy and the time model from the calendar or the strategy
+// pane, so neither change needs a focus switch. Arrows stay the calendar
+// cursor; {/} stay the list's day-group jumps.
+var redateHelperKeys = map[string]func(m *Model){
+	"[": func(m *Model) { m.cycleStrategy(-1) },
+	"]": func(m *Model) { m.cycleStrategy(1) },
+	"<": func(m *Model) { m.cycleTimeModel(-1) },
+	">": func(m *Model) { m.cycleTimeModel(1) },
+}
+
+// inRedatePane reports whether focus is on one of the redate flow's own panes.
+func (m Model) inRedatePane() bool {
+	return m.flow == flowRedate && (m.focus == focusCalendar || m.focus == focusParams)
+}
+
+// cycleTimeModel selects the next or previous time model of the active
+// strategy and re-stages, exactly as the strategy pane's time-model row does.
+func (m *Model) cycleTimeModel(delta int) {
+	m.activeStrat().form.cycleTimeModel(delta)
 	m.stageActive()
 }
 

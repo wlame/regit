@@ -233,3 +233,40 @@ func TestRedactFlow_narrowTerminalShowsTheFlow(t *testing.T) {
 		assertFrameFits(t, m, size[0], size[1])
 	}
 }
+
+func TestRedateFlow_bracketKeysCycleStrategyAndTimeModelFromCalendar(t *testing.T) {
+	m := send(newTestModelN(t, 6), "m", "d") // focus lands on the calendar
+	strat, cursor := m.stratIdx, m.calCursor
+	timeModel := m.activeStrat().form.timeModelIdx
+
+	m = send(m, "]")
+	if m.stratIdx != (strat+1)%len(m.strategies) {
+		t.Errorf("] should select the next strategy: idx %d -> %d", strat, m.stratIdx)
+	}
+	m = send(m, "[")
+	if m.stratIdx != strat {
+		t.Errorf("[ should select the previous strategy: got idx %d, want %d", m.stratIdx, strat)
+	}
+	m = send(m, ">")
+	if got := m.activeStrat().form.timeModelIdx; got != (timeModel+1)%len(m.activeStrat().form.timeModels) {
+		t.Errorf("> should select the next time model: idx %d -> %d", timeModel, got)
+	}
+	m = send(m, "<")
+	if got := m.activeStrat().form.timeModelIdx; got != timeModel {
+		t.Errorf("< should select the previous time model: got idx %d, want %d", got, timeModel)
+	}
+	if m.focus != focusCalendar || !m.calCursor.Equal(cursor) {
+		t.Errorf("the helpers must not move focus or the calendar cursor (focus=%v)", m.focus)
+	}
+}
+
+func TestRedateFlow_bracketKeysAlsoWorkFromStrategyPane(t *testing.T) {
+	m := send(newTestModelN(t, 6), "m", "d", "tab") // calendar -> strategy pane
+	strat := m.stratIdx
+
+	m = send(m, "]")
+
+	if m.focus != focusParams || m.stratIdx != (strat+1)%len(m.strategies) {
+		t.Errorf("] in the strategy pane should select the next strategy (focus=%v idx %d -> %d)", m.focus, strat, m.stratIdx)
+	}
+}

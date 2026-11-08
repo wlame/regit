@@ -129,6 +129,8 @@ var keymap = []keyBinding{
 	{Key: "←/→", Scope: scopeCalendar, Ctx: ctxRedate, Desc: "move the cursor by one week"},
 	{Key: "0-9", Scope: scopeCalendar, Ctx: ctxRedate, Desc: "pin a per-day quota (Manual Pin strategy active); live-stages the distribution"},
 	{Key: "space", Scope: scopeCalendar, Ctx: ctxRedate, Desc: "pick/unpick the day (Picked Days strategy active); reshuffles live"},
+	{Key: "[ / ]", Scope: scopeCalendar, Ctx: ctxRedate, Desc: "previous / next strategy (also in the strategy pane)", Bar: "[ ]strategy"},
+	{Key: "< / >", Scope: scopeCalendar, Ctx: ctxRedate, Desc: "previous / next time model (also in the strategy pane)", Bar: "< >time"},
 
 	// Strategy pane (redate flow)
 	{Key: "↑/↓", Scope: scopeStrategy, Ctx: ctxRedate, Desc: "move between fields"},
@@ -242,9 +244,14 @@ func keybarHintWidth(width int) string {
 // keybarHintWidth. This is what the running app renders (see view.go); the
 // unfiltered keybarHint/keybarHintWidth remain for tests and callers that
 // want the full table regardless of focus.
+//
+// The context's own rows lead, then the global ones: the globals alone fill a
+// wide terminal, so the keys specific to what is on screen would otherwise be
+// the ones truncated away.
 func keybarHintFor(ctx keyCtx, width int) string {
-	visible := func(k keyBinding) bool { return keybarRowVisible(k, ctx) }
-	return truncateKeybar(barTokens(visible), width)
+	own := func(k keyBinding) bool { return k.Ctx == ctx && k.Ctx != ctxAlways }
+	shared := func(k keyBinding) bool { return keybarRowVisible(k, ctx) && !own(k) }
+	return truncateKeybar(append(barTokens(own), barTokens(shared)...), width)
 }
 
 // DocBinding is one keymap row exposed for documentation rendering. It is a

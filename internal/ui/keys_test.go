@@ -180,3 +180,21 @@ func TestDocSections_projectsEveryKeymapRowOnceInScopeOrder(t *testing.T) {
 		t.Errorf("first global binding = %+v, want the '?' row with bar token intact", first)
 	}
 }
+
+func TestHelpText_documentsRedateBracketHelpers(t *testing.T) {
+	text := helpText()
+	for _, keys := range []string{"[ / ]", "< / >"} {
+		if !strings.Contains(text, keys) {
+			t.Errorf("help should document %q", keys)
+		}
+	}
+}
+
+// TestKeybarHintFor_contextKeysComeFirst: the global keys alone fill a wide
+// terminal, so a context's own keys must lead the bar or they are cut off.
+func TestKeybarHintFor_contextKeysComeFirst(t *testing.T) {
+	bar := keybarHintFor(ctxRedate, 120)
+	if !strings.Contains(bar, "[ ]strategy") || !strings.Contains(bar, "< >time") {
+		t.Errorf("redate keybar at 120 columns lost its own keys: %q", bar)
+	}
+}
