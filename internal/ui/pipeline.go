@@ -129,12 +129,19 @@ func (c planChange) guard(state model.RepoState) safety.Guard {
 // in the out-of-order blast radius.
 func (c planChange) preview(st styles) previewModel {
 	shifted := shiftedSet(c.plan)
-	lines := make([]string, 0, len(c.plan.Commits)+len(c.impact))
+	lines := make([]string, 0, len(c.plan.Edits)+len(shifted)+len(c.impact)+1)
+	unchanged := 0
 	for i := len(c.plan.Commits) - 1; i >= 0; i-- {
 		commit := c.plan.Commits[i]
+		edit, changed := c.plan.EditFor(commit.Hash)
+		// List only what the apply changes or flags; an unchanged commit is
+		// counted in one summary line so the real changes are not buried.
+		if !changed && !shifted[commit.Hash] {
+			unchanged++
+			continue
+		}
 		orig := commit.OrigAuthorDate.In(c.loc).Format("2006-01-02 15:04")
 		neu := c.plan.EffectiveAuthorDate(commit).In(c.loc).Format("2006-01-02 15:04")
-		edit, changed := c.plan.EditFor(commit.Hash)
 		// The date columns only reflect a date change; use "→" when the date
 		// actually moved, "=" otherwise, so a message- or author-only edit does not
 		// falsely imply a date shift.
@@ -142,17 +149,14 @@ func (c planChange) preview(st styles) previewModel {
 		if !c.plan.EffectiveAuthorDate(commit).Equal(commit.OrigAuthorDate) {
 			arrow = " → "
 		}
-		// Show the EFFECTIVE (post-edit) subject so a retitle/reword is visible in
-		// the row itself.
-		text := fmt.Sprintf("%s  %-32s %s%s%s", short(commit.Hash),
-			truncate(termsafe.Line(c.plan.EffectiveSubject(commit)), 32), orig, arrow, neu)
-		switch {
-		case shifted[commit.Hash]:
+		// Dates come before the EFFECTIVE (post-edit) subject: the overlay clamps
+		// long rows on narrow terminals, and the subject is the part to lose.
+		text := fmt.Sprintf("%s  %s%s%s  %s", short(commit.Hash), orig, arrow, neu,
+			truncate(termsafe.Line(c.plan.EffectiveSubject(commit)), 48))
+		if shifted[commit.Hash] {
 			lines = append(lines, st.statusWarn.Render("⚠ "+text))
-		case changed:
+		} else {
 			lines = append(lines, st.newDate.Render("  "+text))
-		default:
-			lines = append(lines, st.dim.Render("  "+text))
 		}
 		// Message and author edits are invisible in the date columns, so spell them
 		// out on indented sub-lines — otherwise the mandatory preview would gate a
@@ -160,6 +164,9 @@ func (c planChange) preview(st styles) previewModel {
 		for _, note := range editNotes(commit, edit) {
 			lines = append(lines, st.dim.Render("        "+note))
 		}
+	}
+	if unchanged > 0 {
+		lines = append(lines, st.dim.Render(fmt.Sprintf("  %d unchanged commit(s) not shown", unchanged)))
 	}
 	// Impact lines (tags/branches this rewrite would orphan) go last, styled
 	// the same as the ⚠ conflict rows above — mirrors the headless preview's

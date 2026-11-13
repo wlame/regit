@@ -25,8 +25,18 @@ func TestPlanChange_titleAndPreview(t *testing.T) {
 	if !strings.Contains(pv.title, "→") && !strings.Contains(strings.Join(pv.lines, "\n"), "→") {
 		t.Error("preview should show an original → new arrow for the edited commit")
 	}
-	if len(pv.lines) != len(m.plan.Commits) {
-		t.Errorf("preview should have one line per commit (%d), got %d", len(m.plan.Commits), len(pv.lines))
+	// Only the changed commit is listed; the other two are summarized.
+	if len(pv.lines) != 2 {
+		t.Fatalf("preview should list 1 changed commit plus a summary line, got %d:\n%s", len(pv.lines), strings.Join(pv.lines, "\n"))
+	}
+	if !strings.Contains(pv.lines[1], "2 unchanged commit(s) not shown") {
+		t.Errorf("summary line = %q, want the unchanged count", pv.lines[1])
+	}
+	// Dates come before the subject, so a narrow overlay cuts the subject.
+	row := pv.lines[0]
+	subjectAt := strings.Index(row, c.Subject[:10])
+	if subjectAt < 0 || strings.Index(row, "→") > subjectAt {
+		t.Errorf("the date change should come before the subject: %q", row)
 	}
 }
 
