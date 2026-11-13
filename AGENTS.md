@@ -101,7 +101,7 @@ its top border with that letter highlighted), and `[`/`]` and `<`/`>` change
 the strategy and time model from the calendar or strategy pane
 (`redateHelperKeys`).
 
-Wizards listed in zone.go `zoneWizards` (reword, squash, retitle, reauthor, the split progress) draw inside the flow
+Wizards listed in zone.go `zoneWizards` (reword, squash, retitle, reauthor, purge, the split progress) draw inside the flow
 zone as a titled pane beside the list instead of as a centered popup; their
 mode still owns every key, the keybar switches to the empty exclusive
 `ctxWizard`, and the flow column widens to `zoneWizardMinWidth`.

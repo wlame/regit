@@ -24,6 +24,7 @@ var zoneWizards = map[mode]zoneWizard{
 	modeRetitle:  {title: "RETITLE", body: Model.retitleWizardBody},
 	modeReauthor: {title: "CHANGE AUTHOR", body: Model.reauthorWizardBody},
 	modeSplitGen: {title: "SPLIT", body: Model.splitProgressBody},
+	modePurge:    {title: "PURGE", body: Model.purgeWizardBody},
 }
 
 // zoneWizardMinWidth is the flow column's minimum width while a wizard is in

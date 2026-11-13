@@ -178,7 +178,7 @@ func newPurgeState(inputW int) purgeState {
 // recognizable as stale once the new one lands.
 func (m Model) beginPurge() (tea.Model, tea.Cmd, bool) {
 	seq := m.purgeSt.scanSeq + 1
-	m.purgeSt = newPurgeState(m.layout().inputWidth)
+	m.purgeSt = newPurgeState(m.zoneInputWidth(purgeLabelWidth))
 	m.purgeSt.scanSeq = seq
 	m.mode = modePurge
 	repo := m.repo
@@ -326,6 +326,10 @@ func (m Model) stagePurge() (tea.Model, tea.Cmd) {
 // as a lookup set) — the authoritative source for the trailing "/" suffix.
 // AddedIn membership is NOT a valid stand-in: a rename destination is never a
 // plain "A" add, so checking AddedIn instead would mislabel it as a directory.
+// purgeLabelWidth sizes the query field: "Find    " is the field cursor's 2
+// columns, this label column, and its gap.
+const purgeLabelWidth = 5
+
 func renderPurgeWizard(st purgeState, dirs map[string]bool, s styles) string {
 	var b strings.Builder
 	b.WriteString(s.modalTitle.Render("PURGE FROM HISTORY") + "\n\n")
@@ -377,7 +381,7 @@ func renderPurgeWizard(st purgeState, dirs map[string]bool, s styles) string {
 }
 
 // purgeDirSet builds the directory-membership lookup renderPurgeWizard needs
-// from a scanned index's sorted Dirs slice. Shared by viewPurge and tests so
+// from a scanned index's sorted Dirs slice. Shared by purgeWizardBody and tests so
 // the set-building logic lives in exactly one place.
 func purgeDirSet(idx *gitio.PathIndex) map[string]bool {
 	if idx == nil {
@@ -390,15 +394,14 @@ func purgeDirSet(idx *gitio.PathIndex) map[string]bool {
 	return dirs
 }
 
-// viewPurge renders the wizard overlay. renderPurgeWizard is a pure function
-// (used directly in tests without a spinner), so the shared spinner is
-// spliced in here as a post-processing step, mirroring viewSquash: while the
-// scan is in flight its static "scanning history…" line is swapped for the
-// ticking frame.
-func (m Model) viewPurge() string {
+// purgeWizardBody is the purge finder for the flow zone. renderPurgeWizard is
+// pure (used directly in tests without a spinner), so the shared spinner is
+// spliced in here: while the scan is in flight its static "scanning history…"
+// line is swapped for the ticking frame.
+func (m Model) purgeWizardBody(_, _ int) string {
 	body := renderPurgeWizard(m.purgeSt, purgeDirSet(m.purgeSt.index), m.st)
 	if m.purgeSt.scanning {
 		body = strings.ReplaceAll(body, "scanning history…", m.spinner.View()+" scanning history…")
 	}
-	return m.st.modal.Render(body)
+	return body
 }

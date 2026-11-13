@@ -626,7 +626,7 @@ func (c redactChange) apply(mgr *safety.Manager, state model.RepoState, opts saf
 
 // viewRedactFlow renders the flow zone's redact widget (embedded, not an
 // overlay — see this file's top doc comment). The scanning spinner is
-// spliced in as a post-processing step, mirroring viewPurge/viewSquash: the
+// spliced in as a post-processing step, mirroring purgeWizardBody/squashWizardBody: the
 // pure renderRedactFlow stays testable without a live spinner.
 func (m Model) viewRedactFlow() string {
 	width := m.layout().flowWidth

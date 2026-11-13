@@ -3,7 +3,7 @@ package ui
 // squash_extra_test.go covers the functions left uncovered by squash_test.go:
 // markedHashes (SelRange branch), guard (all cases), chainsToSpec,
 // beginSquash (no-chains and chains), updateSquash (all key paths),
-// stageSquash (happy path), and viewSquash.
+// stageSquash (happy path), and squashWizardBody.
 
 import (
 	"strings"

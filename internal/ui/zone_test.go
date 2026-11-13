@@ -129,3 +129,24 @@ func TestSplitProgress_drawsInTheFlowZone(t *testing.T) {
 		t.Errorf("the commit list should stay visible beside it:\n%s", view)
 	}
 }
+
+func TestPurgeWizard_drawsInTheFlowZoneAndFits(t *testing.T) {
+	for _, size := range [][2]int{{120, 40}, {80, 24}, {60, 16}} {
+		m := resizeTo(newTestModelN(t, 6), size[0], size[1])
+		m = send(m, "m", "p")
+		if m.mode != modePurge {
+			t.Fatalf("expected the purge wizard, got mode %v", m.mode)
+		}
+		short := lipgloss.Height(m.View())
+		m = send(m, strings.Repeat("x", 70)) // a long query scrolls in its field
+
+		view := stripANSI(m.View())
+		if !hasBorderTitle(view, "PURGE") {
+			t.Errorf("%dx%d: purge should be a titled pane in the flow zone:\n%s", size[0], size[1], view)
+		}
+		if got := lipgloss.Height(m.View()); got != short {
+			t.Errorf("%dx%d: a long query changed the frame from %d to %d rows", size[0], size[1], short, got)
+		}
+		assertFrameFits(t, m, size[0], size[1])
+	}
+}
