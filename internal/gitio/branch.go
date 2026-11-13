@@ -1,7 +1,9 @@
 package gitio
 
 import (
+	"errors"
 	"fmt"
+	"os/exec"
 	"sort"
 	"strings"
 )
@@ -35,6 +37,22 @@ func (r *Repo) MergeBase(a, b string) (string, error) {
 		return "", fmt.Errorf("merge-base %s %s: %w", a, b, err)
 	}
 	return out, nil // r.git already trims the trailing newline
+}
+
+// IsAncestor reports whether ancestor is reachable from descendant
+// (`git merge-base --is-ancestor`). git answers with exit code 1 for "no",
+// which is a normal false; any other failure, such as an unknown revision,
+// is returned as an error so a caller never mistakes it for "not an ancestor".
+func (r *Repo) IsAncestor(ancestor, descendant string) (bool, error) {
+	_, err := r.git("merge-base", "--is-ancestor", ancestor, descendant)
+	if err == nil {
+		return true, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return false, nil
+	}
+	return false, fmt.Errorf("merge-base --is-ancestor %s %s: %w", ancestor, descendant, err)
 }
 
 // SwitchBranch checks out an existing local branch (`git switch <name>`). The

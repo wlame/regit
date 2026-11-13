@@ -247,7 +247,7 @@ func runPurge(ctx *RunContext, a ParsedArgs) error {
 		fmt.Fprintln(ctx.Stderr, res.SyncWarning)
 	}
 	fmt.Fprintln(ctx.Stdout, "note: old objects remain reachable via the backup ref and reflog until 'git gc' prunes them")
-	pushHint(ctx.Stdout, state)
+	pushHint(ctx.Stdout, ctx.Repo, state)
 	return nil
 }
 

@@ -83,7 +83,7 @@ func runLinearize(ctx *RunContext, a ParsedArgs) error {
 	fmt.Fprintf(ctx.Stdout, "\nLinearized %d merge(s). New HEAD %s (backup %s)\n",
 		len(plan.Folds), Short(res.NewHead), res.BackupRef)
 	fmt.Fprintln(ctx.Stdout, res.Verification.String())
-	pushHint(ctx.Stdout, state)
+	pushHint(ctx.Stdout, ctx.Repo, state)
 	return nil
 }
 

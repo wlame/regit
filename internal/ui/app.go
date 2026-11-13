@@ -1849,7 +1849,7 @@ func (m Model) commitPending(confirmed bool) (tea.Model, tea.Cmd) {
 	// (internal/capability/pipeline.go) in the command-log footer, using the
 	// just-reloaded m.state — a history rewrite never changes the upstream
 	// tracking config, so it is equally correct as the pre-apply state.
-	for _, line := range pushHintFooterLines(m.state) {
+	for _, line := range pushHintFooterLines(m.repo, m.state) {
 		m.commandLog = append(m.commandLog, line)
 		// Same "#"-prefixed convention as above: the divergence note is an
 		// honest observation, not a runnable command, so it never reaches the
@@ -1861,16 +1861,11 @@ func (m Model) commitPending(confirmed bool) (tea.Model, tea.Cmd) {
 	return m, m.markAndFetch()
 }
 
-// pushHintFooterLines mirrors capability.pushHint's wording (see
-// internal/capability/pipeline.go) for the TUI's transparency footer: when the
-// branch has an upstream, it returns the divergence note followed by the
-// exact force-with-lease command needed to publish the rewrite. Returns nil
-// when the branch has no upstream — nothing to push, so the footer stays
-// unchanged. The lines (and the remote-derivation logic) come from
-// model.PushHintLines, the same helper capability.pushHint renders, so a
-// non-origin remote is reflected correctly on both surfaces at once.
-func pushHintFooterLines(state model.RepoState) []string {
-	lines := model.PushHintLines(state)
+// pushHintFooterLines renders capability.PushHintLines for the command-log
+// footer: the status note becomes a "#" comment and the push command stays
+// runnable. Returns nil when the branch has no upstream.
+func pushHintFooterLines(repo *gitio.Repo, state model.RepoState) []string {
+	lines := capability.PushHintLines(repo, state)
 	if lines == nil {
 		return nil
 	}

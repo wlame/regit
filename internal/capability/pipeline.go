@@ -94,26 +94,35 @@ func applyOrPreview(ctx *RunContext, plan *model.Plan, a ParsedArgs, preview fun
 	}
 	fmt.Fprintf(ctx.Stdout, "\nApplied. New HEAD %s (backup %s)\n", Short(res.NewHead), res.BackupRef)
 	fmt.Fprintln(ctx.Stdout, res.Verification.String())
-	pushHint(ctx.Stdout, state)
+	pushHint(ctx.Stdout, ctx.Repo, state)
 	return nil
 }
 
-// pushHint prints the exact force-with-lease command to publish a rewritten
-// branch, plus a divergence note, when the branch tracks (or has) a remote.
-// --force-with-lease (never bare --force) refuses to clobber unseen remote
-// commits. Silent when the branch has no remote ref — nothing to push. The
-// lines themselves (and the remote-derivation logic) live in
-// model.PushHintLines, shared with the TUI footer (ui.pushHintFooterLines) so
-// the wording — and the fix deriving the remote from the upstream ref instead
-// of hardcoding "origin" — cannot drift between the two surfaces.
-func pushHint(w io.Writer, state model.RepoState) {
-	lines := model.PushHintLines(state)
+// pushHint prints how to publish a rewritten branch when it has an upstream:
+// a plain push when the rewrite left the upstream tip as an ancestor (only
+// unpushed commits changed), otherwise --force-with-lease (never bare --force,
+// which would clobber unseen remote commits). Silent with no upstream.
+func pushHint(w io.Writer, repo *gitio.Repo, state model.RepoState) {
+	lines := PushHintLines(repo, state)
 	if lines == nil {
 		return
 	}
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, lines[0])
 	fmt.Fprintln(w, "  "+lines[1])
+}
+
+// PushHintLines checks whether the upstream is still an ancestor of HEAD and
+// returns model.PushHintLines for that answer. The headless verbs and the TUI
+// footer both call it, so the two surfaces give the same advice. If the
+// ancestry check fails, it falls back to the force-with-lease hint, which is
+// correct in both cases (only less convenient).
+func PushHintLines(repo *gitio.Repo, state model.RepoState) []string {
+	fastForward := false
+	if state.HasUpstream && state.UpstreamRef != "" {
+		fastForward, _ = repo.IsAncestor(state.UpstreamRef, "HEAD")
+	}
+	return model.PushHintLines(state, fastForward)
 }
 
 // signMode resolves --sign to a gitio.SignMode, failing fast (exit 2) if

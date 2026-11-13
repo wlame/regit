@@ -290,10 +290,10 @@ func newModelWithUpstream(t *testing.T) Model {
 }
 
 // TestFooter_pushHintAfterApplyWithUpstream proves the TUI surfaces the same
-// force-with-lease push hint the headless CLI prints (capability.pushHint,
-// internal/capability/pipeline.go) after a successful apply on a branch with
-// an upstream: the exact recovery command must land in the command-log
-// footer, both in the in-memory panel (m.commandLog) and the on-disk log.
+// push hint the headless CLI prints (capability.PushHintLines) after a
+// successful apply on a branch with an upstream. The redate touches only
+// unpushed commits, so origin/main stays an ancestor and the hint must be a
+// plain push, in both the in-memory panel and the on-disk log.
 func TestFooter_pushHintAfterApplyWithUpstream(t *testing.T) {
 	m := newModelWithUpstream(t)
 	if !m.state.HasUpstream {
@@ -310,7 +310,10 @@ func TestFooter_pushHintAfterApplyWithUpstream(t *testing.T) {
 		t.Fatalf("apply should succeed without a typed confirm, got status %v: %s", m.statusKind, m.statusMsg)
 	}
 
-	want := "git push --force-with-lease origin main"
+	want := "git push origin main"
+	if strings.Contains(strings.Join(m.commandLog, "\n"), "force-with-lease") {
+		t.Errorf("a rewrite of unpushed commits must not suggest a force-push; got:\n%s", strings.Join(m.commandLog, "\n"))
+	}
 	if !strings.Contains(strings.Join(m.commandLog, "\n"), want) {
 		t.Errorf("expected %q in the footer command log; got:\n%s", want, strings.Join(m.commandLog, "\n"))
 	}

@@ -161,3 +161,21 @@ func TestMergeBase_errorsOnUnrelatedHistories(t *testing.T) {
 			unrelatedHead)
 	}
 }
+
+func TestIsAncestor_reportsAncestryBothWays(t *testing.T) {
+	repo := branchTestRepo(t)
+	// feature points at the fork commit c0, which main builds on.
+	if ok, err := repo.IsAncestor("feature", "main"); err != nil || !ok {
+		t.Errorf("IsAncestor(feature, main) = %v, %v; want true, nil", ok, err)
+	}
+	if ok, err := repo.IsAncestor("main", "feature"); err != nil || ok {
+		t.Errorf("IsAncestor(main, feature) = %v, %v; want false, nil", ok, err)
+	}
+}
+
+func TestIsAncestor_errorsOnUnknownRevision(t *testing.T) {
+	repo := branchTestRepo(t)
+	if _, err := repo.IsAncestor("no-such-ref", "main"); err == nil {
+		t.Error("an unknown revision must be an error, not a plain false")
+	}
+}

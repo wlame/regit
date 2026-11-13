@@ -77,8 +77,9 @@ and act immediately.
 | Undo past new work | `undo` **refuses** to unwind past newer commits unless `--force`; it backs up the tip first |
 
 Before applying, regit also reports any tags or branches the rewrite would
-orphan; afterwards it prints the exact
-`git push --force-with-lease <remote> <branch>` to publish the result.
+orphan; afterwards it prints the exact push command to publish the result:
+a plain `git push <remote> <branch>` when only unpushed commits changed, or
+`git push --force-with-lease <remote> <branch>` when pushed history was rewritten.
 
 > Rewriting history that others have pulled requires a force-push and can
 > disrupt collaborators. Use regit deliberately on shared branches.

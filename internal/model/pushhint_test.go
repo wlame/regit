@@ -45,7 +45,7 @@ func TestPushHintLines(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := PushHintLines(tc.state)
+			got := PushHintLines(tc.state, false)
 			if len(got) != len(tc.want) {
 				t.Fatalf("PushHintLines = %v, want %v", got, tc.want)
 			}
@@ -58,5 +58,17 @@ func TestPushHintLines(t *testing.T) {
 				t.Errorf("command line %q missing force-with-lease", got[1])
 			}
 		})
+	}
+}
+
+func TestPushHintLines_fastForwardSuggestsPlainPush(t *testing.T) {
+	state := RepoState{Branch: "main", HasUpstream: true, UpstreamRef: "up/main"}
+	got := PushHintLines(state, true)
+	want := []string{
+		"up/main is still an ancestor of your rewrite. To publish:",
+		"git push up main",
+	}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("PushHintLines(fast-forward) = %q, want %q", got, want)
 	}
 }

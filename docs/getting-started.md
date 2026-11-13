@@ -118,8 +118,8 @@ regit redate --strategy=Even-Spread --time=Working-hours \
 ```
 
 On success regit prints the new HEAD, the backup ref it created, the verifier's report, and
-— when the branch tracks a remote — the exact `git push --force-with-lease` command to
-publish the rewrite.
+— when the branch tracks a remote — the exact push command to publish the rewrite: a plain
+`git push` when only unpushed commits changed, `git push --force-with-lease` otherwise.
 
 !!! warning "Already-pushed commits need `--force`"
     If the range includes commits that already exist on the remote, `--execute` alone is

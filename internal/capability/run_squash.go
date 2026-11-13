@@ -134,7 +134,7 @@ func runSquash(ctx *RunContext, a ParsedArgs) error {
 	}
 	fmt.Fprintf(ctx.Stdout, "\nSquashed %d commits into %d. New HEAD %s (backup %s)\n", squashed, len(plan.Chains), Short(res.NewHead), res.BackupRef)
 	fmt.Fprintln(ctx.Stdout, res.Verification.String())
-	pushHint(ctx.Stdout, state)
+	pushHint(ctx.Stdout, ctx.Repo, state)
 	return nil
 }
 
