@@ -403,7 +403,8 @@ func parseDateChanges(t *testing.T, output string) map[string]bool {
 
 // TestRedate_CommitsFlagScopesTargets proves --commits narrows the
 // strategy's targets to the given subset: only the named commit gets a
-// proposed date, every other active commit's line shows its date unchanged.
+// proposed date, later commits show their date unchanged, and commits older
+// than the first target are frozen and left out of the plan.
 func TestRedate_CommitsFlagScopesTargets(t *testing.T) {
 	repo, commits := redateScopedTestRepo(t)
 	c2, c3 := commits[1], commits[2]
@@ -418,8 +419,15 @@ func TestRedate_CommitsFlagScopesTargets(t *testing.T) {
 	}
 
 	changes := parseDateChanges(t, out.String())
-	for _, c := range commits {
+	for i, c := range commits {
 		got, ok := changes[Short(c.Hash)]
+		if i < 1 {
+			// Older than the first target: frozen, so never listed or rewritten.
+			if ok {
+				t.Errorf("commit %s precedes the first target and should be frozen:\n%s", Short(c.Hash), out.String())
+			}
+			continue
+		}
 		if !ok {
 			t.Fatalf("no date-plan line found for %s:\n%s", Short(c.Hash), out.String())
 		}

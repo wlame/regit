@@ -13,9 +13,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/wlame/regit/internal/capability"
 	"github.com/wlame/regit/internal/config"
 	"github.com/wlame/regit/internal/gitio"
 	"github.com/wlame/regit/internal/safety"
@@ -343,5 +345,58 @@ func TestFooter_noPushHintWithoutUpstream(t *testing.T) {
 	}
 	if strings.Contains(readCommandLog(t, m), "force-with-lease") {
 		t.Errorf("no upstream -> no push hint on disk; got:\n%s", readCommandLog(t, m))
+	}
+}
+
+// TestRedateLoggedCommandReproducesTheTUIPlan runs the TUI's logged redate
+// line headlessly on a branch with pushed (frozen) commits and checks that it
+// targets the same commits and produces the same dates the TUI staged. The
+// command log promises a copy-pasteable equivalent; this is that promise.
+func TestRedateLoggedCommandReproducesTheTUIPlan(t *testing.T) {
+	m := newModelWithUpstream(t)
+	m = applyStrategyInPane(m)
+
+	staged := map[string]time.Time{} // subject -> staged author date
+	for _, c := range m.plan.Commits {
+		if e, ok := m.plan.EditFor(c.Hash); ok && e.NewAuthorDate != nil {
+			staged[c.Subject] = e.NewAuthorDate.UTC()
+		}
+	}
+	if len(staged) == 0 {
+		t.Fatal("setup: the TUI staged no dates")
+	}
+
+	line := strings.ReplaceAll(m.redateCmd, "\\\n", " ")
+	toks := strings.Fields(line)
+	if len(toks) < 2 || toks[1] != "redate" {
+		t.Fatalf("unexpected logged line %q", m.redateCmd)
+	}
+	cmd, ok := capability.Lookup("redate")
+	if !ok {
+		t.Fatal("redate verb missing")
+	}
+	args, err := capability.Parse(cmd, toks[2:])
+	if err != nil {
+		t.Fatalf("the logged line does not parse: %v\n%s", err, m.redateCmd)
+	}
+	var out strings.Builder
+	ctx := &capability.RunContext{Repo: m.repo, Cfg: m.cfg, Stdout: &out, Stderr: &out, Now: time.Now()}
+	if err := cmd.Run(ctx, args); err != nil {
+		t.Fatalf("the logged line failed headlessly: %v\n%s\n%s", err, m.redateCmd, out.String())
+	}
+
+	after, err := m.repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range after {
+		want, isTarget := staged[c.Subject]
+		got := c.OrigAuthorDate.UTC()
+		if isTarget && !got.Equal(want) {
+			t.Errorf("%s: headless date %s, TUI staged %s", c.Subject, got, want)
+		}
+		if !isTarget && c.IsPushed && strings.HasPrefix(c.Subject, "commit p") && !got.Equal(time.Date(2026, 6, 5, 14, 0, 0, 0, time.UTC)) {
+			t.Errorf("%s: a frozen pushed commit was redated to %s", c.Subject, got)
+		}
 	}
 }

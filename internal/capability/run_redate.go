@@ -64,10 +64,18 @@ func runRedate(ctx *RunContext, a ParsedArgs) error {
 			return usageErr("%v", err)
 		}
 		idxOf := indexByHash(commits)
+		first := len(commits)
 		for _, c := range targets {
 			if plan.IsFrozen(idxOf[c.Hash]) {
 				return usageErr("commit %s is frozen (before --from); it cannot be redated", Short(c.Hash))
 			}
+			first = min(first, idxOf[c.Hash])
+		}
+		// History older than the first target is never rewritten, so freeze it
+		// like the TUI does. Otherwise the pushed-history guard would count
+		// commits the rewrite cannot touch and demand --force for nothing.
+		if first < len(commits) && first > plan.Base {
+			plan.SetBase(first)
 		}
 	}
 

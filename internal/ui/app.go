@@ -235,6 +235,11 @@ type Model struct {
 	// commit — so appending here would fill the log with duplicate and
 	// stale-parameter redate lines. Cleared by unstageActive and a plan reset.
 	redateCmd string
+	// redateSeed is the RNG seed the redate flow uses when the config sets
+	// none (seed 0). The headless verb treats --seed=0 as "pick one from the
+	// clock", so a fixed nonzero seed per session is what lets the logged
+	// --seed replay the exact dates the TUI previewed.
+	redateSeed int64
 	// planCmds holds the CLI-equivalent line(s) for the other accumulated plan
 	// edits — drop-bodies, retitle, reword, and the per-commit editor — each of
 	// which is a one-shot commit to the plan (not re-staged live), so appending
@@ -291,6 +296,9 @@ func (m *Model) stageActive() {
 		return
 	}
 	params, err := a.form.buildParams(m.cfg, a.quotas, a.picked)
+	if params.Seed == 0 {
+		params.Seed = m.redateSeed
+	}
 	if err != nil {
 		a.form.errMsg = err.Error()
 		m.unstageActive()
@@ -337,7 +345,7 @@ func (m *Model) stageActive() {
 // (always expressible — resolveTargetSet unions comma parts).
 func (m Model) redateCommitSpec() string {
 	if !m.hasExplicitSelection() {
-		return ""
+		return m.activeRangeSpec()
 	}
 	if spec, ok := m.selectionCommitSpec(); ok {
 		return spec
@@ -348,6 +356,27 @@ func (m Model) redateCommitSpec() string {
 		parts[i] = short(c.Hash)
 	}
 	return strings.Join(parts, ",")
+}
+
+// activeRangeSpec renders the whole editable range as A^..B when older
+// history is frozen, and "" when every commit is editable. Without it the
+// logged command would target the frozen (often pushed) commits too, which
+// the TUI never touched.
+func (m Model) activeRangeSpec() string {
+	active := m.plan.Active()
+	if len(active) == 0 || m.plan.Base == 0 {
+		return ""
+	}
+	return short(active[0].Hash) + "^.." + short(active[len(active)-1].Hash)
+}
+
+// sessionSeed derives a nonzero redate seed from the clock. Zero is avoided
+// because both the config and the CLI read 0 as "no seed chosen".
+func sessionSeed(now time.Time) int64 {
+	if s := now.UnixNano() % 1_000_000_000; s > 0 {
+		return s
+	}
+	return 1
 }
 
 // hasExplicitSelection reports whether the user marked specific commits, or is
@@ -411,6 +440,7 @@ func New(repo *gitio.Repo, mgr *safety.Manager, cfg config.Config, state model.R
 	plan := model.NewPlan(commits)
 
 	m := Model{
+		redateSeed:   sessionSeed(time.Now()),
 		repo:         repo,
 		mgr:          mgr,
 		cfg:          cfg,
