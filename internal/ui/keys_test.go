@@ -204,3 +204,41 @@ func TestHelpText_documentsPaneFocusKeys(t *testing.T) {
 		t.Error("help should document the o / c / t pane focus keys")
 	}
 }
+
+// TestKeybarHintFor_primaryKeysFitAt80Columns: the keys that start and finish
+// every task must survive truncation on a standard 80-column terminal.
+func TestKeybarHintFor_primaryKeysFitAt80Columns(t *testing.T) {
+	list := keybarHintFor(ctxList, 80)
+	for _, want := range []string{"[m]actions", "[A]pply", "[space]mark"} {
+		if !strings.Contains(list, want) {
+			t.Errorf("list keybar at 80 columns lost %s: %q", want, list)
+		}
+	}
+	redate := keybarHintFor(ctxRedate, 80)
+	for _, want := range []string{"[esc]close", "[m]actions", "[A]pply", "[ ]strategy"} {
+		if !strings.Contains(redate, want) {
+			t.Errorf("redate keybar at 80 columns lost %s: %q", want, redate)
+		}
+	}
+}
+
+// TestKeybarHintFor_learnedKeysComeLast: help and quit are the first keys a
+// user learns, so they sit at the end of the bar where truncation cuts first.
+func TestKeybarHintFor_learnedKeysComeLast(t *testing.T) {
+	bar := keybarHintFor(ctxList, 500)
+	actions := strings.Index(bar, "[m]actions")
+	for _, late := range []string{"[?]help", "[q]uit"} {
+		if i := strings.Index(bar, late); i < actions {
+			t.Errorf("%s (at %d) should come after [m]actions (at %d): %q", late, i, actions, bar)
+		}
+	}
+}
+
+// TestKeybarHintFor_escOnlyAdvertisedInFlow: esc closes an open flow, but on
+// the plain commit list it only clears marks, so the token belongs to the
+// redate context alone.
+func TestKeybarHintFor_escOnlyAdvertisedInFlow(t *testing.T) {
+	if bar := keybarHintFor(ctxList, 500); strings.Contains(bar, "[esc]close") {
+		t.Errorf("list keybar should not advertise [esc]close: %q", bar)
+	}
+}

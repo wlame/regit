@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -82,41 +83,57 @@ type keyBinding struct {
 	Ctx   keyCtx
 	Desc  string
 	Bar   string
+	Prio  keyPrio // keybar position tier; the zero value is prioNormal
 }
+
+// keyPrio orders the keybar independently of the help overlay, which follows
+// table order. The keybar truncates from the right on narrow terminals, so
+// the tier decides which keys survive: the keys that start and finish a task
+// first, the keys a user learns on day one last. Rows in the same tier keep
+// table order, with the current context's own rows ahead of the global ones.
+type keyPrio int
+
+const (
+	prioPrimary keyPrio = iota - 2 // starts or finishes the task on screen: m, A, esc in a flow
+	prioContext                    // specific to the screen: marking, strategy switching
+	prioNormal                     // zero value: everyday actions such as edit and preview
+	prioLow                        // occasional: reset, log, branch, base
+	prioLearned                    // learned once, rarely needs a reminder: help, quit
+)
 
 // keymap is the full keymap. Keybar order follows this slice's order.
 var keymap = []keyBinding{
 	// Global
-	{Key: "?", Scope: scopeGlobal, Desc: "toggle this help", Bar: "[?]help"},
-	{Key: "q / ctrl+c", Scope: scopeGlobal, Desc: "quit", Bar: "[q]uit"},
-	{Key: "tab", Scope: scopeGlobal, Desc: "cycle focus across the list and the active flow's widget", Bar: "[tab]focus"},
+	{Key: "?", Scope: scopeGlobal, Desc: "toggle this help", Bar: "[?]help", Prio: prioLearned},
+	{Key: "q / ctrl+c", Scope: scopeGlobal, Desc: "quit", Bar: "[q]uit", Prio: prioLearned},
+	{Key: "tab", Scope: scopeGlobal, Desc: "cycle focus across the list and the active flow's widget", Bar: "[tab]focus", Prio: prioLow},
 	{Key: "o / c / t", Scope: scopeGlobal, Desc: "focus the commit list / calendar / strategy pane (the red letter in each pane's title)"},
 
 	// Flow zone
 	{Key: "tab", Scope: scopeFlow, Desc: "focus the active flow's widget (the calendar), when one is open"},
-	{Key: "esc", Scope: scopeFlow, Desc: "exit the active flow, returning the zone to the commit detail"},
+	{Key: "esc", Scope: scopeFlow, Ctx: ctxRedate, Desc: "exit the active flow, returning the zone to the commit detail", Bar: "[esc]close", Prio: prioPrimary},
 
 	// Actions (work from any pane)
 	{Key: "e / enter", Scope: scopeAction, Desc: "edit the selected commit (title, body, date)", Bar: "[e]dit"},
 	{Key: ".", Scope: scopeAction, Desc: "show full detail for the selected commit (overlay when narrow)", Bar: "[.]detail"},
 	{Key: "p", Scope: scopeAction, Desc: "preview the pending changes (read-only)", Bar: "[p]review"},
-	{Key: "A", Scope: scopeAction, Desc: "apply: preview the before/after, then enter to apply (confirm if pushed)", Bar: "[A]pply"},
+	{Key: "m", Scope: scopeAction, Desc: "open the action panel for the current selection", Bar: "[m]actions", Prio: prioPrimary},
+	{Key: "A", Scope: scopeAction, Desc: "apply: preview the before/after, then enter to apply (confirm if pushed)", Bar: "[A]pply", Prio: prioPrimary},
 	{Key: "U", Scope: scopeAction, Desc: "undo the last apply", Bar: "[U]ndo"},
-	{Key: "R", Scope: scopeAction, Desc: "reset all pending edits", Bar: "[R]eset"},
-	{Key: "L", Scope: scopeAction, Desc: "toggle the command-log footer (read-only)", Bar: "[L]og"},
-	{Key: "m", Scope: scopeAction, Desc: "open the action panel for the current selection", Bar: "[m]actions"},
+	{Key: "R", Scope: scopeAction, Desc: "reset all pending edits", Bar: "[R]eset", Prio: prioLow},
+	{Key: "L", Scope: scopeAction, Desc: "toggle the command-log footer (read-only)", Bar: "[L]og", Prio: prioLow},
 	{Key: "↑/↓ · enter · [letter] · esc", Scope: scopeAction, Ctx: ctxPanel, Desc: "action panel: move · run · run by hotkey · close", Bar: "↑/↓ move · enter run · [letter] run · esc close"},
 
 	// Commit list (focused)
-	{Key: "d", Scope: scopeList, Ctx: ctxList, Desc: "toggle date grouping in the commit list", Bar: "[d]ates"},
-	{Key: "a", Scope: scopeList, Ctx: ctxList, Desc: "toggle the author column in the commit list", Bar: "[a]uthor"},
+	{Key: "d", Scope: scopeList, Ctx: ctxList, Desc: "toggle date grouping in the commit list", Bar: "[d]ates", Prio: prioLow},
+	{Key: "a", Scope: scopeList, Ctx: ctxList, Desc: "toggle the author column in the commit list", Bar: "[a]uthor", Prio: prioLow},
 	{Key: "↑/↓ or k/j", Scope: scopeList, Ctx: ctxList, Desc: "move the selection"},
 	{Key: "ctrl+d/u", Scope: scopeList, Ctx: ctxList, Desc: "half page down / up (pgdn/pgup move a full page)"},
 	{Key: "g / G", Scope: scopeList, Ctx: ctxList, Desc: "newest / oldest commit (home/end do the same)"},
 	{Key: "} / {", Scope: scopeList, Ctx: ctxList, Desc: "next / previous day group"},
 
 	// Selection (commit list)
-	{Key: "space", Scope: scopeSelection, Ctx: ctxList, Desc: "mark / unmark the cursor commit", Bar: "[space]mark"},
+	{Key: "space", Scope: scopeSelection, Ctx: ctxList, Desc: "mark / unmark the cursor commit", Bar: "[space]mark", Prio: prioContext},
 	{Key: "s", Scope: scopeSelection, Ctx: ctxList, Desc: "mark every editable commit"},
 	{Key: "n", Scope: scopeSelection, Ctx: ctxList, Desc: "clear every mark"},
 	{Key: "v", Scope: scopeSelection, Ctx: ctxList, Desc: "mark a range — move to extend it, v/enter to add it to the marks"},
@@ -124,16 +141,16 @@ var keymap = []keyBinding{
 	{Key: "(reword)", Scope: scopeSelection, Ctx: ctxList, Desc: "with commits marked, Reword runs multi-reword over every marked commit"},
 
 	// Branch & base
-	{Key: "B", Scope: scopeBranch, Desc: "open the branch picker — enter switches branch, tab sets it as the base", Bar: "[B]ranch"},
-	{Key: "b", Scope: scopeBranch, Desc: "set/clear the base at the cursor commit (freeze older history)", Bar: "[b]ase"},
+	{Key: "B", Scope: scopeBranch, Desc: "open the branch picker — enter switches branch, tab sets it as the base", Bar: "[B]ranch", Prio: prioLow},
+	{Key: "b", Scope: scopeBranch, Desc: "set/clear the base at the cursor commit (freeze older history)", Bar: "[b]ase", Prio: prioLow},
 
 	// Calendar (redate flow)
 	{Key: "↑/↓", Scope: scopeCalendar, Ctx: ctxRedate, Desc: "move the cursor by one day"},
 	{Key: "←/→", Scope: scopeCalendar, Ctx: ctxRedate, Desc: "move the cursor by one week"},
 	{Key: "0-9", Scope: scopeCalendar, Ctx: ctxRedate, Desc: "pin a per-day quota (Manual Pin strategy active); live-stages the distribution"},
 	{Key: "space", Scope: scopeCalendar, Ctx: ctxRedate, Desc: "pick/unpick the day (Picked Days strategy active); reshuffles live"},
-	{Key: "[ / ]", Scope: scopeCalendar, Ctx: ctxRedate, Desc: "previous / next strategy (also in the strategy pane)", Bar: "[ ]strategy"},
-	{Key: "< / >", Scope: scopeCalendar, Ctx: ctxRedate, Desc: "previous / next time model (also in the strategy pane)", Bar: "< >time"},
+	{Key: "[ / ]", Scope: scopeCalendar, Ctx: ctxRedate, Desc: "previous / next strategy (also in the strategy pane)", Bar: "[ ]strategy", Prio: prioContext},
+	{Key: "< / >", Scope: scopeCalendar, Ctx: ctxRedate, Desc: "previous / next time model (also in the strategy pane)", Bar: "< >time", Prio: prioContext},
 
 	// Strategy pane (redate flow)
 	{Key: "↑/↓", Scope: scopeStrategy, Ctx: ctxRedate, Desc: "move between fields"},
@@ -243,18 +260,37 @@ func keybarHintWidth(width int) string {
 }
 
 // keybarHintFor renders the keybar for a single focus context: the rows
-// keybarRowVisible says belong to ctx, truncated to fit width exactly like
-// keybarHintWidth. This is what the running app renders (see view.go); the
-// unfiltered keybarHint/keybarHintWidth remain for tests and callers that
+// keybarRowVisible says belong to ctx, ordered by Prio tier (see keyPrio),
+// truncated to fit width. This is what the running app renders (see view.go);
+// the unfiltered keybarHint/keybarHintWidth remain for tests and callers that
 // want the full table regardless of focus.
-//
-// The context's own rows lead, then the global ones: the globals alone fill a
-// wide terminal, so the keys specific to what is on screen would otherwise be
-// the ones truncated away.
 func keybarHintFor(ctx keyCtx, width int) string {
-	own := func(k keyBinding) bool { return k.Ctx == ctx && k.Ctx != ctxAlways }
-	shared := func(k keyBinding) bool { return keybarRowVisible(k, ctx) && !own(k) }
-	return truncateKeybar(append(barTokens(own), barTokens(shared)...), width)
+	type ranked struct {
+		row   keyBinding
+		isOwn bool
+		order int
+	}
+	var rows []ranked
+	for i, k := range keymap {
+		if k.Bar != "" && keybarRowVisible(k, ctx) {
+			rows = append(rows, ranked{row: k, isOwn: k.Ctx == ctx && ctx != ctxAlways, order: i})
+		}
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		a, b := rows[i], rows[j]
+		if a.row.Prio != b.row.Prio {
+			return a.row.Prio < b.row.Prio
+		}
+		if a.isOwn != b.isOwn {
+			return a.isOwn
+		}
+		return a.order < b.order
+	})
+	toks := make([]string, len(rows))
+	for i, r := range rows {
+		toks[i] = r.row.Bar
+	}
+	return truncateKeybar(toks, width)
 }
 
 // DocBinding is one keymap row exposed for documentation rendering. It is a
