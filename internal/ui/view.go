@@ -115,22 +115,44 @@ const logPanelHeight = 6
 // viewCommandLog renders the bottom transparency panel showing the most recent
 // CLI-equivalent commands for applied actions. Returns an empty string when
 // the panel is hidden (logVisible is false), so the caller can skip it cleanly.
+//
+// The budget is counted in screen rows, not entries: a rendered command can
+// span two lines (Render wraps long lines with a backslash), so only the
+// newest whole entries that fit are shown (see newestWholeEntries).
+// Each line is cut to the terminal width, so nothing wraps and the frame
+// keeps its height. The full commands stay in .git/regit/command.log.
 func (m Model) viewCommandLog() string {
 	if !m.logVisible {
 		return ""
 	}
-	header := m.st.dim.Render("⌥ command log — copy to run headlessly  (toggle: [L])")
-	body := m.st.dim.Render("  (no actions yet)")
-	if n := len(m.commandLog); n > 0 {
-		// Show only the most recent entries that fit within the panel height
-		// (one row is consumed by the header).
-		start := 0
-		if n > logPanelHeight-1 {
-			start = n - (logPanelHeight - 1)
-		}
-		body = strings.Join(m.commandLog[start:], "\n")
+	header := m.st.dim.Render(truncate("⌥ command log — copy to run headlessly  (toggle: [L])", m.width))
+	if len(m.commandLog) == 0 {
+		return header + "\n" + m.st.dim.Render("  (no actions yet)")
 	}
-	return header + "\n" + body
+	rows := newestWholeEntries(m.commandLog, logPanelHeight-1)
+	for i, r := range rows {
+		rows[i] = truncate(r, m.width)
+	}
+	return header + "\n" + strings.Join(rows, "\n")
+}
+
+// newestWholeEntries returns the lines of the newest log entries that fit in
+// budget rows, oldest first. An entry is shown whole or not at all, so a
+// command never appears without its first line; only an entry taller than the
+// whole budget is cut, keeping its last lines.
+func newestWholeEntries(entries []string, budget int) []string {
+	var rows []string
+	for i := len(entries) - 1; i >= 0; i-- {
+		lines := strings.Split(entries[i], "\n")
+		if len(rows)+len(lines) > budget {
+			if len(rows) == 0 {
+				rows = lines[len(lines)-budget:]
+			}
+			break
+		}
+		rows = append(lines, rows...)
+	}
+	return rows
 }
 
 func (m Model) viewStatusBar() string {
