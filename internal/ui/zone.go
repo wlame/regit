@@ -23,6 +23,7 @@ var zoneWizards = map[mode]zoneWizard{
 	modeSquash:   {title: "SQUASH", body: Model.squashWizardBody},
 	modeRetitle:  {title: "RETITLE", body: Model.retitleWizardBody},
 	modeReauthor: {title: "CHANGE AUTHOR", body: Model.reauthorWizardBody},
+	modeSplitGen: {title: "SPLIT", body: Model.splitProgressBody},
 }
 
 // zoneWizardMinWidth is the flow column's minimum width while a wizard is in
@@ -81,4 +82,10 @@ func (m Model) retitleWizardBody(_, _ int) string {
 // reauthorWizardBody is the change-author form.
 func (m Model) reauthorWizardBody(_, _ int) string {
 	return renderReauthorWizard(m.reauthorSt, m.st)
+}
+
+// splitProgressBody is shown while a split proposal is generated; the apply
+// preview takes over once it arrives.
+func (m Model) splitProgressBody(_, _ int) string {
+	return m.spinner.View() + " proposing a split for " + short(m.splitGenHash) + "…\n\nesc cancel"
 }

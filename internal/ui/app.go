@@ -2366,8 +2366,6 @@ func (m Model) View() string {
 		overlay = m.viewDropBodies()
 	case modePurge:
 		overlay = m.viewPurge()
-	case modeSplitGen:
-		overlay = m.st.modal.Render(m.spinner.View() + " proposing a split for " + short(m.splitGenHash) + "…\n\nesc cancel")
 	case modeDetail:
 		c := m.commitAtCursor()
 		stat, have := m.statCache[c.Hash]

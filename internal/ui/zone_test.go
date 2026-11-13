@@ -114,3 +114,18 @@ func TestReauthorWizard_drawsInTheFlowZoneAndFits(t *testing.T) {
 		assertFrameFits(t, m, size[0], size[1])
 	}
 }
+
+func TestSplitProgress_drawsInTheFlowZone(t *testing.T) {
+	m := resizeTo(newTestModelN(t, 4), 120, 40)
+	m.splitGenHash = m.commitAtCursor().Hash
+	m.mode = modeSplitGen // a proposal is in flight; starting one for real needs an LLM
+
+	view := stripANSI(m.View())
+
+	if !hasBorderTitle(view, "SPLIT") || !strings.Contains(view, "proposing a split for "+short(m.splitGenHash)) {
+		t.Errorf("the split progress should be a titled pane in the flow zone:\n%s", view)
+	}
+	if !strings.Contains(view, "COMMITS") {
+		t.Errorf("the commit list should stay visible beside it:\n%s", view)
+	}
+}
