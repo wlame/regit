@@ -45,7 +45,7 @@ and act immediately.
 | `regit squash` | Squash consecutive commits into one per chain (LLM-summarized message). |
 | `regit linearize` | Flatten merge topology into a clean first-parent chain (trees preserved). |
 | `regit redate --strategy=…` | Spread commit/author dates across a calendar using a strategy. |
-| `regit retitle --match=…` | Rewrite commit subjects with a regex across a range. |
+| `regit retitle` | Rewrite commit subjects across a range: regex replace, capitalize, add a full stop. |
 | `regit reauthor` | Rewrite the author (and by default committer) identity of commits. |
 | `regit drop-bodies` | Strip the body of each commit in a range, keeping titles. |
 | `regit purge` | Remove files or directories from branch history as if never added. |

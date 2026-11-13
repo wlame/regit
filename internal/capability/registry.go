@@ -202,14 +202,16 @@ var registry = []Command{
 	},
 	{
 		Name:      "retitle",
-		Summary:   "Rewrite commit subjects with a regex across a range.",
+		Summary:   "Rewrite commit subjects across a range: regex replace, capitalize, add a full stop.",
 		Mutating:  true,
 		Workspace: WSRestructure,
 		Selection: SelActive,
 		Run:       runRetitle,
 		Params: []Param{
-			{Name: "match", Type: ParamString, Required: true, Help: "RE2 regex matched against each subject"},
+			{Name: "match", Type: ParamString, Help: "RE2 regex matched against each subject"},
 			{Name: "replace", Type: ParamString, Help: "replacement (supports $1 capture refs)"},
+			{Name: "capitalize", Type: ParamBool, Default: "false", Help: "upper-case the first letter of each title"},
+			{Name: "ensure-period", Type: ParamBool, Default: "false", Help: "end each title with a full stop unless it already ends a sentence"},
 			{Name: "commits", Type: ParamString, Help: "rev-range A..B or a single ref (default: all)"},
 			{Name: "repo", Type: ParamString, Default: ".", Help: "path to the git repository"},
 			{Name: "execute", Type: ParamBool, Default: "false", Help: "apply (default: dry-run preview)"},
@@ -219,9 +221,14 @@ var registry = []Command{
 		Examples: []Example{
 			{Cmd: `regit retitle --match='^feat: ' --replace=''`, Why: "strip a conventional-commit prefix (preview)"},
 			{Cmd: `regit retitle --match='(?i)wip' --replace='WIP' --commits=HEAD~5..HEAD --execute`, Why: "normalize WIP markers on the last 5 commits"},
+			{Cmd: `regit retitle --match='^feat: ' --capitalize --ensure-period`, Why: "strip a prefix, then capitalize and add a full stop"},
+			{Cmd: `regit retitle --commits=HEAD~3..HEAD`, Why: "no --match, --capitalize, or --ensure-period: nothing to do, rejected", Bad: true},
 		},
-		Limitations: []string{"RE2 syntax (no backreferences). Subjects that would become empty are skipped."},
-		ExitCodes:   map[int]string{0: "ok / dry-run", 1: "usage error", 2: "guard blocked", 3: "apply error"},
+		Limitations: []string{
+			"RE2 syntax (no backreferences). The regex runs first, then the title is trimmed, then --capitalize and --ensure-period.",
+			"At least one of --match, --capitalize, or --ensure-period is required. Titles that would become empty are skipped and reported.",
+		},
+		ExitCodes: map[int]string{0: "ok / dry-run", 1: "usage error", 2: "guard blocked", 3: "apply error"},
 	},
 	{
 		Name:      "reauthor",

@@ -32,7 +32,7 @@ func FuzzRenderParseRoundTrip(f *testing.F) {
 			// case.
 			t.Skip()
 		}
-		line := Render("retitle", RetitleArgMap(match, replace, ""))
+		line := Render("retitle", RetitleArgMap(RetitleOptions{Match: match, Replace: replace}))
 		toks := tokenize(line)
 		if len(toks) < 2 || toks[0] != "regit" || toks[1] != "retitle" {
 			t.Fatalf("unexpected rendered shape %q -> %v", line, toks)

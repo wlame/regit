@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"unicode"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/wlame/regit/internal/capability"
 	"github.com/wlame/regit/internal/model"
 )
 
@@ -96,14 +96,6 @@ func (s retitleState) hasWork() bool {
 	return s.pattern.Value() != "" || s.capitalize || s.ensureDot
 }
 
-// togglesOnly reports whether the run used only the capitalize/ensure-dot
-// finishing toggles, with no regex pattern. RetitleArgMap has no flag for
-// those toggles — only match/replace/commits — so a run like this has no
-// headless CLI equivalent to log yet.
-func (s retitleState) togglesOnly() bool {
-	return s.pattern.Value() == "" && (s.capitalize || s.ensureDot)
-}
-
 // transform compiles the modal's settings into a title transformation. The
 // pattern is used VERBATIM — a trailing space in "feat: " is meaningful.
 func (s retitleState) transform() (func(string) string, error) {
@@ -115,45 +107,7 @@ func (s retitleState) transform() (func(string) string, error) {
 			return nil, err
 		}
 	}
-	return retitleTransform(re, s.replace.Value(), s.capitalize, s.ensureDot), nil
-}
-
-// retitleTransform builds the full title pipeline: optional regex replace,
-// whitespace trim, then the finishing toggles.
-func retitleTransform(re *regexp.Regexp, repl string, capitalize, ensureDot bool) func(string) string {
-	return func(title string) string {
-		out := title
-		if re != nil {
-			out = re.ReplaceAllString(out, repl)
-		}
-		// Titles never keep leading/trailing whitespace (e.g. after deleting
-		// a "feat:" prefix while the space stayed behind).
-		out = strings.TrimSpace(out)
-		if capitalize {
-			out = upperFirst(out)
-		}
-		if ensureDot && out != "" && !endsSentence(out) {
-			out += "."
-		}
-		return out
-	}
-}
-
-// upperFirst upper-cases the first rune of s.
-func upperFirst(s string) string {
-	r := []rune(s)
-	if len(r) == 0 {
-		return s
-	}
-	r[0] = unicode.ToUpper(r[0])
-	return string(r)
-}
-
-// endsSentence reports whether the title already ends like a sentence, so
-// ensure-dot never produces endings like "Fix it!.".
-func endsSentence(s string) bool {
-	r := []rune(s)
-	return strings.ContainsRune(".!?…:", r[len(r)-1])
+	return capability.RetitleTransform(re, s.replace.Value(), s.capitalize, s.ensureDot), nil
 }
 
 // retitlePreview reports how many titles in the given scope the current settings
@@ -166,7 +120,7 @@ func retitlePreview(scope []model.Commit, plan *model.Plan, s retitleState) (cha
 	for _, c := range scope {
 		cur := plan.EffectiveSubject(c)
 		neu := transform(cur)
-		if neu == cur {
+		if neu == cur || neu == "" {
 			continue
 		}
 		changed++

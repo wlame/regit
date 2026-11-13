@@ -4,17 +4,23 @@ import (
 	"fmt"
 	"io"
 	"regexp"
-	"strings"
 
 	"github.com/wlame/regit/internal/model"
 )
 
 func runRetitle(ctx *RunContext, a ParsedArgs) error {
-	re, err := regexp.Compile(a.String("match"))
-	if err != nil {
-		return usageErr("invalid --match regex: %v", err)
+	capitalize, ensurePeriod := a.Bool("capitalize"), a.Bool("ensure-period")
+	if !a.Has("match") && !capitalize && !ensurePeriod {
+		return usageErr("retitle needs at least one of --match, --capitalize, or --ensure-period")
 	}
-	repl := a.String("replace")
+	var re *regexp.Regexp
+	if a.Has("match") {
+		var err error
+		if re, err = regexp.Compile(a.String("match")); err != nil {
+			return usageErr("invalid --match regex: %v", err)
+		}
+	}
+	transform := RetitleTransform(re, a.String("replace"), capitalize, ensurePeriod)
 
 	commits, err := ctx.Repo.ReadCommits()
 	if err != nil {
@@ -29,9 +35,14 @@ func runRetitle(ctx *RunContext, a ParsedArgs) error {
 	plan := model.NewPlan(commits)
 	edits := map[string]model.Edit{}
 	minIdx := len(commits)
+	skippedEmpty := 0
 	for _, c := range targets {
-		neu := strings.TrimSpace(re.ReplaceAllString(c.Subject, repl))
-		if neu == "" || neu == c.Subject {
+		neu := transform(c.Subject)
+		if neu == c.Subject {
+			continue
+		}
+		if neu == "" {
+			skippedEmpty++
 			continue
 		}
 		e := model.Edit{}
@@ -41,6 +52,9 @@ func runRetitle(ctx *RunContext, a ParsedArgs) error {
 		if idxOf[c.Hash] < minIdx {
 			minIdx = idxOf[c.Hash]
 		}
+	}
+	if skippedEmpty > 0 {
+		fmt.Fprintf(ctx.Stdout, "skipped %d title(s) that would become empty\n", skippedEmpty)
 	}
 	if len(edits) == 0 {
 		fmt.Fprintln(ctx.Stdout, "no titles would change")

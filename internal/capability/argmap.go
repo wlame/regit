@@ -91,14 +91,30 @@ func minToClock(min int) string {
 	return fmt.Sprintf("%02d:%02d", (min/60)%24, min%60)
 }
 
+// RetitleOptions are the settings of one retitle run, as the TUI wizard holds
+// them; RetitleArgMap renders them as flags.
+type RetitleOptions struct {
+	Match, Replace, Commits  string
+	Capitalize, EnsurePeriod bool
+}
+
 // RetitleArgMap builds the flag map for a `regit retitle --execute` line.
-func RetitleArgMap(match, replace, commits string) map[string]string {
-	m := map[string]string{"match": match, "execute": "true"}
-	if replace != "" {
-		m["replace"] = replace
+func RetitleArgMap(o RetitleOptions) map[string]string {
+	m := map[string]string{"execute": "true"}
+	if o.Match != "" {
+		m["match"] = o.Match
 	}
-	if commits != "" {
-		m["commits"] = commits
+	if o.Replace != "" {
+		m["replace"] = o.Replace
+	}
+	if o.Commits != "" {
+		m["commits"] = o.Commits
+	}
+	if o.Capitalize {
+		m["capitalize"] = "true"
+	}
+	if o.EnsurePeriod {
+		m["ensure-period"] = "true"
 	}
 	return m
 }

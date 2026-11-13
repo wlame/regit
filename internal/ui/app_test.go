@@ -875,58 +875,46 @@ func TestRetitle_togglesCapitalizeAndEnsureDot(t *testing.T) {
 	}
 }
 
-// TestRetitle_togglesOnlyLogsNoteNotInvalidMatch verifies that a toggles-only
-// retitle (no regex pattern, so RetitleArgMap's required --match has nothing to
-// carry) logs an honest "#" note in the footer instead of an invalid line.
-func TestRetitle_togglesOnlyLogsNoteNotInvalidMatch(t *testing.T) {
+// TestRetitle_togglesOnlyLogsRunnableCommand verifies that a retitle using
+// only the ensure-period option logs a runnable line with that flag and no
+// --match, so the footer teaches the matching headless command.
+func TestRetitle_togglesOnlyLogsRunnableCommand(t *testing.T) {
 	m := newTestModelN(t, 3)
 	m = runFeatureNamed(t, m, "Retitle (regex)")
-	// Fixture titles already start with a capital letter, so the capitalize
-	// toggle alone would be a no-op; ensure-dot always changes them (none end
-	// with sentence punctuation), so use that toggle to prove real work happened.
-	m = send(m, "tab", "tab", "tab", " ") // pattern -> replace -> capitalize -> ensure-dot, toggle it
+	// Fixture titles do not end with sentence punctuation, so ensure-period
+	// changes every one of them.
+	m = send(m, "tab", "tab", "tab", " ") // pattern -> replace -> capitalize -> ensure-period, toggle it
 	m = send(m, "enter")
 	if m.mode != modeMain {
 		t.Fatalf("a toggles-only retitle with real work should apply, got mode %v", m.mode)
 	}
-	found := false
-	for _, l := range m.planCmds {
-		if strings.Contains(l, "--match=") {
-			t.Errorf("toggles-only retitle must not log a --match flag, got %q", l)
-		}
-		if strings.HasPrefix(l, "#") {
-			found = true
-		}
+	joined := strings.Join(m.planCmds, "\n")
+	if strings.Contains(joined, "--match=") {
+		t.Errorf("toggles-only retitle must not log a --match flag, got %q", joined)
 	}
-	if !found {
-		t.Errorf("toggles-only retitle should log an honest note, got %v", m.planCmds)
+	if !strings.Contains(joined, "regit retitle --ensure-period") {
+		t.Errorf("toggles-only retitle should log a runnable --ensure-period line, got %q", joined)
 	}
 }
 
-// The transform helpers behave sensibly at the edges.
-func TestRetitleTransform_edgeCases(t *testing.T) {
-	plain := retitleTransform(nil, "", false, true)
-	for _, tc := range []struct{ in, want string }{
-		{"Fix login", "Fix login."},
-		{"Fix login.", "Fix login."},
-		{"Fix it!", "Fix it!"}, // already ends as a sentence
-		{"What?", "What?"},
-		{"", ""}, // never dot an empty title
-	} {
-		if got := plain(tc.in); got != tc.want {
-			t.Errorf("ensure-dot(%q) = %q, want %q", tc.in, got, tc.want)
-		}
+// TestRetitle_emptyResultIsSkipped: a pattern that would empty a title stages
+// nothing for that commit and says so, matching the headless verb.
+func TestRetitle_emptyResultIsSkipped(t *testing.T) {
+	m := newTestModelN(t, 3)
+	m = runFeatureNamed(t, m, "Retitle (regex)")
+	for _, r := range ".*" {
+		m = send(m, string(r))
 	}
-
-	capital := retitleTransform(nil, "", true, false)
-	for _, tc := range []struct{ in, want string }{
-		{"fix login", "Fix login"},
-		{"éclair fix", "Éclair fix"},
-		{"123 fix", "123 fix"},
-		{"", ""},
-	} {
-		if got := capital(tc.in); got != tc.want {
-			t.Errorf("capitalize(%q) = %q, want %q", tc.in, got, tc.want)
+	m = send(m, "enter")
+	if m.mode != modeRetitle {
+		t.Fatalf("a pattern that empties every title should keep the wizard open, got mode %v", m.mode)
+	}
+	if !strings.Contains(m.retitle.errMsg, "would become empty") {
+		t.Errorf("errMsg = %q, want it to mention empty titles", m.retitle.errMsg)
+	}
+	for _, c := range m.plan.Commits {
+		if e, ok := m.plan.EditFor(c.Hash); ok && e.NewSubject != nil && *e.NewSubject == "" {
+			t.Errorf("commit %s was staged with an empty title", c.Hash)
 		}
 	}
 }

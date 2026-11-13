@@ -1279,11 +1279,16 @@ func (m Model) applyRetitle() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	changed := 0
+	changed, skippedEmpty := 0, 0
 	for _, c := range m.affectedCommits() {
 		cur := m.plan.EffectiveSubject(c)
 		neu := transform(cur)
 		if neu == cur {
+			continue
+		}
+		if neu == "" {
+			// Same rule as the headless verb: a commit never gets an empty title.
+			skippedEmpty++
 			continue
 		}
 		e, _ := m.plan.EditFor(c.Hash)
@@ -1297,17 +1302,22 @@ func (m Model) applyRetitle() (tea.Model, tea.Cmd) {
 	}
 	if changed == 0 {
 		m.retitle.errMsg = "no titles would change"
+		if skippedEmpty > 0 {
+			m.retitle.errMsg = fmt.Sprintf("no titles would change (%d would become empty and are skipped)", skippedEmpty)
+		}
 		return m, nil
 	}
 	m.mode = modeMain
-	m.setStatus(fmt.Sprintf("Retitled %d commit(s)", changed), statusOK)
-	if m.retitle.togglesOnly() {
-		// Only the capitalize/ensure-dot finishing toggles ran — no regex
-		// pattern — and --match is required, so there is no valid line to render.
-		m.planCmds = append(m.planCmds, "# retitle (capitalize/ensure-dot) — no headless equivalent yet")
-	} else if spec, ok := m.selectionCommitSpec(); ok {
-		m.planCmds = append(m.planCmds, capability.Render("retitle", capability.RetitleArgMap(
-			m.retitle.pattern.Value(), m.retitle.replace.Value(), spec)))
+	msg := fmt.Sprintf("Retitled %d commit(s)", changed)
+	if skippedEmpty > 0 {
+		msg += fmt.Sprintf(" · skipped %d that would become empty", skippedEmpty)
+	}
+	m.setStatus(msg, statusOK)
+	if spec, ok := m.selectionCommitSpec(); ok {
+		m.planCmds = append(m.planCmds, capability.Render("retitle", capability.RetitleArgMap(capability.RetitleOptions{
+			Match: m.retitle.pattern.Value(), Replace: m.retitle.replace.Value(), Commits: spec,
+			Capitalize: m.retitle.capitalize, EnsurePeriod: m.retitle.ensureDot,
+		})))
 	} else {
 		m.planCmds = append(m.planCmds, "# retitle on the selected commits — set --commits=<range> to reproduce")
 	}

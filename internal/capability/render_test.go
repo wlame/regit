@@ -79,7 +79,7 @@ func TestLinkDatesFalse_roundTrip(t *testing.T) {
 // `--match=^feat: ` split on the space, so tokenize → Parse lost the trailing
 // space. After the fix, shellQuote wraps the value and tokenize reconstructs it.
 func TestRetitleArgMap_spacedMatch_roundTrip(t *testing.T) {
-	argMap := RetitleArgMap("^feat: ", "", "")
+	argMap := RetitleArgMap(RetitleOptions{Match: "^feat: "})
 	line := Render("retitle", argMap)
 	toks := tokenize(line)
 	// First two tokens are "regit retitle"; the rest are flags.
