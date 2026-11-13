@@ -56,6 +56,25 @@ type RedactPreview struct {
 	Affected  []model.Commit  // commits[Base:], root-first
 	Dropped   map[string]bool // hash -> becomes empty (equals its rewritten parent's tree) and vanishes
 	Rewritten map[string]bool // hash -> the commit's OWN tree actually changes, vs. merely being reparented
+	// MessageHits are branch commits whose message contains the secret. Redact
+	// rewrites file content only, so these keep the secret after the apply;
+	// the preview warns about them.
+	MessageHits []model.Commit
+}
+
+// commitsMentioning returns the commits whose full message contains secret,
+// in the order given. An empty secret matches nothing.
+func commitsMentioning(commits []model.Commit, secret string) []model.Commit {
+	if secret == "" {
+		return nil
+	}
+	var hits []model.Commit
+	for _, c := range commits {
+		if strings.Contains(c.Message, secret) {
+			hits = append(hits, c)
+		}
+	}
+	return hits
 }
 
 // BuildRedactPreview predicts gitio.ApplyRedact's effect without creating any
@@ -76,7 +95,11 @@ type RedactPreview struct {
 // is harmless — no ref moves and nothing becomes reachable until a later
 // commit-tree/UpdateRef actually happens.
 func BuildRedactPreview(repo *gitio.Repo, commits []model.Commit, spec model.RedactSpec) (RedactPreview, error) {
-	pv := RedactPreview{Dropped: map[string]bool{}, Rewritten: map[string]bool{}}
+	pv := RedactPreview{
+		Dropped:     map[string]bool{},
+		Rewritten:   map[string]bool{},
+		MessageHits: commitsMentioning(commits, spec.Match),
+	}
 	base, err := repo.RedactBase(commits, spec)
 	if err != nil {
 		return RedactPreview{}, err
@@ -367,4 +390,18 @@ func printRedactPreview(w io.Writer, res redact.ScanResult, spec model.RedactSpe
 		// ONLY (pv.Dropped/pv.Rewritten are keyed on c.Hash, never on this text).
 		fmt.Fprintf(w, "  %s  %-50s %s\n", Short(c.Hash), termsafe.Line(c.Subject), marker)
 	}
+	printMessageHits(w, pv.MessageHits)
+}
+
+// printMessageHits warns that the secret also appears in commit messages,
+// which redact does not change, and names the command that can fix them.
+func printMessageHits(w io.Writer, hits []model.Commit) {
+	if len(hits) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "\n⚠ The secret also appears in %d commit message(s), which are not changed by redact:\n", len(hits))
+	for i := len(hits) - 1; i >= 0; i-- {
+		fmt.Fprintf(w, "  %s  %s\n", Short(hits[i].Hash), termsafe.Line(hits[i].Subject))
+	}
+	fmt.Fprintln(w, "  Rewrite those messages afterwards, for example with regit reword or regit retitle.")
 }

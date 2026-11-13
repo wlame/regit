@@ -14,6 +14,7 @@ import (
 	"github.com/wlame/regit/internal/gitio"
 	"github.com/wlame/regit/internal/gittest"
 	"github.com/wlame/regit/internal/model"
+	"github.com/wlame/regit/internal/redact"
 )
 
 // newRedactRepo builds a temp repo with one commit per entry in commitFiles,
@@ -646,5 +647,35 @@ func TestBuildRedactPreview_cascadeSelectedDropsRotationCommit(t *testing.T) {
 	}
 	if !pv.Rewritten[commits[3].Hash] {
 		t.Errorf("c3 (carries the rotated sk-NEW line forward) should be predicted rewritten")
+	}
+}
+
+func TestCommitsMentioning_findsSubjectsAndBodies(t *testing.T) {
+	commits := []model.Commit{
+		{Hash: "a1", Message: "Add the key sk-live-9 to env."},
+		{Hash: "b2", Message: "Fix a typo.\n\nThe old token sk-live-9 was wrong."},
+		{Hash: "c3", Message: "Unrelated change."},
+	}
+	got := commitsMentioning(commits, "sk-live-9")
+	if len(got) != 2 || got[0].Hash != "a1" || got[1].Hash != "b2" {
+		t.Fatalf("commitsMentioning = %v, want a1 and b2", got)
+	}
+	if commitsMentioning(commits, "") != nil {
+		t.Error("an empty secret must match nothing")
+	}
+}
+
+func TestRedactPreviewLines_warnsAboutSecretInMessages(t *testing.T) {
+	spec := model.RedactSpec{Match: "sk-live-9"}
+	pv := RedactPreview{MessageHits: []model.Commit{{Hash: "a1b2c3d4e5", Subject: "Add the key sk-live-9 to env."}}}
+	out := strings.Join(RedactPreviewLines(redact.ScanResult{}, spec, pv), "\n")
+	for _, want := range []string{"commit message", "a1b2c3d4", "not changed by redact", "regit reword"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("preview should mention %q:\n%s", want, out)
+		}
+	}
+	quiet := strings.Join(RedactPreviewLines(redact.ScanResult{}, spec, RedactPreview{}), "\n")
+	if strings.Contains(quiet, "commit message") {
+		t.Errorf("no message hits should print no warning:\n%s", quiet)
 	}
 }
