@@ -159,8 +159,8 @@ var registry = []Command{
 		Params: []Param{
 			{Name: "strategy", Type: ParamEnum, Enum: strategyNames(), Required: true, Help: "day-assignment strategy"},
 			{Name: "time", Type: ParamEnum, Enum: timeModelNames(), Help: "time-of-day model (default: config)"},
-			{Name: "start", Type: ParamDate, Help: "first calendar day of the range"},
-			{Name: "end", Type: ParamDate, Help: "last calendar day of the range"},
+			{Name: "start", Type: ParamDate, RequiredIf: dateRangeStrategies, Help: "first calendar day of the range"},
+			{Name: "end", Type: ParamDate, RequiredIf: dateRangeStrategies, Help: "last calendar day of the range"},
 			{Name: "weekdays", Type: ParamStringList, Help: "eligible weekdays, e.g. mon,tue,wed (default: configured weekdays)"},
 			{Name: "from", Type: ParamString, Help: "freeze history before this rev (default: all)"},
 			{Name: "commits", Type: ParamString, Help: "target commits: A..B, a single ref, or a comma-separated list (default: whole active range)"},
@@ -196,7 +196,7 @@ var registry = []Command{
 		},
 		Limitations: []string{
 			"Strategy and time-model names are case-insensitive and accept kebab-case or a quoted spaced form; an unknown name is rejected with the full list.",
-			"start/end are validated by the engine per strategy, not by --help.",
+			"--start and --end are required for the date-range strategies (Even-Spread, Working-Days, Weekends-Only, Rate-Fill); other strategies treat them as an optional window.",
 		},
 		ExitCodes: map[int]string{0: "ok / dry-run", 1: "usage error", 2: "guard blocked", 3: "apply error"},
 	},
@@ -474,6 +474,13 @@ func timeModelByName(name string) strategy.TimeModel {
 // form: spaces → dashes, matched case-insensitively against the engine names so
 // the returned value is always the exact casing the engine reports. Names that
 // already contain dashes (e.g. "Preserve-Relative") are preserved.
+// dateRangeStrategies is the RequiredIf predicate for --start/--end: the
+// strategies that spread commits across a calendar range and have no other
+// source of dates. Without both bounds they produced a plan dated in year 1.
+// The TUI's matching rule is fieldSpecs (ui/palette.go): these are exactly the
+// strategies whose form shows Start and End date fields.
+const dateRangeStrategies = "strategy=Even-Spread|Working-Days|Weekends-Only|Rate-Fill"
+
 func canonName(name string) string {
 	kebab := strings.ReplaceAll(name, " ", "-")
 	// Match case-insensitively against the real names so "even-spread" → "Even-Spread".

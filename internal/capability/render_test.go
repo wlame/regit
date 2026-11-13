@@ -51,6 +51,8 @@ func TestLinkDatesFalse_roundTrip(t *testing.T) {
 	args := map[string]string{
 		"strategy":   "Even-Spread",
 		"time":       "Working-hours",
+		"start":      "2026-01-01",
+		"end":        "2026-01-31",
 		"execute":    "true",
 		"link-dates": "false",
 	}

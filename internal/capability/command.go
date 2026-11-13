@@ -46,6 +46,11 @@ type Param struct {
 	Help      string    // one-line purpose, shown in --help and --llm-help
 	AppliesIf string    // relevance predicate "flag=value" (e.g. "strategy=Manual-Pin");
 	// drives BOTH validation and help. Empty = always applies.
+	// RequiredIf makes an always-applicable flag required only when the
+	// predicate holds, e.g. --start for the date-range strategies. Unlike
+	// AppliesIf it never rejects the flag when the predicate is false.
+	// Predicates accept alternatives: "strategy=Even-Spread|Rate-Fill".
+	RequiredIf string
 }
 
 // PositionalSpec describes a command's positional-argument slot as data, so

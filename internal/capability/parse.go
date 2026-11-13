@@ -108,6 +108,9 @@ func Validate(c Command, a ParsedArgs) error {
 			}
 			return fmt.Errorf("--%s is required when %s", p.Name, humanPredicate(p.AppliesIf))
 		}
+		if p.RequiredIf != "" && relevanceHolds(p.RequiredIf, a) && !a.Has(p.Name) {
+			return fmt.Errorf("--%s is required when %s", p.Name, humanPredicate(p.RequiredIf))
+		}
 		if p.Type == ParamEnum && a.Has(p.Name) {
 			if !contains(p.Enum, a.String(p.Name)) {
 				return fmt.Errorf("--%s must be one of: %s", p.Name, strings.Join(p.Enum, " "))
@@ -138,19 +141,32 @@ func validatePositionals(c Command, a ParsedArgs) error {
 	return nil
 }
 
-// relevanceHolds evaluates an AppliesIf predicate "flag=value" against parsed
-// args. Empty predicate = always applicable.
+// relevanceHolds evaluates a predicate "flag=value" or "flag=A|B|C" against
+// parsed args: true when the flag's value matches any alternative. Empty
+// predicate = always applicable.
 func relevanceHolds(pred string, a ParsedArgs) bool {
 	if pred == "" {
 		return true
 	}
-	key, want, _ := strings.Cut(pred, "=")
-	return canonName(a.String(key)) == canonName(want)
+	key, wants, _ := strings.Cut(pred, "=")
+	got := canonName(a.String(key))
+	for _, want := range strings.Split(wants, "|") {
+		if got == canonName(want) {
+			return true
+		}
+	}
+	return false
 }
 
+// humanPredicate renders a predicate for messages and help:
+// "strategy=A|B" becomes "--strategy=A or B".
 func humanPredicate(pred string) string {
-	key, want, _ := strings.Cut(pred, "=")
-	return fmt.Sprintf("--%s=%s", key, want)
+	key, wants, _ := strings.Cut(pred, "=")
+	alts := strings.Split(wants, "|")
+	if len(alts) > 1 {
+		wants = strings.Join(alts[:len(alts)-1], ", ") + " or " + alts[len(alts)-1]
+	}
+	return fmt.Sprintf("--%s=%s", key, wants)
 }
 
 func splitList(raw string) []string {

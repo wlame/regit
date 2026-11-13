@@ -1,6 +1,9 @@
 package capability
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // testCmd is a small command exercising every relevance/type rule. Its
 // variadic positional slot lets the positional-collection tests keep passing
@@ -101,5 +104,55 @@ func TestValidate_positionalArity(t *testing.T) {
 	reword, _ := Lookup("reword")
 	if _, err := Parse(reword, []string{"HEAD~2", "HEAD"}); err != nil {
 		t.Errorf("reword is variadic, got: %v", err)
+	}
+}
+
+func TestRedateRangeStrategyWithoutDatesIsUsageError(t *testing.T) {
+	redate, _ := Lookup("redate")
+	cases := []struct {
+		name    string
+		args    []string
+		missing string
+	}{
+		{"even spread no dates", []string{"--strategy=Even-Spread"}, "--start"},
+		{"even spread no end", []string{"--strategy=even-spread", "--start=2026-03-02"}, "--end"},
+		{"working days no start", []string{"--strategy=Working-Days", "--end=2026-03-02"}, "--start"},
+		{"weekends no dates", []string{"--strategy=Weekends-Only"}, "--start"},
+		{"rate fill no dates", []string{"--strategy=Rate-Fill"}, "--start"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse(redate, tc.args)
+			if err == nil {
+				t.Fatalf("expected a usage error naming %s", tc.missing)
+			}
+			if !strings.Contains(err.Error(), tc.missing+" is required") {
+				t.Errorf("error %q does not name %s", err, tc.missing)
+			}
+		})
+	}
+}
+
+func TestRedateNonRangeStrategyDoesNotNeedDates(t *testing.T) {
+	redate, _ := Lookup("redate")
+	for _, args := range [][]string{
+		{"--strategy=Offset-Shift", "--offset-days=1"},
+		{"--strategy=Manual-Pin", "--pin=2026-03-02=2"},
+		{"--strategy=Compress", "--compress-day=2026-03-02"},
+		{"--strategy=Even-Spread", "--start=2026-03-02", "--end=2026-03-06"},
+	} {
+		if _, err := Parse(redate, args); err != nil {
+			t.Errorf("Parse(%v) = %v, want no error", args, err)
+		}
+	}
+}
+
+func TestRelevanceHoldsWithAlternatives(t *testing.T) {
+	a := newParsedArgs(map[string]any{"strategy": "Working-Days"}, nil)
+	if !relevanceHolds("strategy=Even-Spread|Working-Days", a) {
+		t.Error("an alternative in the predicate should match")
+	}
+	if relevanceHolds("strategy=Even-Spread|Rate-Fill", a) {
+		t.Error("a value outside the alternatives should not match")
 	}
 }

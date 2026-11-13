@@ -112,6 +112,9 @@ func flagMarkers(p Param) string {
 	if p.Required {
 		b.WriteString(" (required)")
 	}
+	if p.RequiredIf != "" {
+		b.WriteString(" (required with " + humanPredicate(p.RequiredIf) + ")")
+	}
 	isImpliedDefault := p.Type == ParamBool && p.Default == "false"
 	if p.Default != "" && !isImpliedDefault {
 		b.WriteString(" (default: " + p.Default + ")")
