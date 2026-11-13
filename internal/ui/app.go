@@ -643,9 +643,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyMsg:
-		return m.handleKey(msg)
+		before := m.screen()
+		oldMsg, oldKind := m.statusMsg, m.statusKind
+		next, cmd := m.handleKey(msg)
+		if nm, ok := next.(Model); ok && nm.screen() != before &&
+			nm.statusMsg == oldMsg && nm.statusKind == oldKind {
+			// The key moved to another screen without reporting anything, so
+			// the old message describes a screen the user has left.
+			nm.statusMsg = ""
+			return nm, cmd
+		}
+		return next, cmd
 	}
 	return m, nil
+}
+
+// screenID identifies what the user is looking at, for clearing a status
+// message that belongs to the previous screen.
+type screenID struct {
+	mode       mode
+	flow       flowID
+	panelOpen  bool
+	redactStep redactStep
+}
+
+func (m Model) screen() screenID {
+	return screenID{mode: m.mode, flow: m.flow, panelOpen: m.panel.open, redactStep: m.redactSt.step}
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

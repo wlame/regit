@@ -3245,3 +3245,28 @@ func TestCommitPending_statusSaysCapitalU(t *testing.T) {
 		t.Errorf("apply status should say 'press U to undo', got %q", m.statusMsg)
 	}
 }
+
+// TestStatus_clearedWhenTheScreenChanges: a message about the previous screen
+// must not linger on the next one, where it reads as a new error.
+func TestStatus_clearedWhenTheScreenChanges(t *testing.T) {
+	m := newTestModelN(t, 3)
+	m.setStatus("Marks cleared", statusOK)
+	m = send(m, "m") // open the action panel: a new screen
+	if m.statusMsg == "Marks cleared" {
+		t.Errorf("opening the action panel should clear the old status, still %q", m.statusMsg)
+	}
+}
+
+// TestStatus_keptWhenTheKeySetsANewOne: a key that changes the screen AND
+// reports something keeps its own message.
+func TestStatus_keptWhenTheKeySetsANewOne(t *testing.T) {
+	m := newTestModelN(t, 3)
+	m = send(m, "m")
+	m = send(m, "esc") // closing the panel
+	m.setStatus("Squash cancelled", statusOK)
+	before := m.statusMsg
+	m = send(m, "j") // same screen: the status stays
+	if m.statusMsg != before {
+		t.Errorf("moving the cursor should not clear the status, got %q", m.statusMsg)
+	}
+}
