@@ -1,6 +1,7 @@
 package capability
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -73,5 +74,23 @@ func TestRewordArgMapMultiPositionalRoundTrips(t *testing.T) {
 	}
 	if !parsed.Bool("execute") {
 		t.Errorf("execute lost: %q", line)
+	}
+}
+
+func TestMaskSecretArgs_hidesTheSecretInEveryValue(t *testing.T) {
+	args := RedactArgMap("sk-live-123", []string{"*.env"}, "replace", `sk-live-123|sk-live-\d+`, "X", true)
+	masked := MaskSecretArgs(args, "sk-live-123")
+	line := Render("redact", masked)
+	if strings.Contains(line, "sk-live-123") {
+		t.Fatalf("masked line still contains the secret: %q", line)
+	}
+	if masked["match"] != SecretPlaceholder {
+		t.Errorf("match = %q, want %q", masked["match"], SecretPlaceholder)
+	}
+	if masked["replace-pattern"] != SecretPlaceholder+`|sk-live-\d+` {
+		t.Errorf("replace-pattern = %q, want the secret replaced in place", masked["replace-pattern"])
+	}
+	if args["match"] != "sk-live-123" {
+		t.Error("MaskSecretArgs must not modify its input map")
 	}
 }

@@ -464,7 +464,9 @@ func (m Model) stageRedact() (tea.Model, tea.Cmd) {
 	// (every occurrence Scan found, cascaded) regardless of how the operator
 	// narrowed the picker — see redactChange.commandLines for the note that
 	// covers the gap when the two diverge.
-	cmd := capability.Render("redact", capability.RedactArgMap(match, globs, modeStr, patternStr, withStr, true))
+	args := capability.RedactArgMap(match, globs, modeStr, patternStr, withStr, true)
+	cmd := capability.Render("redact", args)
+	diskCmd := capability.Render("redact", capability.MaskSecretArgs(args, match))
 
 	change := redactChange{
 		scanRes:     st.scanRes,
@@ -474,6 +476,7 @@ func (m Model) stageRedact() (tea.Model, tea.Cmd) {
 		sideHistory: sideHistory,
 		allSelected: redactAllChecked(st.sel),
 		cmd:         cmd,
+		diskCmd:     diskCmd,
 	}
 	guard := change.guard(m.state)
 	if guard.Blocked {
@@ -515,6 +518,10 @@ type redactChange struct {
 	// occurrence Scan found (see commandLines for the narrowing note this
 	// implies).
 	cmd string
+	// diskCmd is cmd with the secret masked (capability.MaskSecretArgs). It is
+	// the only form written to .git/regit/command.log, which outlives the
+	// session; the in-memory panel keeps the runnable cmd.
+	diskCmd string
 }
 
 func (c redactChange) title() string {
@@ -537,6 +544,15 @@ func (c redactChange) commandLines() []string {
 		lines = append(lines, "# selection narrowed in TUI; the logged command redacts ALL occurrences")
 	}
 	return lines
+}
+
+// diskCommandLines implements diskLogger: the persistent log gets the masked
+// line so the secret never lands in a file regit leaves behind.
+func (c redactChange) diskCommandLines() []string {
+	if c.diskCmd == "" {
+		return nil
+	}
+	return []string{c.diskCmd}
 }
 
 // guard checks base<0 ("nothing to redact"), then mirrors

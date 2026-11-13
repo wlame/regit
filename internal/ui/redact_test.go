@@ -801,6 +801,18 @@ func TestRedactFlow_realApplyRewritesHistoryAndClosesTheFlow(t *testing.T) {
 	if len(reachable) > 0 {
 		t.Errorf("sk-OLD should no longer be reachable from HEAD's history, found in %v", reachable)
 	}
+	// The on-disk command log outlives the session, so it must never record
+	// the secret; the in-memory panel keeps the runnable line for copying.
+	onDisk := readCommandLog(t, m)
+	if strings.Contains(onDisk, "sk-OLD") {
+		t.Errorf("the on-disk command log must not contain the secret:\n%s", onDisk)
+	}
+	if !strings.Contains(onDisk, "regit redact --match=") {
+		t.Errorf("the on-disk command log should still record the redact, masked:\n%s", onDisk)
+	}
+	if !strings.Contains(strings.Join(m.commandLog, "\n"), "--match=sk-OLD") {
+		t.Errorf("the in-memory panel should keep the runnable line:\n%s", strings.Join(m.commandLog, "\n"))
+	}
 }
 
 // --- redactChange.guard() ----------------------------------------------------

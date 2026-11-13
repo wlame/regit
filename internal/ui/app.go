@@ -1797,8 +1797,12 @@ func (m Model) commitPending(confirmed bool) (tea.Model, tea.Cmd) {
 	// it must not be silently dropped from the audit trail just because the
 	// UI's post-apply refresh failed.
 	if len(lines) > 0 {
-		for _, line := range lines {
-			m.commandLog = append(m.commandLog, line)
+		diskLines := lines
+		if dl, ok := m.pending.(diskLogger); ok {
+			diskLines = dl.diskCommandLines()
+		}
+		m.commandLog = append(m.commandLog, lines...)
+		for _, line := range diskLines {
 			// A "#"-prefixed line is an honest note (e.g. a non-expressible
 			// selection), not a runnable command — keep it in the in-memory
 			// panel but never write it to the on-disk command log.

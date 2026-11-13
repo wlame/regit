@@ -45,6 +45,14 @@ type pendingChange interface {
 	commandLines() []string
 }
 
+// diskLogger is implemented by a change whose command lines must not be
+// written to the on-disk command log verbatim (redact: the line contains the
+// secret). commitPending writes diskCommandLines to disk instead, while the
+// in-memory panel still shows commandLines.
+type diskLogger interface {
+	diskCommandLines() []string
+}
+
 // planChange applies the plan's accumulated date/message edits — the change `A`
 // (and the staged reword/retitle/drop edits) produce. cmds is a snapshot, taken at
 // staging time, of every plan-edit command line accumulated so far (the active

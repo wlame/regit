@@ -195,6 +195,24 @@ func RedactArgMap(match string, globs []string, mode, pattern, with string, casc
 	}
 }
 
+// SecretPlaceholder stands in for a redacted secret in a logged command.
+const SecretPlaceholder = "<secret>"
+
+// MaskSecretArgs returns a copy of a redact argMap with every occurrence of
+// secret replaced by SecretPlaceholder, so the rendered line can be written
+// to the persistent command log without recording the credential. The
+// replace-pattern is masked too, because users often paste the literal into it.
+func MaskSecretArgs(args map[string]string, secret string) map[string]string {
+	out := make(map[string]string, len(args))
+	for k, v := range args {
+		if secret != "" {
+			v = strings.ReplaceAll(v, secret, SecretPlaceholder)
+		}
+		out[k] = v
+	}
+	return out
+}
+
 // keyValsToString serialises a map[date]count as "DAY=N,DAY=N" in stable
 // (sorted) order, matching the --pin flag's wire format.
 func keyValsToString(kv map[string]int) string {
