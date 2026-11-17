@@ -120,7 +120,9 @@ func cloneWithOrigin(t *testing.T, trunk string, setup func(git func(args ...str
 	if err := os.Mkdir(seed, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	gitIn(seed, "init", "-q", "-b", trunk)
+	// git init -b needs git 2.28; CI also runs git 2.25.
+	gitIn(seed, "init", "-q")
+	gitIn(seed, "symbolic-ref", "HEAD", "refs/heads/"+trunk)
 	for i := range 5 {
 		commitIn(seed, fmt.Sprintf("s%d", i))
 	}

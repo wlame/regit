@@ -209,7 +209,9 @@ func TestReadCommits_corruptRefGivesARealError(t *testing.T) {
 		}
 		return strings.TrimSpace(string(out))
 	}
-	run("init", "-q", "-b", "main")
+	// git init -b needs git 2.28; CI also runs git 2.25.
+	run("init", "-q")
+	run("symbolic-ref", "HEAD", "refs/heads/main")
 	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +259,9 @@ func TestReadCommits_orphanBranchGivesAPlainMessage(t *testing.T) {
 		}
 		return strings.TrimSpace(string(out))
 	}
-	run("init", "-q", "-b", "main")
+	// git init -b needs git 2.28; CI also runs git 2.25.
+	run("init", "-q")
+	run("symbolic-ref", "HEAD", "refs/heads/main")
 	run("config", "user.name", "wlame")
 	run("config", "user.email", "vvlame@gmail.com")
 	run("config", "commit.gpgsign", "false")
