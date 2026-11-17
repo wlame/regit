@@ -19,7 +19,7 @@ jobs:
         # matrix would leave the declared floor entirely untested.
         go-version: ["1.24.x", "1.26.x"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -57,7 +57,7 @@ jobs:
     # until it has a green history, then drop this line.
     continue-on-error: ${{ matrix.os == 'windows-latest' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -86,7 +86,7 @@ jobs:
           DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git curl ca-certificates
           git --version
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Go
         uses: actions/setup-go@v5
