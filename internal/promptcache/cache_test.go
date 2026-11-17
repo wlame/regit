@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -174,6 +175,9 @@ func TestCache_putIsAtomic(t *testing.T) {
 // every local user; the historical comment even recorded that the mode had been
 // deliberately WIDENED from CreateTemp's 0600.
 func TestCache_filesAreNotWorldReadable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no POSIX permission bits; file access there follows directory ACLs")
+	}
 	gitDir := t.TempDir()
 	c := New[payload](gitDir, "test")
 	if err := c.Put(Entry[payload]{Key: "k", Fingerprint: "f", Payload: payload{}}); err != nil {

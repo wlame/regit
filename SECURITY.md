@@ -68,7 +68,9 @@ welcome.
   LLM proposals hold the diffs that produced them. Both are written owner-only
   (`0600` in a `0700` directory) under `.git/regit/`, and the redact verb warns
   that the value also lands in your shell history. Rotate a credential after
-  redacting it — removing it from history does not un-leak it.
+  redacting it — removing it from history does not un-leak it. On Windows
+  these file modes have no effect: access there is whatever the repository
+  directory's ACLs grant.
 - **Rewriting published history requires a force-push** and can disrupt
   collaborators. regit warns and requires `--force`; the consequences of using
   it are yours.

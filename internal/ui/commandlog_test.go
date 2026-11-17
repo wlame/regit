@@ -3,6 +3,7 @@ package ui
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -12,6 +13,9 @@ import (
 // an explicit chmod the old world-readable modes would survive and keep
 // receiving lines that can carry a redact secret.
 func TestAppendCommandLog_tightensPreexistingPermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no POSIX permission bits; file access there follows directory ACLs")
+	}
 	m := newTestModelN(t, 1)
 	gitDir, err := m.repo.GitDir()
 	if err != nil {
