@@ -56,7 +56,7 @@ jobs:
       # gap checksums cannot: a checksum only proves a file is self-consistent,
       # not that it came from here.
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/*
 
