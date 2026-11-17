@@ -103,8 +103,8 @@ func runSquash(ctx *RunContext, a ParsedArgs) error {
 	if state.IsShallow {
 		return guardErr("shallow clone — history is incomplete; run 'git fetch --unshallow' first")
 	}
-	if state.IsDirty {
-		return guardErr("working tree has uncommitted changes; commit or stash them first")
+	if reason := state.BlockReason(model.NeedsNoTrackedChanges); reason != "" {
+		return guardErr("%s", reason)
 	}
 	// commits is the full history (needed to locate the chains); RewrittenCommits
 	// narrows to the suffix ApplySquash actually re-emits, so an untouched pushed

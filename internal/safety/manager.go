@@ -38,7 +38,7 @@ var ErrHeadMoved = errors.New("branch moved since the plan was created")
 // proceed. Every apply path (Apply, ApplySplit, ApplySquash) calls this, so the
 // shallow block cannot be forgotten by a path that skips CheckGuards — which is
 // exactly how split and squash previously slipped past it.
-func (m *Manager) preflight(branch, oldHead string, opts ApplyOptions) error {
+func (m *Manager) preflight(branch, oldHead string, need model.WorktreeNeed, opts ApplyOptions) error {
 	// A shallow clone's history is incomplete: any replay of the tail builds on a
 	// grafted, non-real root, so this is the highest-priority block. Re-checked
 	// live here (not trusted from a snapshot) for the same reason dirtiness is.
@@ -49,12 +49,12 @@ func (m *Manager) preflight(branch, oldHead string, opts ApplyOptions) error {
 	if shallow {
 		return fmt.Errorf("rewrite blocked: shallow clone — history is incomplete; run 'git fetch --unshallow' first")
 	}
-	dirty, err := m.repo.IsDirty()
+	worktree, err := m.repo.WorktreeStatus()
 	if err != nil {
 		return fmt.Errorf("re-check working tree: %w", err)
 	}
-	if dirty {
-		return fmt.Errorf("rewrite blocked: working tree has uncommitted changes; commit or stash them first")
+	if reason := worktree.BlockReason(need); reason != "" {
+		return fmt.Errorf("rewrite blocked: %s", reason)
 	}
 	if opts.ExpectedHead == "" {
 		return fmt.Errorf("programming error: apply without ExpectedHead")
@@ -130,6 +130,18 @@ type applyOp struct {
 	Sync func(newHead string) error
 }
 
+// worktreeNeed is how clean the working tree must be for this operation. An
+// operation that refreshes the checkout afterwards (Sync set) must find nothing
+// on disk outside history, untracked files included; one that keeps every file
+// identical only moves the branch pointer, so untracked files cannot be harmed.
+// Deriving it from Sync keeps the two from drifting apart.
+func (op applyOp) worktreeNeed() model.WorktreeNeed {
+	if op.Sync != nil {
+		return model.NeedsCleanWorktree
+	}
+	return model.NeedsNoTrackedChanges
+}
+
 // runApply is the single guarded apply skeleton every history rewrite runs
 // through: guards → preflight → backup → rewrite → verify (content +
 // structure) → move branch (compare-and-swap) → record applied head. Apply,
@@ -150,7 +162,7 @@ func (m *Manager) runApply(op applyOp, opts ApplyOptions) (ApplyResult, error) {
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	if err := m.preflight(branch, oldHead, opts); err != nil {
+	if err := m.preflight(branch, oldHead, op.worktreeNeed(), opts); err != nil {
 		return ApplyResult{}, err
 	}
 
@@ -263,8 +275,8 @@ func (m *Manager) ApplySplit(commit model.Commit, parentHash string, subs []giti
 			if commit.IsMerge {
 				return fmt.Errorf("cannot split a merge commit %s", shortHash(commit.Hash))
 			}
-			if state.IsDirty {
-				return fmt.Errorf("rewrite blocked: working tree is dirty")
+			if reason := state.BlockReason(model.NeedsNoTrackedChanges); reason != "" {
+				return fmt.Errorf("rewrite blocked: %s", reason)
 			}
 			if len(subs) < 2 {
 				return fmt.Errorf("nothing to split: fewer than two sub-commits")
@@ -394,8 +406,8 @@ func (m *Manager) Restore(backupRef string, force bool, unixTS int64) (string, s
 	// is never a reason to refuse the undo itself — the ref move is the undo, and
 	// it always proceeds — it only narrows how much of the checkout refresh
 	// after it is safe to attempt.
-	dirty, dirtyErr := m.repo.IsDirty()
-	cleanBeforeMove := dirtyErr == nil && !dirty
+	worktree, worktreeErr := m.repo.WorktreeStatus()
+	cleanBeforeMove := worktreeErr == nil && !worktree.IsDirty()
 	if err := m.repo.UpdateRef(gitio.BranchRef(branch), target, current); err != nil {
 		return "", "", fmt.Errorf("reset branch to backup: %w", err)
 	}

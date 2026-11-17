@@ -74,8 +74,8 @@ func (m *Manager) ApplyPurge(commits []model.Commit, spec model.PurgeSpec, affec
 				return fmt.Errorf("%s also exists in a merged side branch's history, which regit cannot rewrite — see git filter-repo",
 					strings.Join(sidePaths, ", "))
 			}
-			if state.IsDirty {
-				return fmt.Errorf("rewrite blocked: working tree is dirty")
+			if reason := state.BlockReason(model.NeedsCleanWorktree); reason != "" {
+				return fmt.Errorf("rewrite blocked: %s", reason)
 			}
 			if model.AnyPushed(suffix) && !opts.Confirmed {
 				return fmt.Errorf("confirmation required: commits are already pushed")

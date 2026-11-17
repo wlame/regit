@@ -28,10 +28,10 @@ func (r *Repo) SyncIndexToTree(rev string) error {
 // checkout has not redacted anything the operator cares about. The -u flag makes
 // read-tree write the files out.
 //
-// Destroying uncommitted work is impossible here: every apply is gated on
-// Repo.IsDirty, which runs a bare `git status --porcelain` and therefore counts
-// untracked files as well as modifications. A clean gate proves there is nothing
-// on disk that is not already in history.
+// Destroying uncommitted work is impossible here: every apply that refreshes
+// the checkout is gated on model.NeedsCleanWorktree, which counts untracked
+// files as well as modifications (Repo.WorktreeStatus). A clean gate proves
+// there is nothing on disk that is not already in history.
 func (r *Repo) SyncIndexAndWorktreeToTree(rev string) error {
 	if _, err := r.git("read-tree", "--reset", "-u", rev); err != nil {
 		return fmt.Errorf("sync index and working tree to %s: %w", short(rev), err)

@@ -77,8 +77,8 @@ func (m *Manager) ApplyRedact(
 					return fmt.Errorf("cannot redact across merge commit %s", shortHash(c.Hash))
 				}
 			}
-			if state.IsDirty {
-				return fmt.Errorf("rewrite blocked: working tree is dirty")
+			if reason := state.BlockReason(model.NeedsCleanWorktree); reason != "" {
+				return fmt.Errorf("rewrite blocked: %s", reason)
 			}
 			if model.AnyPushed(suffix) && !opts.Confirmed {
 				return fmt.Errorf("confirmation required: commits are already pushed")

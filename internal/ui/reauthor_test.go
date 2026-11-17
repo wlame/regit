@@ -268,7 +268,7 @@ func TestStageReauthor_dirtyTreeBlocksPipeline(t *testing.T) {
 	m = updated.(Model)
 	m.reauthorSt.nameInput.SetValue("wlame")
 	m.reauthorSt.emailInput.SetValue("new@x")
-	m.state.IsDirty = true
+	m.state.HasTrackedChanges = true
 	out, _ := m.stageReauthor()
 	mm := out.(Model)
 	if mm.mode == modePipeline {

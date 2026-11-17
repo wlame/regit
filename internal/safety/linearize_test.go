@@ -130,11 +130,11 @@ func TestApplyLinearize_emptyPlanAndDirtyTreeRefuse(t *testing.T) {
 	side, _ := repo.SideCommits(mergeHash)
 	plan := model.BuildLinearizePlan(commits, map[string][]model.SideCommit{mergeHash: side})
 	dirty := state
-	dirty.IsDirty = true
+	dirty.HasTrackedChanges = true
 	_, err = mgr.ApplyLinearize(commits, plan, dirty, ApplyOptions{
 		UnixTimestamp: 1, ExpectedHead: commits[len(commits)-1].Hash,
 	})
-	if err == nil || !strings.Contains(err.Error(), "dirty") {
+	if err == nil || !strings.Contains(err.Error(), "uncommitted changes") {
 		t.Fatalf("dirty tree must refuse, got %v", err)
 	}
 }

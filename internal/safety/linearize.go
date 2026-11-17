@@ -23,8 +23,8 @@ func (m *Manager) ApplyLinearize(
 			if len(plan.Folds) == 0 {
 				return fmt.Errorf("nothing to linearize: no merge commits in range")
 			}
-			if state.IsDirty {
-				return fmt.Errorf("rewrite blocked: working tree is dirty")
+			if reason := state.BlockReason(model.NeedsNoTrackedChanges); reason != "" {
+				return fmt.Errorf("rewrite blocked: %s", reason)
 			}
 			// commits is the FULL history (ApplyLinearize needs it to locate the
 			// folds), but gitio.Repo.ApplyLinearize only ever re-emits the suffix

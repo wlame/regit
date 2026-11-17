@@ -167,7 +167,7 @@ func TestApplySquash_blocksDirtyTree(t *testing.T) {
 	repo := newLinearRepo(t, 3)
 	commits, _ := repo.ReadCommits()
 	head, _ := repo.ResolveRef("HEAD")
-	state := model.RepoState{IsDirty: true, Branch: "main", HeadHash: head}
+	state := model.RepoState{WorktreeStatus: model.WorktreeStatus{HasTrackedChanges: true}, Branch: "main", HeadHash: head}
 	plan := model.SquashPlan{Chains: []model.SquashChain{{
 		Members: []model.Commit{commits[0], commits[1]}, AuthorDate: commits[1].OrigAuthorDate,
 	}}}

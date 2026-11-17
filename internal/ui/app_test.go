@@ -2958,8 +2958,11 @@ func TestApply_blockedUntilStrategyReady(t *testing.T) {
 func TestBranchPicker_dirtyErrorStaysInOverlay(t *testing.T) {
 	m := newTestModelN(t, 3)
 	mkBranch(t, m, "other")
-	m.state.IsDirty = true // simulate an uncommitted working tree
-	m = send(m, "B")       // open the branch picker
+	// A real modification: the switch re-reads the working tree from disk.
+	if err := os.WriteFile(filepath.Join(m.repo.Root(), "c000.txt"), []byte("edited\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m = send(m, "B") // open the branch picker
 	if m.mode != modePicker {
 		t.Fatalf("B should open the picker, got %v", m.mode)
 	}

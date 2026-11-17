@@ -4,47 +4,83 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/wlame/regit/internal/model"
 )
 
-// TestIsDirty_countsUntrackedFiles pins the guard input every apply depends on.
-// IsDirty runs a bare `git status --porcelain`, which reports untracked files as
-// well as modifications — that breadth is what makes the post-apply working-tree
-// sync safe, since a clean gate proves nothing on disk is missing from history.
-func TestIsDirty_countsUntrackedFiles(t *testing.T) {
-	repo := syncFixture(t) // from sync_test.go (Task 5), same package
-	dir := repo.Root()
+// TestWorktreeStatus_separatesTrackedChangesFromUntrackedFiles pins the guard
+// input every apply depends on. The two kinds are reported separately because
+// they block different operations: a rewrite that keeps every file identical
+// tolerates untracked files, while one that refreshes the checkout needs
+// nothing on disk outside history (see model.WorktreeNeed).
+func TestWorktreeStatus_separatesTrackedChangesFromUntrackedFiles(t *testing.T) {
+	write := func(t *testing.T, dir, name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cases := []struct {
+		name  string
+		dirty func(t *testing.T, repo *Repo, dir string)
+		want  model.WorktreeStatus
+	}{
+		{"clean", func(*testing.T, *Repo, string) {}, model.WorktreeStatus{}},
+		{"untracked file", func(t *testing.T, _ *Repo, dir string) {
+			write(t, dir, "stray.txt", "x\n")
+		}, model.WorktreeStatus{HasUntrackedFiles: true}},
+		{"modified tracked file", func(t *testing.T, _ *Repo, dir string) {
+			write(t, dir, "alpha.txt", "modified\n")
+		}, model.WorktreeStatus{HasTrackedChanges: true}},
+		{"staged new file", func(t *testing.T, repo *Repo, dir string) {
+			write(t, dir, "staged.txt", "x\n")
+			if _, err := repo.git("add", "staged.txt"); err != nil {
+				t.Fatal(err)
+			}
+		}, model.WorktreeStatus{HasTrackedChanges: true}},
+		{"both", func(t *testing.T, _ *Repo, dir string) {
+			write(t, dir, "alpha.txt", "modified\n")
+			write(t, dir, "stray.txt", "x\n")
+		}, model.WorktreeStatus{HasTrackedChanges: true, HasUntrackedFiles: true}},
+		{"ignored file", func(t *testing.T, repo *Repo, dir string) {
+			write(t, dir, ".gitignore", "*.log\n")
+			if _, err := repo.git("add", ".gitignore"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := repo.git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "ignore logs"); err != nil {
+				t.Fatal(err)
+			}
+			write(t, dir, "build.log", "x\n")
+		}, model.WorktreeStatus{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo, dir := testRepo(t)
+			tc.dirty(t, repo, dir)
 
-	dirty, err := repo.IsDirty()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if dirty {
-		t.Fatal("fixture started dirty")
-	}
+			got, err := repo.WorktreeStatus()
 
-	if err := os.WriteFile(filepath.Join(dir, "stray.txt"), []byte("x\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	dirty, err = repo.IsDirty()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !dirty {
-		t.Error("IsDirty = false with an untracked file present, want true")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Errorf("WorktreeStatus = %+v, want %+v", got, tc.want)
+			}
+		})
 	}
 }
 
-// TestIsDirty_errorsOnBrokenRepo pins IsDirty's own error surface: a repo whose
+// TestWorktreeStatus_errorsOnBrokenRepo pins the error surface: a repo whose
 // `git status` cannot run at all (here, a HEAD ref that points at garbage
-// instead of a hash) must propagate the failure rather than report false —
-// the guard must fail closed, not silently read as "clean".
-func TestIsDirty_errorsOnBrokenRepo(t *testing.T) {
+// instead of a hash) must propagate the failure rather than report a clean
+// tree — the guard must fail closed.
+func TestWorktreeStatus_errorsOnBrokenRepo(t *testing.T) {
 	dir, repo := initRepo(t)
 	if err := os.WriteFile(filepath.Join(dir, ".git", "HEAD"), []byte("garbage\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repo.IsDirty(); err == nil {
-		t.Fatal("IsDirty on a repo with a corrupt HEAD should fail, got nil error")
+	if _, err := repo.WorktreeStatus(); err == nil {
+		t.Fatal("WorktreeStatus on a repo with a corrupt HEAD should fail, got nil error")
 	}
 }
 

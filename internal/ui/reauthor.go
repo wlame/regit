@@ -276,7 +276,7 @@ func (m Model) stageReauthor() (tea.Model, tea.Cmd) {
 	// Run the pre-flight guard before opening the pipeline: a hard block (dirty
 	// tree, out-of-order) reports its reason and never enters the overlay; pushed
 	// history records NeedsConfirmation so updatePipeline runs the typed-confirm step.
-	guard := change.guard(m.state)
+	guard := m.guardNow(change)
 	if guard.Blocked {
 		m.reauthorSt.errMsg = guard.BlockReason
 		return m, nil

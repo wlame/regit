@@ -22,7 +22,7 @@ branch without touching a single file — trees are reused byte-for-byte and
 ## Prerequisites
 
 - `regit` installed (`go install github.com/wlame/regit/cmd/regit@latest`)
-- A clean working tree — the dirty-tree guard blocks applies otherwise
+- No uncommitted changes to tracked files — the dirty-tree guard blocks applies otherwise (untracked files are fine)
 - The commits to redate on the **current branch**
 
 ## Complete example
@@ -91,7 +91,7 @@ Exit codes: `0` ok / preview, `1` usage error (e.g. `--strategy=Manual-Pin` with
 exits `2`:
 
 ```
-regit: working tree has uncommitted changes; commit or stash them first
+regit: working tree has uncommitted changes to tracked files; commit or stash them first
 ```
 
 ## Variations

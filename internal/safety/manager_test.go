@@ -81,7 +81,7 @@ func TestPreflight_blocksShallowClone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = NewManager(repo).preflight("main", head, ApplyOptions{ExpectedHead: head})
+	err = NewManager(repo).preflight("main", head, model.NeedsNoTrackedChanges, ApplyOptions{ExpectedHead: head})
 	if err == nil {
 		t.Fatal("preflight must block a shallow clone")
 	}
@@ -166,17 +166,17 @@ func TestManagerApply_blocksDirtyTree(t *testing.T) {
 
 // TestManagerApply_freshDirtyCheckCatchesStaleSnapshot: the tree is dirtied
 // AFTER the state snapshot was taken (snapshot says clean), so only preflight's
-// live IsDirty recheck can block — proving the apply never trusts stale state.
+// live working-tree recheck can block — proving the apply never trusts stale state.
 func TestManagerApply_freshDirtyCheckCatchesStaleSnapshot(t *testing.T) {
 	repo := buildRepo(t)
 	mgr := NewManager(repo)
 	plan := spreadPlan(t, repo)
 	state, _ := repo.ReadState()
-	if state.IsDirty {
+	if state.IsDirty() {
 		t.Fatal("precondition: snapshot must be clean")
 	}
-	// Dirty the tree AFTER the snapshot: the stale state.IsDirty guard cannot fire.
-	if err := os.WriteFile(filepath.Join(repo.Root(), "dirty.txt"), []byte("x\n"), 0o644); err != nil {
+	// Modify a tracked file AFTER the snapshot: the snapshot-based guard cannot fire.
+	if err := os.WriteFile(filepath.Join(repo.Root(), "one.txt"), []byte("changed\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	_, err := mgr.Apply(plan, state, ApplyOptions{UnixTimestamp: 11, ExpectedHead: state.HeadHash})
@@ -189,6 +189,33 @@ func TestManagerApply_freshDirtyCheckCatchesStaleSnapshot(t *testing.T) {
 	refs, _ := repo.ListBackupRefs()
 	if len(refs) != 0 {
 		t.Errorf("refused apply must not create a backup ref, found %v", refs)
+	}
+}
+
+// TestManagerApply_untrackedFileDoesNotBlock: a plan keeps every file
+// identical and only moves the branch pointer, so an untracked file is no
+// reason to refuse — and it must still be there, untouched, afterwards.
+func TestManagerApply_untrackedFileDoesNotBlock(t *testing.T) {
+	repo := buildRepo(t)
+	mgr := NewManager(repo)
+	plan := spreadPlan(t, repo)
+	stray := filepath.Join(repo.Root(), "notes.txt")
+	if err := os.WriteFile(stray, []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	state, _ := repo.ReadState()
+
+	_, err := mgr.Apply(plan, state, ApplyOptions{UnixTimestamp: 12, ExpectedHead: state.HeadHash})
+
+	if err != nil {
+		t.Fatalf("apply with only an untracked file should succeed, got: %v", err)
+	}
+	if content, _ := os.ReadFile(stray); string(content) != "mine\n" {
+		t.Errorf("the untracked file changed: %q", content)
+	}
+	after, _ := repo.WorktreeStatus()
+	if after.HasTrackedChanges || !after.HasUntrackedFiles {
+		t.Errorf("working tree after apply = %+v, want only the untracked file", after)
 	}
 }
 

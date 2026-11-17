@@ -27,8 +27,8 @@ func (m *Manager) ApplySquash(commits []model.Commit, plan model.SquashPlan, sta
 					}
 				}
 			}
-			if state.IsDirty {
-				return fmt.Errorf("rewrite blocked: working tree is dirty")
+			if reason := state.BlockReason(model.NeedsNoTrackedChanges); reason != "" {
+				return fmt.Errorf("rewrite blocked: %s", reason)
 			}
 			// commits is the FULL history (ApplySquash needs it to locate the
 			// chains), but gitio.Repo.ApplySquash only ever re-emits the suffix

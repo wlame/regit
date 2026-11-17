@@ -65,7 +65,7 @@ func TestSquashChange_guard_mergeCommitBlocks(t *testing.T) {
 func TestSquashChange_guard_dirtyTreeBlocks(t *testing.T) {
 	ch := model.SquashChain{Members: []model.Commit{{Hash: "a"}, {Hash: "b"}}}
 	sc := squashChange{plan: model.SquashPlan{Chains: []model.SquashChain{ch}}}
-	g := sc.guard(model.RepoState{IsDirty: true})
+	g := sc.guard(model.RepoState{WorktreeStatus: model.WorktreeStatus{HasTrackedChanges: true}})
 	if !g.Blocked || g.BlockReason == "" {
 		t.Errorf("guard should block on dirty working tree, got %+v", g)
 	}
@@ -540,7 +540,7 @@ func TestTimeModelByName_fallbackForUnknown(t *testing.T) {
 // pre-flight guard so the wizard never enters the apply pipeline (H1).
 func TestStageSquash_dirtyTreeBlocksPipeline(t *testing.T) {
 	m := squashModelReady(linearModelCommits("a", "b", "c"), "a", "b", "c")
-	m.state.IsDirty = true
+	m.state.HasTrackedChanges = true
 	out, _ := m.stageSquash()
 	mm := out.(Model)
 	if mm.mode == modePipeline {
@@ -620,7 +620,7 @@ func TestRenderSquashWizard_multilineBodyRendersRows(t *testing.T) {
 // modal — and stay out of the pipeline.
 func TestStageSquash_dirtyTreeShowsInlineError(t *testing.T) {
 	m := squashModelReady(linearModelCommits("a", "b", "c"), "a", "b")
-	m.state.IsDirty = true
+	m.state.HasTrackedChanges = true
 	out, _ := m.stageSquash()
 	mm := out.(Model)
 	if mm.mode == modePipeline {

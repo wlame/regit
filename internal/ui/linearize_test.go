@@ -59,7 +59,7 @@ func TestLinearizeChange_guardMirrorsSafety(t *testing.T) {
 			Folds: []model.LinearizeFold{{Merge: cleanMerge, NewTitle: "Merge y"}},
 		},
 	}
-	if g3 := dirty.guard(model.RepoState{Branch: "main", IsDirty: true}); !g3.Blocked {
+	if g3 := dirty.guard(model.RepoState{Branch: "main", WorktreeStatus: model.WorktreeStatus{HasTrackedChanges: true}}); !g3.Blocked {
 		t.Error("a dirty working tree should block a linearize")
 	}
 }

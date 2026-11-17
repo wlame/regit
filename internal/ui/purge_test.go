@@ -234,7 +234,7 @@ func TestPurgeChange_guardBlocksDirtyTree(t *testing.T) {
 	// merge involved, so the naive and corrected boundaries coincide): "b" is
 	// the first (and only) affected commit, at index 1.
 	pc := purgeChange{commits: commits, affected: map[string]bool{"b": true}, pv: capability.PurgePreview{}, base: 1}
-	g := pc.guard(model.RepoState{IsDirty: true})
+	g := pc.guard(model.RepoState{WorktreeStatus: model.WorktreeStatus{HasTrackedChanges: true}})
 	if !g.Blocked {
 		t.Error("a dirty tree should block the purge guard")
 	}

@@ -43,11 +43,10 @@ func CheckGuards(state model.RepoState, plan *model.Plan) Guard {
 				"run 'git fetch --unshallow' first",
 		}
 	}
-	if state.IsDirty {
-		return Guard{
-			Blocked:     true,
-			BlockReason: "working tree has uncommitted changes; commit or stash them first",
-		}
+	// A plan only changes commit headers and messages, so every file stays
+	// identical and untracked files are no obstacle.
+	if reason := state.BlockReason(model.NeedsNoTrackedChanges); reason != "" {
+		return Guard{Blocked: true, BlockReason: reason}
 	}
 	if !plan.IsValid() {
 		// Count Violations, not Shifted: IsValid gates on Violations being

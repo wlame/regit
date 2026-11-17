@@ -862,7 +862,7 @@ func TestRedactChange_guardBlocksDirtyTree(t *testing.T) {
 		Base:     0,
 		Affected: []model.Commit{{Hash: "a"}},
 	}}
-	g := rc.guard(model.RepoState{IsDirty: true})
+	g := rc.guard(model.RepoState{WorktreeStatus: model.WorktreeStatus{HasTrackedChanges: true}})
 	if !g.Blocked {
 		t.Fatal("a dirty tree should block the redact guard")
 	}

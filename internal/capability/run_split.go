@@ -123,8 +123,8 @@ func runSplit(ctx *RunContext, a ParsedArgs) error {
 	if state.IsShallow {
 		return guardErr("shallow clone — history is incomplete; run 'git fetch --unshallow' first")
 	}
-	if state.IsDirty {
-		return guardErr("working tree has uncommitted changes; commit or stash them first")
+	if reason := state.BlockReason(model.NeedsNoTrackedChanges); reason != "" {
+		return guardErr("%s", reason)
 	}
 	if model.AnyPushed(rewritten) && !a.Bool("force") {
 		return guardErr("commit %s (or a commit after it) is already pushed — re-run with --force to rewrite it", Short(target.Hash))

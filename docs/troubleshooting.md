@@ -69,18 +69,18 @@ git fetch --unshallow
 ### Dirty working tree
 
 ```
-regit: working tree has uncommitted changes; commit or stash them first
+regit: working tree has uncommitted changes to tracked files; commit or stash them first
 ```
 
 A last-instant re-check just before the branch moves reports the same
 condition as an apply error (exit 3):
 
 ```
-regit: rewrite blocked: working tree has uncommitted changes; commit or stash them first
+regit: rewrite blocked: working tree has uncommitted changes to tracked files; commit or stash them first
 ```
 
-**Cause**: There are uncommitted changes (staged or unstaged). regit refuses to
-rewrite history while the working tree differs from HEAD.
+**Cause**: There are staged or unstaged changes to files git tracks. regit
+refuses to rewrite history while those files differ from HEAD.
 
 **Fix**: Commit or stash, then retry.
 
@@ -89,6 +89,22 @@ git stash        # or: git commit -am "wip"
 regit redate --strategy=Even-Spread --start=2026-01-01 --end=2026-03-01 --execute
 git stash pop
 ```
+
+Untracked files do not block most commands: a redate, reword, retitle,
+reauthor, squash, split, or linearize keeps every file identical and only moves
+the branch pointer. `purge` and `redact` rewrite the checkout, so they also
+refuse while untracked files exist:
+
+```
+regit: working tree has untracked files and this operation rewrites the checkout; remove them, add them to .gitignore, or run 'git stash -u' first
+```
+
+A plain `git stash` leaves untracked files in place; `git stash -u` takes them.
+A file that `purge` removed from history stays on disk as an untracked copy, so
+it has this effect on the next `purge` or `redact`.
+
+The TUI reads the working tree again each time you apply, so cleaning it in
+another terminal is enough; there is no need to restart.
 
 ---
 

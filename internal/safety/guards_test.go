@@ -17,7 +17,7 @@ func planWithEdit(pushed bool) *model.Plan {
 }
 
 func TestCheckGuards_dirtyTreeBlocks(t *testing.T) {
-	g := CheckGuards(model.RepoState{IsDirty: true}, planWithEdit(false))
+	g := CheckGuards(model.RepoState{WorktreeStatus: model.WorktreeStatus{HasTrackedChanges: true}}, planWithEdit(false))
 	if !g.Blocked {
 		t.Fatal("dirty tree should block")
 	}
@@ -118,7 +118,7 @@ func TestCheckGuards_blocksShallowClone(t *testing.T) {
 // is the more fundamental problem — the dirty tree is moot if the rewrite is
 // refused outright anyway.
 func TestCheckGuards_shallowReportedBeforeDirty(t *testing.T) {
-	g := CheckGuards(model.RepoState{IsShallow: true, IsDirty: true}, planWithEdit(false))
+	g := CheckGuards(model.RepoState{IsShallow: true, WorktreeStatus: model.WorktreeStatus{HasTrackedChanges: true}}, planWithEdit(false))
 	if !g.Blocked {
 		t.Fatal("shallow+dirty must still block")
 	}

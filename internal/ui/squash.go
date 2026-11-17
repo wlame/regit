@@ -64,11 +64,8 @@ func (c squashChange) guard(state model.RepoState) safety.Guard {
 			}
 		}
 	}
-	if state.IsDirty {
-		return safety.Guard{
-			Blocked:     true,
-			BlockReason: "working tree has uncommitted changes; commit or stash them first",
-		}
+	if reason := state.BlockReason(model.NeedsNoTrackedChanges); reason != "" {
+		return safety.Guard{Blocked: true, BlockReason: reason}
 	}
 	if model.AnyPushed(c.plan.RewrittenCommits(c.commits)) {
 		return safety.Guard{
@@ -637,7 +634,7 @@ func (m Model) stageSquash() (tea.Model, tea.Cmd) {
 	// tree, merge) reports its reason inline (the status bar is hidden under this
 	// modal) and never enters the overlay; a pushed-history change records
 	// NeedsConfirmation so updatePipeline runs the typed-confirm step.
-	guard := change.guard(m.state)
+	guard := m.guardNow(change)
 	if guard.Blocked {
 		m.squashSt.errMsg = guard.BlockReason
 		return m, nil

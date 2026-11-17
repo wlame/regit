@@ -549,7 +549,7 @@ func TestApplyRedact_dirtyTreeBlocks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state.IsDirty = true
+	state.HasTrackedChanges = true
 	spec := model.RedactSpec{
 		Match: "sk-OLD", Mode: model.RedactRemove,
 		Targets: map[string][]string{"cfg.yaml": {"token: sk-OLD"}},
@@ -560,8 +560,8 @@ func TestApplyRedact_dirtyTreeBlocks(t *testing.T) {
 	if err == nil {
 		t.Fatal("a dirty tree must block the redact")
 	}
-	if !strings.Contains(err.Error(), "dirty") {
-		t.Errorf("error should mention dirty tree, got: %v", err)
+	if !strings.Contains(err.Error(), "uncommitted changes") {
+		t.Errorf("error should mention the uncommitted changes, got: %v", err)
 	}
 }
 
@@ -877,5 +877,38 @@ func TestRedactSurvivingLine_readsTheBlobOncePerPath(t *testing.T) {
 		t.Errorf("redactSurvivingLine on a missing path errored: %v", err)
 	} else if got != "" {
 		t.Errorf("redactSurvivingLine on a missing path = %q, want \"\"", got)
+	}
+}
+
+// TestApplyRedact_untrackedFileStillBlocks: redact refreshes the files on disk
+// after the rewrite, so — unlike an operation that keeps every file identical —
+// it refuses while anything on disk is outside history. The file appears AFTER
+// the snapshot, so it is the live apply-time check that must catch it.
+func TestApplyRedact_untrackedFileStillBlocks(t *testing.T) {
+	repo := redactRotationRepo(t)
+	commits, err := repo.ReadCommits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := repo.ReadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo.Root(), "notes.txt"), []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	spec := model.RedactSpec{
+		Match: "sk-OLD", Mode: model.RedactRemove,
+		Targets: map[string][]string{"cfg.yaml": {"token: sk-OLD"}},
+	}
+
+	_, err = NewManager(repo).ApplyRedact(commits, spec, true, state,
+		ApplyOptions{UnixTimestamp: 1, ExpectedHead: state.HeadHash, Confirmed: true})
+
+	if err == nil || !strings.Contains(err.Error(), "untracked files") {
+		t.Fatalf("redact with an untracked file must be refused for that reason, got: %v", err)
+	}
+	if head, _ := repo.ResolveRef("HEAD"); head != state.HeadHash {
+		t.Errorf("a refused redact moved the branch: %s -> %s", state.HeadHash, head)
 	}
 }

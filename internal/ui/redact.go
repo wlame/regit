@@ -478,7 +478,7 @@ func (m Model) stageRedact() (tea.Model, tea.Cmd) {
 		cmd:         cmd,
 		diskCmd:     diskCmd,
 	}
-	guard := change.guard(m.state)
+	guard := m.guardNow(change)
 	if guard.Blocked {
 		m.redactSt.errMsg = guard.BlockReason
 		return m, nil
@@ -579,9 +579,8 @@ func (c redactChange) guard(state model.RepoState) safety.Guard {
 			return safety.Guard{Blocked: true, BlockReason: "cannot redact across a merge commit"}
 		}
 	}
-	if state.IsDirty {
-		return safety.Guard{Blocked: true,
-			BlockReason: "working tree has uncommitted changes; commit or stash them first"}
+	if reason := state.BlockReason(model.NeedsCleanWorktree); reason != "" {
+		return safety.Guard{Blocked: true, BlockReason: reason}
 	}
 	if c.pv.Base == 0 && len(c.pv.Dropped) == len(c.pv.Affected) {
 		return safety.Guard{Blocked: true, BlockReason: "redact would remove every commit on the branch"}

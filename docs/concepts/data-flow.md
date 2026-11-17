@@ -57,7 +57,7 @@ Step by step:
    [registry row](architecture.md) (`capability.Parse`), config is loaded
    (defaults → YAML → [`REGIT_*` env](../reference/configuration.md)), and the repo is
    opened through [`gitio`](architecture.md).
-2. **Guards and preflight** — a shallow clone or dirty working tree is a hard block (exit 2).
+2. **Guards and preflight** — a shallow clone or dirty working tree is a hard block (exit 2). "Dirty" means changes to tracked files; untracked files count only for `purge` and `redact`, which rewrite the checkout.
    `Manager.preflight` re-checks these **live** at apply time on every path, and anchors on
    `ExpectedHead`: the plan records the HEAD it was built against, and if the branch tip has
    moved since, the apply aborts rather than rewriting history it never previewed.

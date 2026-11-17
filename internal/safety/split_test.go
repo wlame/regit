@@ -185,7 +185,7 @@ func TestApplySplit_dirtyTreeBlocks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state := model.RepoState{IsDirty: true, Branch: "main", HeadHash: oldHead}
+	state := model.RepoState{WorktreeStatus: model.WorktreeStatus{HasTrackedChanges: true}, Branch: "main", HeadHash: oldHead}
 	subs := []gitio.SubCommit{
 		{Tree: "dummy1", Subject: "a"},
 		{Tree: "dummy2", Subject: "b"},
@@ -197,8 +197,8 @@ func TestApplySplit_dirtyTreeBlocks(t *testing.T) {
 	if err == nil {
 		t.Fatal("a dirty tree must block the split")
 	}
-	if !strings.Contains(err.Error(), "dirty") {
-		t.Errorf("error should mention dirty tree, got: %v", err)
+	if !strings.Contains(err.Error(), "uncommitted changes") {
+		t.Errorf("error should mention the uncommitted changes, got: %v", err)
 	}
 }
 

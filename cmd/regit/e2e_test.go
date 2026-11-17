@@ -764,3 +764,24 @@ func TestE2E_LinearizeFoldsAndUndoes(t *testing.T) {
 		t.Fatal("undo must restore the original merge head")
 	}
 }
+
+// TestE2E_untrackedFileDoesNotBlockRedate: a redate keeps every file identical,
+// so a file git does not track is no reason to refuse it. The file must still be
+// on disk, untouched, afterwards.
+func TestE2E_untrackedFileDoesNotBlockRedate(t *testing.T) {
+	dir := e2eRepo(t)
+	stray := filepath.Join(dir, "notes.txt")
+	if err := os.WriteFile(stray, []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, code := runRegit(t, dir, "redate",
+		"--strategy=Even-Spread", "--start=2026-01-05", "--end=2026-02-05", "--execute")
+
+	if code != 0 {
+		t.Fatalf("redate with only an untracked file: exit %d, want 0\n%s", code, out)
+	}
+	if content, _ := os.ReadFile(stray); string(content) != "mine\n" {
+		t.Errorf("the untracked file changed: %q", content)
+	}
+}

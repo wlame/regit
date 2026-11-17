@@ -247,8 +247,8 @@ func runRedact(ctx *RunContext, a ParsedArgs) error {
 	if state.IsShallow {
 		return guardErr("shallow clone — history is incomplete; run 'git fetch --unshallow' first")
 	}
-	if state.IsDirty {
-		return guardErr("working tree has uncommitted changes; commit or stash them first")
+	if reason := state.BlockReason(model.NeedsCleanWorktree); reason != "" {
+		return guardErr("%s", reason)
 	}
 	if pv.Base < 0 {
 		return runtimeErr("redact base: no commit's snapshot contains the target content")

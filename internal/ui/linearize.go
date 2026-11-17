@@ -47,11 +47,8 @@ func (c linearizeChange) guard(state model.RepoState) safety.Guard {
 	if len(c.plan.Folds) == 0 {
 		return safety.Guard{Blocked: true, BlockReason: "nothing to linearize: no merge commits"}
 	}
-	if state.IsDirty {
-		return safety.Guard{
-			Blocked:     true,
-			BlockReason: "working tree has uncommitted changes; commit or stash them first",
-		}
+	if reason := state.BlockReason(model.NeedsNoTrackedChanges); reason != "" {
+		return safety.Guard{Blocked: true, BlockReason: reason}
 	}
 	if model.AnyPushed(c.plan.RewrittenCommits(c.commits)) {
 		return safety.Guard{
@@ -111,7 +108,7 @@ func (m Model) beginLinearize() (tea.Model, tea.Cmd, bool) {
 		plan:    plan,
 		cmd:     capability.Render("linearize", nil),
 	}
-	guard := change.guard(m.state)
+	guard := m.guardNow(change)
 	if guard.Blocked {
 		m.setStatus(guard.BlockReason, statusErr)
 		return m, nil, true

@@ -501,7 +501,7 @@ func TestReadState_reportsCleanRepo(t *testing.T) {
 	if st.Branch != "main" {
 		t.Errorf("branch = %q, want main", st.Branch)
 	}
-	if st.IsDirty {
+	if st.IsDirty() {
 		t.Error("fresh repo should not be dirty")
 	}
 	if st.HasUpstream {
@@ -518,8 +518,8 @@ func TestReadState_detectsDirtyWorktree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !st.IsDirty {
-		t.Error("expected dirty worktree to be detected")
+	if !st.HasTrackedChanges {
+		t.Error("expected the modified tracked file to be detected")
 	}
 }
 

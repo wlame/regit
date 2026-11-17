@@ -499,6 +499,16 @@ regit squash <range-ish>
   code (keymap, registry, config table, strategy names) and run `just docs-sync`;
   the drift test fails CI otherwise.
 
+- **The dirty-tree block has two levels (`model.WorktreeNeed`).** Changes to
+  tracked files block every apply. Untracked files block only operations that
+  refresh the checkout afterwards (`applyOp.Sync` set: purge, redact) —
+  `applyOp.worktreeNeed` derives the level from `Sync`, and every guard takes
+  its verdict and wording from `WorktreeStatus.BlockReason`. Tree-preserving
+  operations only move the branch pointer, so untracked files cannot be harmed.
+  The TUI re-reads the working tree before every guard and apply
+  (`Model.guardNow` / `refreshWorktreeStatus`), so a tree cleaned in another
+  terminal unblocks `A` without a restart.
+
 - **Shallow-clone and dirty-tree blocks live in TWO places, by design.**
   `CheckGuards` (guards.go) checks `state.IsShallow` first for the plan-based verbs,
   but split and squash hand-roll their guards and skip `CheckGuards` — so the

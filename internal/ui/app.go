@@ -575,7 +575,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setStatus("Split commit not found in plan — history may have changed", statusErr)
 			return m, nil
 		}
-		guard := sc.guard(m.state)
+		guard := m.guardNow(sc)
 		if guard.Blocked {
 			m.mode = modeMain
 			m.setStatus(guard.BlockReason, statusErr)
@@ -1837,6 +1837,7 @@ func (m Model) commitPending(confirmed bool) (tea.Model, tea.Cmd) {
 		Confirmed:     confirmed,
 		ExpectedHead:  m.state.HeadHash,
 	}
+	m.refreshWorktreeStatus() // the preview may have been open for a while
 	res, err := m.pending.apply(m.mgr, m.state, opts)
 	if err != nil {
 		m.mode = modeMain
@@ -1971,7 +1972,7 @@ func (m Model) stagePlanApply(applyMode bool) (tea.Model, tea.Cmd) {
 	cmds = append(cmds, m.planCmds...)
 	impact := refImpactLines(m.repo, m.plan.Active(), m.state.Branch)
 	pc := newPlanChange(m.plan, m.loc, cmds, impact)
-	guard := pc.guard(m.state)
+	guard := m.guardNow(pc)
 	if applyMode && guard.Blocked {
 		m.setStatus(guard.BlockReason, statusErr)
 		return m, nil
@@ -2286,8 +2287,11 @@ func (m Model) pickerSwitchBranch() (tea.Model, tea.Cmd) {
 		m.picker.errMsg = "Already on " + name
 		return m, nil
 	}
-	if m.state.IsDirty {
-		m.picker.errMsg = "Working tree has uncommitted changes — commit or stash before switching"
+	// Untracked files do not block: git itself refuses a switch that would
+	// overwrite one, and that error shows below.
+	m.refreshWorktreeStatus()
+	if m.state.HasTrackedChanges {
+		m.picker.errMsg = "Working tree has uncommitted changes to tracked files — commit or stash before switching"
 		return m, nil
 	}
 	if m.plan.HasChanges() {

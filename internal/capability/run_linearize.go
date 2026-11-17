@@ -59,8 +59,8 @@ func runLinearize(ctx *RunContext, a ParsedArgs) error {
 	if state.IsShallow {
 		return guardErr("shallow clone — history is incomplete; run 'git fetch --unshallow' first")
 	}
-	if state.IsDirty {
-		return guardErr("working tree has uncommitted changes; commit or stash them first")
+	if reason := state.BlockReason(model.NeedsNoTrackedChanges); reason != "" {
+		return guardErr("%s", reason)
 	}
 	if model.AnyPushed(plan.RewrittenCommits(commits)) && !a.Bool("force") {
 		return guardErr("some commits are already pushed — re-run with --force to rewrite them")

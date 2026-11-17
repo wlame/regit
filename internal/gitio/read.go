@@ -56,11 +56,11 @@ func (r *Repo) ReadState() (model.RepoState, error) {
 		st.Branch = branch
 	}
 
-	status, err := r.git("status", "--porcelain")
+	worktree, err := r.WorktreeStatus()
 	if err != nil {
 		return st, err
 	}
-	st.IsDirty = strings.TrimSpace(status) != ""
+	st.WorktreeStatus = worktree
 
 	// Upstream tracking branch, if any. A failure here just means "no upstream".
 	if up, err := r.git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"); err == nil && up != "" {
@@ -89,15 +89,31 @@ func (r *Repo) IsShallow() (bool, error) {
 	return strings.TrimSpace(out) == "true", nil
 }
 
-// IsDirty reports whether the working tree has uncommitted changes (including
-// untracked files), via one `git status --porcelain` call. Used by safety to
-// re-check dirtiness at apply time instead of trusting a stale snapshot.
-func (r *Repo) IsDirty() (bool, error) {
-	status, err := r.git("status", "--porcelain")
+// untrackedStatusPrefix starts a `git status --porcelain` line for a file git
+// does not track. Every other line is a staged or unstaged change to a tracked
+// file.
+const untrackedStatusPrefix = "??"
+
+// WorktreeStatus reports what is uncommitted right now, from one
+// `git status --porcelain` call. Safety re-reads it at apply time instead of
+// trusting a snapshot. Ignored files are not listed by git and do not count.
+func (r *Repo) WorktreeStatus() (model.WorktreeStatus, error) {
+	out, err := r.git("status", "--porcelain")
 	if err != nil {
-		return false, err
+		return model.WorktreeStatus{}, err
 	}
-	return strings.TrimSpace(status) != "", nil
+	var status model.WorktreeStatus
+	for _, line := range strings.Split(out, "\n") {
+		switch {
+		case strings.TrimSpace(line) == "":
+			// no entry
+		case strings.HasPrefix(line, untrackedStatusPrefix):
+			status.HasUntrackedFiles = true
+		default:
+			status.HasTrackedChanges = true
+		}
+	}
+	return status, nil
 }
 
 // FirstParents returns up to n commit hashes of rev's first-parent chain,

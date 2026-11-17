@@ -1,9 +1,12 @@
 package ui
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -114,7 +117,7 @@ func TestSplitChange_guardConfirmsPushedCommits(t *testing.T) {
 
 func TestSplitChange_guardBlocksDirtyAndMerge(t *testing.T) {
 	sc := splitChange{commit: model.Commit{Hash: "abc1234567890000"}}
-	if g := sc.guard(model.RepoState{Branch: "main", IsDirty: true}); !g.Blocked {
+	if g := sc.guard(model.RepoState{Branch: "main", WorktreeStatus: model.WorktreeStatus{HasTrackedChanges: true}}); !g.Blocked {
 		t.Error("a dirty working tree should block a split")
 	}
 	merge := splitChange{commit: model.Commit{Hash: "abc1234567890000", IsMerge: true}}
@@ -192,5 +195,60 @@ func TestViewPipelineRendersAtGivenWidth(t *testing.T) {
 	}
 	if w := lipgloss.Width(out); w < 90 {
 		t.Fatalf("modal width = %d, want ≈96 (must fill the given width)", w)
+	}
+}
+
+// stageOneDateEdit stages a date change on the cursor commit through the editor.
+func stageOneDateEdit(t *testing.T, m Model) Model {
+	t.Helper()
+	c := m.commitAtCursor()
+	shifted := c.OrigAuthorDate.Add(time.Hour)
+	m.plan.SetEdit(c.Hash, model.Edit{NewAuthorDate: &shifted, NewCommitDate: &shifted})
+	m.recomputeViolations()
+	return m
+}
+
+// TestApply_untrackedFileDoesNotBlock: a date change keeps every file
+// identical, so a file git does not track must not refuse the apply.
+func TestApply_untrackedFileDoesNotBlock(t *testing.T) {
+	m := stageOneDateEdit(t, newTestModelN(t, 3))
+	if err := os.WriteFile(filepath.Join(m.repo.Root(), "notes.txt"), []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m = send(m, "A")
+
+	if m.mode != modePipeline {
+		t.Fatalf("A should open the apply preview, got mode %v, status %q", m.mode, m.statusMsg)
+	}
+}
+
+// TestApply_seesTheWorkingTreeCleanedAfterLaunch: the TUI started on a tree
+// with a modified tracked file. Once the user cleans it in another terminal, A
+// must work without a restart, which would lose the staged edits.
+func TestApply_seesTheWorkingTreeCleanedAfterLaunch(t *testing.T) {
+	m := stageOneDateEdit(t, newTestModelN(t, 3))
+	tracked := filepath.Join(m.repo.Root(), "c000.txt")
+	original, err := os.ReadFile(tracked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tracked, []byte("edited\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshWorktreeStatus() // what a launch on this tree reads
+
+	m = send(m, "A")
+	if m.mode == modePipeline || !strings.Contains(m.statusMsg, "commit or stash") {
+		t.Fatalf("a modified tracked file should block A, got mode %v, status %q", m.mode, m.statusMsg)
+	}
+
+	if err := os.WriteFile(tracked, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m = send(m, "A")
+
+	if m.mode != modePipeline {
+		t.Fatalf("A should work once the tree is clean, got mode %v, status %q", m.mode, m.statusMsg)
 	}
 }

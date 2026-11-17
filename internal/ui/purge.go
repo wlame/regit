@@ -80,9 +80,8 @@ func (c purgeChange) guard(state model.RepoState) safety.Guard {
 			"%s also exists in a merged side branch's history, which regit cannot rewrite — see git filter-repo",
 			strings.Join(c.sidePaths, ", "))}
 	}
-	if state.IsDirty {
-		return safety.Guard{Blocked: true,
-			BlockReason: "working tree has uncommitted changes; commit or stash them first"}
+	if reason := state.BlockReason(model.NeedsCleanWorktree); reason != "" {
+		return safety.Guard{Blocked: true, BlockReason: reason}
 	}
 	if len(c.pv.Dropped) >= len(suffix) && c.base == 0 {
 		return safety.Guard{Blocked: true, BlockReason: "purge would remove every commit on the branch"}
@@ -307,7 +306,7 @@ func (m Model) stagePurge() (tea.Model, tea.Cmd) {
 	}
 	change := purgeChange{spec: spec, affected: affected, pv: pv, commits: m.plan.Commits, base: base, sidePaths: sidePaths,
 		cmd: capability.Render("purge", capability.PurgeArgMap(paths))}
-	guard := change.guard(m.state)
+	guard := m.guardNow(change)
 	if guard.Blocked {
 		m.purgeSt.errMsg = guard.BlockReason
 		return m, nil

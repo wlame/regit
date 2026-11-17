@@ -68,7 +68,7 @@ and act immediately.
 
 | Guard | Behavior |
 |-------|----------|
-| Dirty working tree | apply is **blocked** until you commit or stash |
+| Dirty working tree | changes to tracked files **block** every apply until you commit or stash; untracked files block only `purge` and `redact`, which rewrite the checkout |
 | Already-pushed commits | apply requires `--force` (the TUI asks you to type the branch name) |
 | Shallow clone | apply is **blocked** — run `git fetch --unshallow` first |
 | Merge commits in range | split, squash, purge, and redact are **blocked**; redate is blocked unless `--allow-merges`; header-only verbs (retitle, reauthor, drop-bodies, reword) rewrite the first-parent chain and keep the merges |

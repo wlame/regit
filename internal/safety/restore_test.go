@@ -60,7 +60,8 @@ func TestRestore_cleanTreeRestoresTheWorkingTree(t *testing.T) {
 	if err := os.Remove(filepath.Join(repo.Root(), "junk.log")); err != nil {
 		t.Fatal(err)
 	}
-	dirty, err := repo.IsDirty()
+	worktree, err := repo.WorktreeStatus()
+	dirty := worktree.IsDirty()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +128,8 @@ func TestRestore_dirtyTreeRefreshesTheIndexOnly(t *testing.T) {
 	if err := os.WriteFile(keepPath, []byte(uncommitted), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	dirty, err := repo.IsDirty()
+	worktree, err := repo.WorktreeStatus()
+	dirty := worktree.IsDirty()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +206,8 @@ func TestRestore_treePreservingUndoLeavesUnrelatedStagingAlone(t *testing.T) {
 	if out, err := addCmd.CombinedOutput(); err != nil {
 		t.Fatalf("git add unrelated.txt: %v\n%s", err, out)
 	}
-	dirty, err := repo.IsDirty()
+	worktree, err := repo.WorktreeStatus()
+	dirty := worktree.IsDirty()
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,6 +1,7 @@
 package model
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -120,16 +121,34 @@ func TestCommit_HasBody(t *testing.T) {
 	}
 }
 
-func TestRepoState_Guards(t *testing.T) {
-	if (RepoState{IsDirty: true}).CanRewriteSafely() {
-		t.Error("dirty state should not be safe to rewrite")
+func TestWorktreeStatus_BlockReason(t *testing.T) {
+	tracked := WorktreeStatus{HasTrackedChanges: true}
+	untracked := WorktreeStatus{HasUntrackedFiles: true}
+	cases := []struct {
+		name        string
+		status      WorktreeStatus
+		need        WorktreeNeed
+		wantBlocked bool
+		wantAdvice  string
+	}{
+		{"clean tree, files kept", WorktreeStatus{}, NeedsNoTrackedChanges, false, ""},
+		{"clean tree, checkout rewritten", WorktreeStatus{}, NeedsCleanWorktree, false, ""},
+		{"tracked changes, files kept", tracked, NeedsNoTrackedChanges, true, "commit or stash"},
+		{"tracked changes, checkout rewritten", tracked, NeedsCleanWorktree, true, "commit or stash"},
+		{"untracked only, files kept", untracked, NeedsNoTrackedChanges, false, ""},
+		{"untracked only, checkout rewritten", untracked, NeedsCleanWorktree, true, "git stash -u"},
 	}
-	if !(RepoState{}).CanRewriteSafely() {
-		t.Error("clean state should be safe")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reason := tc.status.BlockReason(tc.need)
+			if (reason != "") != tc.wantBlocked {
+				t.Fatalf("BlockReason = %q, want blocked=%v", reason, tc.wantBlocked)
+			}
+			if !strings.Contains(reason, tc.wantAdvice) {
+				t.Errorf("BlockReason = %q, want advice %q", reason, tc.wantAdvice)
+			}
+		})
 	}
-	// Pushed-commit detection is retired from RepoState entirely (HasPushedCommits
-	// is gone): it is now the per-commit model.AnyPushed predicate, exercised in
-	// pushed_test.go, since only the commits a rewrite actually touches matter.
 }
 
 // TestPlan_SetBase verifies that SetBase clamps the boundary within [0, last],

@@ -152,8 +152,8 @@ func runPurge(ctx *RunContext, a ParsedArgs) error {
 	if state.IsShallow {
 		return guardErr("shallow clone — history is incomplete; run 'git fetch --unshallow' first")
 	}
-	if state.IsDirty {
-		return guardErr("working tree has uncommitted changes; commit or stash them first")
+	if reason := state.BlockReason(model.NeedsCleanWorktree); reason != "" {
+		return guardErr("%s", reason)
 	}
 	// base is the SAME corrected rewrite boundary safety.Manager.ApplyPurge
 	// and gitio.ApplyPurge independently recompute via gitio.PurgeBase (see

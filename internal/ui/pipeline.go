@@ -45,6 +45,29 @@ type pendingChange interface {
 	commandLines() []string
 }
 
+// refreshWorktreeStatus re-reads what is uncommitted from disk into m.state.
+// The rest of m.state is a snapshot from the last load, but the working tree
+// changes behind the TUI's back whenever the user commits, stashes, or deletes
+// a file in another terminal, and a stale "dirty" verdict would refuse every
+// apply until restart. On a read failure the snapshot stays: the safety
+// manager re-reads at apply time and fails closed. A model built without a
+// repository (unit tests of pure staging logic) keeps its snapshot too.
+func (m *Model) refreshWorktreeStatus() {
+	if m.repo == nil {
+		return
+	}
+	if worktree, err := m.repo.WorktreeStatus(); err == nil {
+		m.state.WorktreeStatus = worktree
+	}
+}
+
+// guardNow runs a change's safety checks against the working tree as it is
+// right now. Every staging site goes through it.
+func (m *Model) guardNow(c pendingChange) safety.Guard {
+	m.refreshWorktreeStatus()
+	return c.guard(m.state)
+}
+
 // diskLogger is implemented by a change whose command lines must not be
 // written to the on-disk command log verbatim (redact: the line contains the
 // secret). commitPending writes diskCommandLines to disk instead, while the
@@ -252,11 +275,8 @@ func (c splitChange) guard(state model.RepoState) safety.Guard {
 	if c.commit.IsMerge {
 		return safety.Guard{Blocked: true, BlockReason: "cannot split a merge commit"}
 	}
-	if state.IsDirty {
-		return safety.Guard{
-			Blocked:     true,
-			BlockReason: "working tree has uncommitted changes; commit or stash them first",
-		}
+	if reason := state.BlockReason(model.NeedsNoTrackedChanges); reason != "" {
+		return safety.Guard{Blocked: true, BlockReason: reason}
 	}
 	if model.AnyPushed(append([]model.Commit{c.commit}, c.tail...)) {
 		return safety.Guard{
