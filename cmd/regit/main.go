@@ -246,6 +246,13 @@ func launchTUI(repoDir string) error {
 	mgr := safety.NewManager(repo)
 	model := ui.New(repo, mgr, cfg, state, commits)
 
+	// Ask the terminal to report Shift+Enter as its own key (the editor's
+	// new-line key), and undo that on the way out. defer runs when this
+	// function returns, on success and on error alike. A terminal that does
+	// not know the request ignores both writes.
+	fmt.Fprint(os.Stdout, ui.ReportModifiedKeys)
+	defer fmt.Fprint(os.Stdout, ui.StopReportingModifiedKeys)
+
 	// Full-screen alternate buffer; bubbletea restores the terminal on exit.
 	program := tea.NewProgram(model, tea.WithAltScreen())
 	_, err = program.Run()

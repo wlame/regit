@@ -1306,32 +1306,6 @@ func TestGlobalKeys_workFromAnyPane(t *testing.T) {
 	}
 }
 
-// The editor's fields widen to 75 columns on roomy terminals and shrink back
-// toward 50 on narrow ones, so long titles show without horizontal scrolling.
-func TestEditor_fieldWidthFollowsTerminal(t *testing.T) {
-	m := newTestModelN(t, 3) // sized 120x40 by the helper
-	if got := m.editorFieldWidth(); got != 75 {
-		t.Errorf("at 120 cols the editor fields should be 75 wide, got %d", got)
-	}
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
-	m = updated.(Model)
-	if got := m.editorFieldWidth(); got != 63 {
-		t.Errorf("at 80 cols the editor fields should shrink to 63, got %d", got)
-	}
-	updated, _ = m.Update(tea.WindowSizeMsg{Width: 50, Height: 30})
-	m = updated.(Model)
-	if got := m.editorFieldWidth(); got != 50 {
-		t.Errorf("tiny terminals should floor at 50, got %d", got)
-	}
-
-	// The editor actually shows a long title in full at 120 cols.
-	m2 := newTestModelN(t, 3)
-	m2 = send(m2, "e")
-	if !strings.Contains(m2.View(), "support rotation c002") {
-		t.Error("a ~64-char title should be fully visible in the editor")
-	}
-}
-
 // Manual Pin and Picked Days applied from the strategy pane must not demand a
 // date range: the pinned/picked days define it. Gating rule: select the strategy
 // first, then pin/pick from the calendar — digits and space are only active

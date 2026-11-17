@@ -25,6 +25,7 @@ var zoneWizards = map[mode]zoneWizard{
 	modeReauthor: {title: "CHANGE AUTHOR", body: Model.reauthorWizardBody},
 	modeSplitGen: {title: "SPLIT", body: Model.splitProgressBody},
 	modePurge:    {title: "PURGE", body: Model.purgeWizardBody},
+	modeEditor:   {title: "EDIT", body: Model.editorWizardBody},
 }
 
 // zoneWizardMinWidth is the flow column's minimum width while a wizard is in
@@ -89,4 +90,27 @@ func (m Model) reauthorWizardBody(_, _ int) string {
 // preview takes over once it arrives.
 func (m Model) splitProgressBody(_, _ int) string {
 	return m.spinner.View() + " proposing a split for " + short(m.splitGenHash) + "…\n\nesc cancel"
+}
+
+// editorWizardBody is the commit editor form.
+func (m Model) editorWizardBody(_, _ int) string {
+	return m.editor.render(m.commitByHash(m.editor.hash), m.st)
+}
+
+// fitEditorToZone sizes the editor's fields to the flow zone as it is now. The
+// body field takes every row the rest of the form leaves free: the form is
+// measured once with the smallest body, and the body grows by the difference.
+// Called when the editor opens and when the terminal is resized under it.
+func (m *Model) fitEditorToZone() {
+	const paneBorderRows = 2
+	innerWidth := m.layoutWithWizard(true).flowWidth - 2 // the pane's padding
+	m.editor.setSize(innerWidth, editorMinBodyRows)
+	// Measure with the body focused: its key line is the longest and wraps most.
+	tallest := m.editor
+	tallest.focusIdx = editorFieldBody
+	form := tallest.render(m.commitByHash(m.editor.hash), m.st)
+	// The pane wraps a long key line, so measure the form at the pane's width.
+	usedRows := lipgloss.Height(lipgloss.NewStyle().Width(innerWidth).Render(form))
+	freeRows := m.flowZoneRows() - paneBorderRows - editorErrorRows - usedRows
+	m.editor.setSize(innerWidth, editorMinBodyRows+max(0, freeRows))
 }

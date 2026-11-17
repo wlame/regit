@@ -25,16 +25,7 @@ func (m Model) viewFlowZone() string {
 		return m.viewDetailPane(m.layout().flowWidth, m.listHeight()+1)
 	}
 
-	budget := m.height - 3
-	if m.logVisible {
-		budget -= logPanelHeight
-	}
-	if m.panel.open {
-		budget -= panelHeightFor(m.panelWindowRows(len(m.panelRows())))
-	}
-	if budget < minListRows {
-		budget = minListRows
-	}
+	budget := m.flowZoneRows()
 
 	if m.zoneWizardOpen() {
 		return m.viewZoneWizard(budget)
@@ -65,6 +56,20 @@ func (m Model) viewFlowZone() string {
 		col = lipgloss.JoinVertical(lipgloss.Left, widget, pane)
 	}
 	return lipgloss.NewStyle().MaxHeight(budget).Render(col)
+}
+
+// flowZoneRows is the row budget of the flow zone, borders included: the
+// terminal height minus the title, status, and keybar rows, and minus the
+// command log and the action panel while they are open.
+func (m Model) flowZoneRows() int {
+	budget := m.height - 3
+	if m.logVisible {
+		budget -= logPanelHeight
+	}
+	if m.panel.open {
+		budget -= panelHeightFor(m.panelWindowRows(len(m.panelRows())))
+	}
+	return max(budget, minListRows)
 }
 
 // detailPaneMinHeight is the fewest content rows (border excluded) the

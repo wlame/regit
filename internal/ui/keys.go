@@ -28,6 +28,7 @@ const (
 	scopeCalendar
 	scopeStrategy
 	scopeRedact
+	scopeEditor
 )
 
 // keyCtx identifies which part of the UI currently owns the keybar, so the
@@ -169,12 +170,20 @@ var keymap = []keyBinding{
 	{Key: "a / n", Scope: scopeRedact, Ctx: ctxRedact, Desc: "step 2: check all / none"},
 	{Key: "←/→ or [ / ]", Scope: scopeRedact, Ctx: ctxRedact, Desc: "step 3: toggle remove/replace mode"},
 	{Key: "esc", Scope: scopeRedact, Ctx: ctxRedact, Desc: "exit the redact flow from any step", Bar: "[esc]cancel"},
+
+	// Commit editor (e / enter on a commit). No Bar: the editor shows its own key line.
+	{Key: "enter", Scope: scopeEditor, Ctx: ctxWizard, Desc: "save the edit, from any field"},
+	{Key: "shift+enter / ctrl+j", Scope: scopeEditor, Ctx: ctxWizard,
+		Desc: "new line in the body (alt+enter too; use ctrl+j where the terminal does not report shift+enter)"},
+	{Key: "tab / shift+tab", Scope: scopeEditor, Ctx: ctxWizard, Desc: "next / previous field"},
+	{Key: "ctrl+d", Scope: scopeEditor, Ctx: ctxWizard, Desc: "drop the body, keeping only the title"},
+	{Key: "esc", Scope: scopeEditor, Ctx: ctxWizard, Desc: "cancel the edit"},
 }
 
 // scopeOrder and scopeTitles drive the help overlay's sectioning.
 var scopeOrder = []keyScope{
 	scopeGlobal, scopeFlow, scopeAction, scopeList, scopeSelection, scopeBranch,
-	scopeCalendar, scopeStrategy, scopeRedact,
+	scopeCalendar, scopeStrategy, scopeRedact, scopeEditor,
 }
 
 var scopeTitles = map[keyScope]string{
@@ -187,6 +196,7 @@ var scopeTitles = map[keyScope]string{
 	scopeCalendar:  "CALENDAR (redate flow)",
 	scopeStrategy:  "STRATEGY PANE (redate flow)",
 	scopeRedact:    "REDACT FLOW",
+	scopeEditor:    "COMMIT EDITOR",
 }
 
 // helpText renders the '?' overlay body from the keymap, grouped by scope. The

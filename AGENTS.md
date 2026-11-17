@@ -101,10 +101,20 @@ its top border with that letter highlighted), and `[`/`]` and `<`/`>` change
 the strategy and time model from the calendar or strategy pane
 (`redateHelperKeys`).
 
-Wizards listed in zone.go `zoneWizards` (reword, squash, retitle, reauthor, purge, the split progress) draw inside the flow
+Wizards listed in zone.go `zoneWizards` (the commit editor, reword, squash, retitle, reauthor, purge, the split progress) draw inside the flow
 zone as a titled pane beside the list instead of as a centered popup; their
 mode still owns every key, the keybar switches to the empty exclusive
 `ctxWizard`, and the flow column widens to `zoneWizardMinWidth`.
+
+The commit editor (`e`/`enter` on a commit, editor.go) saves on `enter` from
+every field. Its body takes a new line from `newLineKeys` (`ctrl+j`,
+`alt+enter`) and from Shift+Enter: `cmd/regit` asks the terminal to report
+modified keys (`ui.ReportModifiedKeys`, xterm modifyOtherKeys level 1, reset on
+exit), and `normalizeNewLineKey` (keyinput.go) turns the escape sequence Bubble
+Tea does not know into `ctrl+j` at the top of `Update`. A terminal that ignores
+the request sends plain Enter for Shift+Enter, which saves. `fitEditorToZone`
+sizes the fields to the flow zone, on open and on resize; the body field takes
+every free row.
 
 Every action is launched from the `m` action panel (actionpanel.go), a
 full-width bottom region that replaced the old per-tab feature menus. Its rows

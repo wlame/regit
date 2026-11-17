@@ -242,3 +242,12 @@ func TestKeybarHintFor_escOnlyAdvertisedInFlow(t *testing.T) {
 		t.Errorf("list keybar should not advertise [esc]close: %q", bar)
 	}
 }
+
+func TestHelpText_documentsTheEditorKeys(t *testing.T) {
+	help := helpText()
+	for _, want := range []string{"COMMIT EDITOR", "shift+enter / ctrl+j", "save the edit, from any field"} {
+		if !strings.Contains(help, want) {
+			t.Errorf("help should document the editor: missing %q", want)
+		}
+	}
+}

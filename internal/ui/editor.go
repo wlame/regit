@@ -12,9 +12,10 @@ import (
 	"github.com/wlame/regit/internal/model"
 )
 
-// editorState backs the per-commit editor modal: title, body, and the author
-// date. Committer date follows the author date (linked) when the app config
-// keeps them linked, which is the default.
+// editorState backs the per-commit editor: title, body, and the author date.
+// Committer date follows the author date (linked) when the app config keeps
+// them linked, which is the default. The editor draws in the flow zone
+// (zone.go), and Model.fitEditorToZone sizes its fields to that pane.
 type editorState struct {
 	hash        string
 	title       textinput.Model
@@ -27,16 +28,33 @@ type editorState struct {
 
 const editorDateLayout = "2006-01-02 15:04"
 
+const (
+	// editorLabelWidth is the label column before the title and date fields.
+	editorLabelWidth = 8
+	// editorMinBodyRows is the smallest the body field gets on a short terminal.
+	editorMinBodyRows = 3
+	// editorErrorRows is kept free under the body for a save error, which can
+	// wrap onto a second row, so showing one never pushes the pane past its rows.
+	editorErrorRows = 2
+)
+
+// editorFieldIndex values are the positions of the editor's fields in focus
+// order.
+const (
+	editorFieldTitle = iota
+	editorFieldDate
+	editorFieldBody
+	editorFieldCount
+)
+
 // newEditorState seeds the editor from a commit and any pending edit on it.
-// fieldWidth sets the visible width of the title and body fields so the modal
-// can grow with the terminal.
-func newEditorState(c model.Commit, plan *model.Plan, loc *time.Location, fieldWidth int) editorState {
+// The fields get their real size from setSize once the pane size is known.
+func newEditorState(c model.Commit, plan *model.Plan, loc *time.Location) editorState {
 	e, _ := plan.EditFor(c.Hash)
 
 	title := textinput.New()
 	title.Prompt = ""
 	title.CharLimit = 120
-	title.Width = fieldWidth
 	if e.NewSubject != nil {
 		title.SetValue(*e.NewSubject)
 	} else {
@@ -51,8 +69,9 @@ func newEditorState(c model.Commit, plan *model.Plan, loc *time.Location, fieldW
 	date.SetValue(e.EffectiveAuthorDate(c).In(loc).Format(editorDateLayout))
 
 	body := textarea.New()
-	body.SetWidth(fieldWidth)
-	body.SetHeight(5)
+	// Enter saves the editor, so the body never sees it; a new line comes from
+	// newLineKeys in update instead.
+	body.KeyMap.InsertNewline.SetEnabled(false)
 	if e.DropBody {
 		body.SetValue("")
 	} else if e.NewBody != nil {
@@ -62,6 +81,19 @@ func newEditorState(c model.Commit, plan *model.Plan, loc *time.Location, fieldW
 	}
 
 	return editorState{hash: c.Hash, title: title, date: date, body: body, bodyDropped: e.DropBody}
+}
+
+// setSize fits the fields to a pane with the given inner width, giving the
+// body field bodyRows rows.
+func (s *editorState) setSize(innerWidth, bodyRows int) {
+	// The title shares its row with the "▸ " cursor, the label column and its
+	// gap, and the field's own cursor cell.
+	s.title.Width = max(10, innerWidth-2-editorLabelWidth-1-1)
+	// The field computes which part of its value is visible only when the
+	// cursor moves, so re-place the cursor to apply the new width.
+	s.title.SetCursor(s.title.Position())
+	s.body.SetWidth(innerWidth)
+	s.body.SetHeight(max(editorMinBodyRows, bodyRows))
 }
 
 // update routes key input to the focused field and handles field switching and
@@ -83,15 +115,23 @@ func (s *editorState) update(msg tea.Msg) tea.Cmd {
 			s.bodyDropped = true
 			return nil
 		}
+		if newLineKeys[key.String()] {
+			// Only the body is multi-line; elsewhere the key does nothing.
+			if s.focusIdx == editorFieldBody {
+				s.bodyDropped = false
+				s.body.InsertString("\n")
+			}
+			return nil
+		}
 	}
 
 	var cmd tea.Cmd
 	switch s.focusIdx {
-	case 0:
+	case editorFieldTitle:
 		s.title, cmd = s.title.Update(msg)
-	case 1:
+	case editorFieldDate:
 		s.date, cmd = s.date.Update(msg)
-	case 2:
+	case editorFieldBody:
 		s.bodyDropped = false // typing in the body undoes a drop
 		s.body, cmd = s.body.Update(msg)
 	}
@@ -102,13 +142,13 @@ func (s *editorState) cycle(delta int) {
 	s.title.Blur()
 	s.date.Blur()
 	s.body.Blur()
-	s.focusIdx = (s.focusIdx + delta + 3) % 3
+	s.focusIdx = (s.focusIdx + delta + editorFieldCount) % editorFieldCount
 	switch s.focusIdx {
-	case 0:
+	case editorFieldTitle:
 		s.title.Focus()
-	case 1:
+	case editorFieldDate:
 		s.date.Focus()
-	case 2:
+	case editorFieldBody:
 		s.body.Focus()
 	}
 }
@@ -148,36 +188,39 @@ func (s editorState) buildEdit(c model.Commit, loc *time.Location, linkDates boo
 	return e, nil
 }
 
-// view renders the editor modal.
-func (s editorState) view(c model.Commit, st styles) string {
+// editorKeyHints is the key line per focused field. Only the body is
+// multi-line, so only its line offers the new-line keys.
+var editorKeyHints = [editorFieldCount]string{
+	editorFieldTitle: "enter save · tab next · ctrl+d drop body · esc cancel",
+	editorFieldDate:  "enter save · tab next · ctrl+d drop body · esc cancel",
+	editorFieldBody:  "enter save · shift+enter or ctrl+j new line · tab next · ctrl+d drop body · esc cancel",
+}
+
+// render draws the editor form for the flow zone.
+func (s editorState) render(c model.Commit, st styles) string {
 	var b strings.Builder
 	b.WriteString(st.modalTitle.Render("Edit commit "+short(c.Hash)) + "\n\n")
 
-	field := func(idx int, label, content string) {
-		cursor := "  "
-		if s.focusIdx == idx {
-			cursor = st.listCursor.Render("▸ ")
+	cursorFor := func(field int) string {
+		if s.focusIdx == field {
+			return st.listCursor.Render("▸ ")
 		}
-		b.WriteString(fmt.Sprintf("%s%-8s %s\n", cursor, label, content))
+		return "  "
 	}
-	field(0, "Title", s.title.View())
-	field(1, "Date", s.date.View())
+	fmt.Fprintf(&b, "%s%-*s %s\n", cursorFor(editorFieldTitle), editorLabelWidth, "Title", s.title.View())
+	fmt.Fprintf(&b, "%s%-*s %s\n", cursorFor(editorFieldDate), editorLabelWidth, "Date", s.date.View())
 
 	bodyLabel := "Body"
 	if s.bodyDropped {
 		bodyLabel = st.marker.Render("Body (dropped)")
 	}
-	cursor := "  "
-	if s.focusIdx == 2 {
-		cursor = st.listCursor.Render("▸ ")
-	}
-	b.WriteString(fmt.Sprintf("%s%-8s\n%s\n", cursor, bodyLabel, s.body.View()))
+	fmt.Fprintf(&b, "%s%s\n%s\n", cursorFor(editorFieldBody), bodyLabel, s.body.View())
 
 	if s.errMsg != "" {
 		b.WriteString(st.statusErr.Render("⚠ "+s.errMsg) + "\n")
 	}
-	b.WriteString("\n" + st.help.Render("tab next · ctrl+d drop body · enter save · esc cancel"))
-	return st.modal.Render(b.String())
+	b.WriteString("\n" + st.help.Render(editorKeyHints[s.focusIdx]))
+	return b.String()
 }
 
 // short mirrors gitio.short for display without importing it.

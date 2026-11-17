@@ -520,10 +520,14 @@ func (m Model) Init() tea.Cmd { return m.markAndFetch() }
 
 // Update is the central event handler, dispatching by mode.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	msg = normalizeNewLineKey(msg)
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.syncListViewport()
+		if m.mode == modeEditor {
+			m.fitEditorToZone()
+		}
 		return m, nil
 	case commitStatMsg:
 		delete(m.statInFlight, msg.hash)
@@ -1037,16 +1041,10 @@ func (m Model) openEditorAtCursor() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	c := m.commitAtCursor()
-	m.editor = newEditorState(c, m.plan, m.loc, m.editorFieldWidth())
+	m.editor = newEditorState(c, m.plan, m.loc)
 	m.mode = modeEditor
+	m.fitEditorToZone()
 	return m, nil
-}
-
-// editorFieldWidth sizes the editor's title/body fields. The math lives in
-// computeLayout (layout.go) so every region shares one source of truth; the
-// field stays within a readable [inputMinWidth, inputMaxWidth] band.
-func (m Model) editorFieldWidth() int {
-	return m.layout().inputWidth
 }
 
 // listNavKey handles fast list-navigation keys when the commit list is focused.
@@ -1726,11 +1724,9 @@ func (m Model) updateEditor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeMain
 		return m, nil
 	case "enter":
-		// Enter saves only when not editing the multi-line body (where enter is a
-		// newline). Use ctrl+s-like behavior: save from title/date with enter.
-		if m.editor.focusIdx != 2 {
-			return m.saveEditor()
-		}
+		// Enter saves from every field; the body takes a new line from
+		// newLineKeys instead (see editorState.update).
+		return m.saveEditor()
 	}
 	m.editor.errMsg = "" // any further edit invalidates a stale save error
 	cmd := m.editor.update(msg)
@@ -2408,8 +2404,6 @@ func (m Model) View() string {
 
 	var overlay string
 	switch m.mode {
-	case modeEditor:
-		overlay = m.editor.view(m.commitByHash(m.editor.hash), m.st)
 	case modePipeline:
 		overlay = viewPipeline(m.pending.preview(m.st), m.previewOffset, m.previewVisibleRows(),
 			m.pipelineApply, m.layout().previewWidth, m.st)
