@@ -151,7 +151,9 @@ func TestSyncIndexAndWorktreeToTree_rewritesDiskContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := string(body), "keep this\n"; got != want {
+	// Compare without line endings: with core.autocrlf=true (the Git for
+	// Windows default) the checkout correctly writes CRLF.
+	if got, want := strings.ReplaceAll(string(body), "\r\n", "\n"), "keep this\n"; got != want {
 		t.Errorf("gone.txt on disk = %q, want %q — the secret must leave the working tree", got, want)
 	}
 	// The unrelated file must be untouched: -u rewrites only what the tree changed.
