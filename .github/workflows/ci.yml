@@ -28,7 +28,7 @@ jobs:
           cache: true
 
       - name: Install just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@v4.0.0
 
       # One entrypoint: the same `just ci` a developer runs locally (fmt-check,
       # vet, build, and test-race with the coverage gate). CI and local cannot
@@ -66,7 +66,7 @@ jobs:
           cache: true
 
       - name: Install just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@v4.0.0
 
       - name: Show git version
         run: git --version
@@ -95,7 +95,7 @@ jobs:
           cache: true
 
       - name: Install just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@v4.0.0
 
       - name: Tests against old git
         run: just test

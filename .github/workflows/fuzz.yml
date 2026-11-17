@@ -30,7 +30,7 @@ jobs:
           cache: true
 
       - name: Install just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@v4.0.0
 
       - name: Fuzz every target
         run: just fuzz 120s
