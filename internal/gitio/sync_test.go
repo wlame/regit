@@ -22,6 +22,14 @@ func syncFixture(t *testing.T) *Repo {
 	return repo
 }
 
+// syntheticIdentity names the author and committer of a commit a test creates
+// through the repo's own plumbing. Without it git falls back to the machine's
+// global identity, which a CI runner does not have.
+var syntheticIdentity = []string{
+	"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e",
+	"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@e",
+}
+
 // commitTreeOnHead writes tree as a new commit on top of HEAD and returns its
 // hash, without moving any ref. The test is in-package, so it can use the same
 // plumbing the rewrite engine does.
@@ -31,7 +39,7 @@ func commitTreeOnHead(t *testing.T, r *Repo, tree string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hash, err := r.gitWithEnvStdin(nil, "Synthetic.", "commit-tree", tree, "-p", head)
+	hash, err := r.gitWithEnvStdin(syntheticIdentity, "Synthetic.", "commit-tree", tree, "-p", head)
 	if err != nil {
 		t.Fatal(err)
 	}
