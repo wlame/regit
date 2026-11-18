@@ -132,40 +132,32 @@ func (r *Repo) FirstParents(rev string, n int) ([]string, error) {
 }
 
 // CurrentBranchIsUnborn reports whether the CURRENT branch (i.e. HEAD) has no
-// commits yet, as opposed to a repository whose current ref exists but is
-// broken, or a repository where some OTHER branch is unborn while HEAD is
-// fine. Two conditions must hold together; neither is sufficient alone, and
-// each was tried alone and found wrong:
+// commits yet, as opposed to a branch whose ref exists but is broken (e.g.
+// refs/heads/main containing garbage instead of a hash). The two look the same
+// to "rev-parse --verify HEAD", which fails for both; telling them apart
+// matters because a corrupt ref reported as "no commits yet" hides a real
+// error behind a reassuring message.
 //
-//  1. "rev-parse --verify --quiet HEAD" fails. This alone looks like the
-//     obvious check but is wrong: it fails identically for an unborn branch
-//     AND for a corrupt ref (e.g. refs/heads/main containing garbage instead
-//     of a hash). Gating on it alone reported "no commits yet" for a
-//     corrupted repository, swallowing a real error behind a reassuring lie —
-//     worse than the verbose error it replaced.
-//
-//  2. "rev-list -n 1 --all" exits 0 (no ref in the repo is corrupt). This
-//     alone is also wrong, in the opposite direction: it answers a
-//     REPO-WIDE question ("does any ref anywhere have commits?") while the
-//     caller's question is PER-BRANCH ("is HEAD unborn?"). On an orphan
-//     branch created after another branch already has history (e.g. `git
-//     checkout --orphan gh-pages` on a repo where main has commits),
-//     "rev-list --all" exits 0 with main's commit as output — "has commits"
-//     by this check alone — even though HEAD itself does not resolve and
-//     `git log HEAD` fails with "ambiguous argument 'HEAD'". Used alone,
-//     this let the raw verbose git error leak on exactly the case the
-//     friendly message exists to catch.
-//
-// So: HEAD unresolved AND no ref is corrupt, together, is the correct
-// definition of "current branch is unborn". A non-zero exit from rev-list
-// (git's own "fatal: bad object ..." detail) means a ref is corrupt and must
-// propagate as a real error rather than be folded into false.
+// So when HEAD does not resolve, it asks whether the branch's ref exists at
+// all: an unborn branch has no ref, a corrupt one has a ref that cannot be
+// read. The question is put to git as a ref transaction that only verifies
+// ("verify <ref>" with no old value means "this ref must not exist") and
+// changes nothing. That behaves the same on every git version, unlike an
+// earlier check through "rev-list --all": git 2.25 skips a broken ref there
+// with a warning and exits 0, which made a corrupt ref look unborn. Asking
+// about the current branch alone also keeps an orphan branch (a new branch
+// with no commits beside branches that have some) reported as unborn.
 func (r *Repo) CurrentBranchIsUnborn() (bool, error) {
 	if _, err := r.git("rev-parse", "--verify", "--quiet", "HEAD"); err == nil {
 		return false, nil
 	}
-	if _, err := r.git("rev-list", "-n", "1", "--all"); err != nil {
-		return false, err
+	branchRef, err := r.git("symbolic-ref", "-q", "HEAD")
+	if err != nil {
+		// A detached HEAD that does not resolve is broken, never unborn.
+		return false, fmt.Errorf("HEAD does not resolve: %w", err)
+	}
+	if _, err := r.gitWithEnvStdin(nil, "verify "+branchRef+"\n", "update-ref", "--stdin"); err != nil {
+		return false, fmt.Errorf("branch ref %s exists but cannot be read: %w", branchRef, err)
 	}
 	return true, nil
 }
