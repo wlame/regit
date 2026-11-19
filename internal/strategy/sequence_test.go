@@ -1,6 +1,7 @@
 package strategy
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -185,5 +186,32 @@ func TestShiftedByEnforcement_doesNotMutateInput(t *testing.T) {
 	_ = ShiftedByEnforcement(commits, times)
 	if !times[1].Equal(before) {
 		t.Errorf("input mutated: times[1] = %s, want %s", times[1], before)
+	}
+}
+
+func TestShiftedByMoves(t *testing.T) {
+	day := func(d int) time.Time { return time.Date(2026, 10, d, 10, 0, 0, 0, time.UTC) }
+	commits := []model.Commit{{Hash: "a"}, {Hash: "b"}, {Hash: "c"}, {Hash: "d"}}
+	cases := []struct {
+		name  string
+		times []time.Time
+		moved map[string]bool
+		want  []string
+	}{
+		{"old disorder, nothing moved", []time.Time{day(1), day(5), day(3), day(7)}, nil, nil},
+		{"old disorder, unrelated commit moved forward", []time.Time{day(1), day(5), day(3), day(9)},
+			map[string]bool{"d": true}, nil},
+		{"moved before its parent", []time.Time{day(1), day(5), day(3), day(2)},
+			map[string]bool{"d": true}, []string{"d"}},
+		{"moved forward past its descendants", []time.Time{day(1), day(30), day(5), day(6)},
+			map[string]bool{"b": true}, []string{"c", "d"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ShiftedByMoves(commits, tc.times, tc.moved)
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("ShiftedByMoves = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

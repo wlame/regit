@@ -105,3 +105,30 @@ func ShiftedByEnforcement(commits []model.Commit, times []time.Time) []string {
 	}
 	return shifted
 }
+
+// ShiftedByMoves is ShiftedByEnforcement limited to what the moved commits
+// cause, so dates that were already out of order before any edit are not
+// flagged. A commit counts as shifted when it was moved to before one of its
+// ancestors, or when it was not moved but sits before a moved ancestor's new
+// date (the cascade drags it forward). Root-first hashes; times[i] is the
+// effective timestamp for commits[i].
+func ShiftedByMoves(commits []model.Commit, times []time.Time, moved map[string]bool) []string {
+	var shifted []string
+	var latestAncestor, latestMovedAncestor time.Time
+	for i, c := range commits {
+		isMoved := moved[c.Hash]
+		switch {
+		case isMoved && i > 0 && times[i].Before(latestAncestor):
+			shifted = append(shifted, c.Hash)
+		case !isMoved && times[i].Before(latestMovedAncestor):
+			shifted = append(shifted, c.Hash)
+		}
+		if times[i].After(latestAncestor) {
+			latestAncestor = times[i]
+		}
+		if isMoved && times[i].After(latestMovedAncestor) {
+			latestMovedAncestor = times[i]
+		}
+	}
+	return shifted
+}

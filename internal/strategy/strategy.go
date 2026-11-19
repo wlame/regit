@@ -241,7 +241,11 @@ func Apply(plan *model.Plan, targets []model.Commit, s Strategy, tm TimeModel, p
 			full[i] = plan.EffectiveAuthorDate(c)
 		}
 	}
-	plan.Violations = violationsTouchingTargets(FindViolations(plan.Commits, full), assigned)
+	moved := make(map[string]bool, len(assigned))
+	for h := range assigned {
+		moved[h] = true
+	}
+	plan.Violations = ViolationsInvolving(FindViolations(plan.Commits, full), moved)
 	plan.Shifted = nil
 	for _, h := range ShiftedByEnforcement(plan.Commits, full) {
 		if _, isTarget := assigned[h]; isTarget { // anchors can never actually shift
@@ -262,19 +266,16 @@ func Apply(plan *model.Plan, targets []model.Commit, s Strategy, tm TimeModel, p
 	return warnings, nil
 }
 
-// violationsTouchingTargets filters a full-chain violation list down to the
-// ones that involve at least one target commit (child or parent hash present
-// in assigned). A squeeze between targets and their bounding anchors always
-// has a target on one side of the pair, so it always survives the filter; a
-// violation purely between two anchors/frozen commits — dates this redate
-// never proposed and will never write — is dropped instead of blocking apply.
-func violationsTouchingTargets(violations []model.SequenceViolation,
-	assigned map[string]time.Time) []model.SequenceViolation {
+// ViolationsInvolving keeps only the violations where the child or the parent
+// is one of the moved commits. A pair of commits that were already out of date
+// order before any edit (common after a rebase or cherry-pick, which keep each
+// commit's original author date), and that no edit moves, is not something
+// the user caused or can be asked to resolve, so it must not block an apply.
+func ViolationsInvolving(violations []model.SequenceViolation,
+	moved map[string]bool) []model.SequenceViolation {
 	var out []model.SequenceViolation
 	for _, v := range violations {
-		_, childIsTarget := assigned[v.ChildHash]
-		_, parentIsTarget := assigned[v.ParentHash]
-		if childIsTarget || parentIsTarget {
+		if moved[v.ChildHash] || moved[v.ParentHash] {
 			out = append(out, v)
 		}
 	}

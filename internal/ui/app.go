@@ -2122,13 +2122,21 @@ func (m *Model) reportPlan(action string) {
 
 // recomputeViolations rebuilds the sequence-violation list from the plan's
 // current effective author dates (used after a manual single-commit edit).
+// recomputeViolations re-checks the date order after a manual edit. The check
+// runs over the whole branch, so an edit is still compared with its untouched
+// neighbors, but only pairs involving a commit whose date an edit moves are
+// kept — the same rule the strategy path applies to its targets.
 func (m *Model) recomputeViolations() {
 	times := make([]time.Time, len(m.plan.Commits))
+	moved := map[string]bool{}
 	for i, c := range m.plan.Commits {
 		times[i] = m.plan.EffectiveAuthorDate(c)
+		if e, ok := m.plan.EditFor(c.Hash); ok && e.NewAuthorDate != nil {
+			moved[c.Hash] = true
+		}
 	}
-	m.plan.Violations = strategy.FindViolations(m.plan.Commits, times)
-	m.plan.Shifted = strategy.ShiftedByEnforcement(m.plan.Commits, times)
+	m.plan.Violations = strategy.ViolationsInvolving(strategy.FindViolations(m.plan.Commits, times), moved)
+	m.plan.Shifted = strategy.ShiftedByMoves(m.plan.Commits, times, moved)
 }
 
 func (m Model) defaultStrategyIndex() int {
