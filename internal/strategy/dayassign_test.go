@@ -403,9 +403,8 @@ func TestPickedDays_spreadKeepsEveryCommitAndAtLeastOnePerDay(t *testing.T) {
 	}
 }
 
-// TestPickedDays_zeroSpreadIsTheOriginalSplit pins that spread 0 keeps the
-// existing distribution, so a logged command without --spread replays the
-// same dates it always did.
+// TestPickedDays_zeroSpreadIsTheOriginalSplit pins that spread 0 is the plain
+// uniform scatter: every day equally likely, drawn with rng.Intn.
 func TestPickedDays_zeroSpreadIsTheOriginalSplit(t *testing.T) {
 	got := pickedDayCounts(t, 100, 0, 7)
 	if want := []int{23, 17, 24, 19, 17}; !slices.Equal(got, want) {

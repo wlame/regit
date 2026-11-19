@@ -95,10 +95,10 @@ func TestHelpText_documentsTheReshuffleKey(t *testing.T) {
 // re-stages the same days with uneven counts, and the logged command carries it.
 func TestPickedDays_spreadFieldChangesTheSplit(t *testing.T) {
 	m := pickedDaysOnCalendar(t, newTestModelN(t, 30), 3)
+	m = send(m, "t", "down", "backspace", "backspace", "0") // Spread 0: the uniform split
 	even := countsOnPickedDays(m)
 
-	m = send(m, "t", "down") // strategy pane, Spread field
-	m = send(m, "backspace", "9", "0")
+	m = send(m, "backspace", "backspace", "9", "0")
 
 	if !strings.Contains(m.redateCmd, "--spread=90") {
 		t.Errorf("the logged command should carry the spread: %s", m.redateCmd)
@@ -111,7 +111,7 @@ func TestPickedDays_spreadFieldChangesTheSplit(t *testing.T) {
 func TestPickedDays_badSpreadShowsAnError(t *testing.T) {
 	m := pickedDaysOnCalendar(t, newTestModelN(t, 10), 2)
 
-	m = send(m, "t", "down", "backspace", "1", "5", "0")
+	m = send(m, "t", "down", "backspace", "backspace", "1", "5", "0")
 
 	if !strings.Contains(m.activeStrat().form.errMsg, "0 to 100") {
 		t.Errorf("spread 150 should show a range error, got %q", m.activeStrat().form.errMsg)
@@ -126,14 +126,25 @@ func TestEvenSpread_spreadFieldChangesTheSplit(t *testing.T) {
 	m = send(m, strings.Split("2026-06-01", "")...)
 	m = send(m, "down") // End date
 	m = send(m, strings.Split("2026-06-10", "")...)
+	m = send(m, "down", "backspace", "backspace", "0") // Spread 0: the exact even split
 	even := m.dayCounts()
 
-	m = send(m, "down", "backspace", "8", "0") // Spread
+	m = send(m, "backspace", "8", "0") // Spread 80
 
 	if !strings.Contains(m.redateCmd, "--spread=80") {
 		t.Fatalf("the logged command should carry the spread: %s", m.redateCmd)
 	}
 	if uneven := m.dayCounts(); fmt.Sprint(uneven) == fmt.Sprint(even) {
 		t.Errorf("spread 80 left the split unchanged: %v", uneven)
+	}
+}
+
+func TestSpreadField_defaultsTo50(t *testing.T) {
+	for _, n := range []int{0, 2} { // Even Spread, Picked Days
+		m := selectStrategy(newTestModelN(t, 6), n)
+		form := m.activeStrat().form
+		if got := form.inputs[slices.Index(form.labels, spreadLabel)].Value(); got != "50" {
+			t.Errorf("%s: Spread field starts at %q, want 50", form.strat.Name(), got)
+		}
 	}
 }

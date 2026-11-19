@@ -1,6 +1,7 @@
 package capability
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/wlame/regit/internal/strategy"
@@ -168,7 +169,7 @@ var registry = []Command{
 			{Name: "link-dates", Type: ParamBool, Default: "true", Help: "keep committer date == author date"},
 			{Name: "pin", Type: ParamKeyVals, AppliesIf: "strategy=Manual-Pin", Required: true, Help: "DAY=N per-day quotas"},
 			{Name: "pick", Type: ParamStringList, AppliesIf: "strategy=Picked-Days", Required: true, Help: "DAY,DAY chosen days"},
-			{Name: "spread", Type: ParamInt, Default: "0", AppliesIf: "strategy=Picked-Days|Even-Spread|Working-Days|Weekends-Only",
+			{Name: "spread", Type: ParamInt, Default: strconv.Itoa(strategy.DefaultSpread), AppliesIf: spreadAppliesIf(),
 				Help: "0-100: how uneven the per-day counts are (0 = about the same per day)"},
 			{Name: "per-day-min", Type: ParamInt, AppliesIf: "strategy=Rate-Fill", Help: "min commits per active day"},
 			{Name: "per-day-max", Type: ParamInt, AppliesIf: "strategy=Rate-Fill", Help: "max commits per active day"},
@@ -436,6 +437,16 @@ func Lookup(name string) (Command, bool) {
 		}
 	}
 	return Command{}, false
+}
+
+// spreadAppliesIf is the --spread relevance predicate, projected from the
+// strategy package's own list so the two cannot drift apart.
+func spreadAppliesIf() string {
+	var names []string
+	for _, name := range strategy.SpreadStrategies() {
+		names = append(names, canonName(name))
+	}
+	return "strategy=" + strings.Join(names, "|")
 }
 
 // strategyNames returns every day-strategy name in kebab form, registry order.

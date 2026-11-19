@@ -177,9 +177,9 @@ func fieldSpecs(strat strategy.Strategy, cursor time.Time) ([]fieldSpec, bool) {
 	case "Picked Days":
 		// The picked days define the range; Spread tunes how uneven the
 		// random per-day counts are.
-		return []fieldSpec{{spreadLabel, "0", "", false}}, true
+		return []fieldSpec{{spreadLabel, defaultSpreadValue, "", false}}, true
 	default: // Even Spread, Working Days, Weekends
-		return []fieldSpec{dateField("Start date", start), dateField("End date", end), {spreadLabel, "0", "", false}}, true
+		return []fieldSpec{dateField("Start date", start), dateField("End date", end), {spreadLabel, defaultSpreadValue, "", false}}, true
 	}
 }
 
@@ -348,8 +348,9 @@ func (f paramsForm) buildParams(cfg config.Config, quotas map[string]int, picked
 // strategies (Even Spread, Working Days, Weekends).
 const spreadLabel = "Spread (0-100)"
 
-// maxSpread is the top of the Spread scale.
-const maxSpread = 100
+// defaultSpreadValue is the Spread field's starting value, the same default
+// the CLI's --spread uses.
+var defaultSpreadValue = strconv.Itoa(strategy.DefaultSpread)
 
 // parseSpread reads the Spread field: empty means 0 (about even).
 func parseSpread(value string) (int, error) {
@@ -357,8 +358,8 @@ func parseSpread(value string) (int, error) {
 		return 0, nil
 	}
 	spread, err := strconv.Atoi(value)
-	if err != nil || spread < 0 || spread > maxSpread {
-		return 0, fmt.Errorf("spread must be a whole number from 0 to %d", maxSpread)
+	if err != nil || spread < 0 || spread > strategy.MaxSpread {
+		return 0, fmt.Errorf("spread must be a whole number from 0 to %d", strategy.MaxSpread)
 	}
 	return spread, nil
 }

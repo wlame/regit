@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"slices"
 	"sort"
 	"time"
 
@@ -248,25 +249,35 @@ func (PickedDays) AssignDays(commits []model.Commit, p Params) ([]time.Time, err
 	return out, nil
 }
 
-// maxSpread is the top of the Spread scale (Picked Days, Even Spread, Working
-// Days, Weekends Only); maxSpreadSigma is the log-normal
-// sigma it maps to. At sigma 1.5 one day can easily get several times another's
+// MaxSpread is the top of the Spread scale and DefaultSpread its default,
+// shared by the CLI flag and the TUI field. maxSpreadSigma is the log-normal
+// sigma MaxSpread maps to. At sigma 1.5 one day can easily get several times another's
 // share, which is about as uneven as a split still worth calling random.
 const (
-	maxSpread      = 100
+	MaxSpread      = 100
+	DefaultSpread  = 50
 	maxSpreadSigma = 1.5
 )
+
+// spreadStrategies are the strategies that read Params.Spread.
+var spreadStrategies = []string{"Picked Days", "Even Spread", "Working Days", "Weekends Only"}
+
+// SpreadStrategies returns the names of the strategies that read Params.Spread.
+func SpreadStrategies() []string { return slices.Clone(spreadStrategies) }
+
+// UsesSpread reports whether the named strategy reads Params.Spread.
+func UsesSpread(name string) bool { return slices.Contains(spreadStrategies, name) }
 
 // dayWeights returns a random weight per day for the given spread (0–100).
 // Spread 0 returns nil: every day is equally likely. Otherwise each weight is
 // log-normal, exp(sigma·N(0,1)), with sigma growing with the spread, so the
 // higher the spread, the more some days outweigh others.
 func dayWeights(days, spread int, rng *rand.Rand) []float64 {
-	spread = min(max(spread, 0), maxSpread)
+	spread = min(max(spread, 0), MaxSpread)
 	if spread == 0 {
 		return nil
 	}
-	sigma := maxSpreadSigma * float64(spread) / maxSpread
+	sigma := maxSpreadSigma * float64(spread) / MaxSpread
 	weights := make([]float64, days)
 	for i := range weights {
 		weights[i] = math.Exp(sigma * rng.NormFloat64())
@@ -275,8 +286,8 @@ func dayWeights(days, spread int, rng *rand.Rand) []float64 {
 }
 
 // scatter adds n commits to counts at random, each landing on day i with
-// probability proportional to weights[i]. nil weights mean uniform, drawn
-// exactly as before Spread existed, so spread-0 splits replay unchanged.
+// probability proportional to weights[i]. nil weights (spread 0) mean every
+// day is equally likely.
 func scatter(counts []int, n int, weights []float64, rng *rand.Rand) {
 	if weights == nil {
 		for range n {

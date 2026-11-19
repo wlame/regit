@@ -524,3 +524,11 @@ func TestRedateParams_spread(t *testing.T) {
 		}
 	}
 }
+
+func TestRedateParams_spreadDefaultsTo50ForSpreadStrategies(t *testing.T) {
+	ctx := &RunContext{Cfg: config.Default(), Now: time.Unix(1000, 0)}
+	p, err := redateParams(ctx, newParsedArgs(map[string]any{"strategy": "Working-Days"}, nil))
+	if err != nil || p.Spread != 50 {
+		t.Errorf("no --spread with Working-Days: Spread = %d, err = %v; want 50", p.Spread, err)
+	}
+}

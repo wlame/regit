@@ -37,7 +37,9 @@ func RedateArgMap(
 	if len(p.Picked) > 0 {
 		m["pick"] = pickedToString(p.Picked)
 	}
-	if p.Spread > 0 {
+	// Always written for a spread strategy: Render drops it when it equals
+	// the default, and an explicit 0 must survive the round trip.
+	if strategy.UsesSpread(strat) {
 		m["spread"] = strconv.Itoa(p.Spread)
 	}
 	if p.PerDayMin > 0 {

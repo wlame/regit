@@ -133,3 +133,16 @@ func TestRedate_spreadAppliesToTheRandomizableStrategiesOnly(t *testing.T) {
 		}
 	}
 }
+
+// TestRedateArgMap_zeroSpreadIsLogged: with a default of 50, leaving --spread
+// out would replay a spread-0 plan as 50, so 0 must be written out.
+func TestRedateArgMap_zeroSpreadIsLogged(t *testing.T) {
+	p := strategy.Params{Picked: map[string]bool{"2026-03-02": true}, Spread: 0, Seed: 9}
+	if line := Render("redate", RedateArgMap("Picked Days", "Working hours", p, true, "")); !strings.Contains(line, "--spread=0") {
+		t.Errorf("spread 0 must be logged explicitly: %q", line)
+	}
+	p.Spread = 50
+	if line := Render("redate", RedateArgMap("Picked Days", "Working hours", p, true, "")); strings.Contains(line, "--spread") {
+		t.Errorf("the default spread needs no flag: %q", line)
+	}
+}
