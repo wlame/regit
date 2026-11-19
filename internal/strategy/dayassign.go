@@ -159,8 +159,8 @@ func (ManualPin) AssignDays(commits []model.Commit, p Params) ([]time.Time, erro
 // PickedDays spreads commits across hand-picked calendar days (Params.Picked)
 // with random per-day counts, deterministic for a given Params.Seed. Every
 // picked day receives at least one commit when there are enough commits to go
-// around, and the split is recomputed identically on each toggle so the
-// calendar can display stable numbers.
+// around. The TUI draws a new seed on each pick toggle (and on r), so the same
+// days give a new split each time; the logged --seed replays it exactly.
 type PickedDays struct{}
 
 func (PickedDays) Name() string { return "Picked Days" }

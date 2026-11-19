@@ -152,6 +152,7 @@ var keymap = []keyBinding{
 	{Key: "space", Scope: scopeCalendar, Ctx: ctxRedate, Desc: "pick/unpick the day (Picked Days strategy active); reshuffles live"},
 	{Key: "[ / ]", Scope: scopeCalendar, Ctx: ctxRedate, Desc: "previous / next strategy (also in the strategy pane)", Bar: "[ ]strategy", Prio: prioContext},
 	{Key: "< / >", Scope: scopeCalendar, Ctx: ctxRedate, Desc: "previous / next time model (also in the strategy pane)", Bar: "< >time", Prio: prioContext},
+	{Key: "r", Scope: scopeCalendar, Ctx: ctxRedate, Desc: "reshuffle: new random split and times (also in the strategy pane; every space reshuffles too)", Bar: "[r]eshuffle", Prio: prioContext},
 
 	// Strategy pane (redate flow)
 	{Key: "↑/↓", Scope: scopeStrategy, Ctx: ctxRedate, Desc: "move between fields"},

@@ -99,7 +99,10 @@ focusable target. `o` / `c` / `t` jump straight to the commit list, calendar,
 or strategy pane (panetitle.go `paneFocusKeys`; each pane draws its title into
 its top border with that letter highlighted), and `[`/`]` and `<`/`>` change
 the strategy and time model from the calendar or strategy pane
-(`redateHelperKeys`).
+(`redateHelperKeys`). `r` there reshuffles: it draws a new seed (`nextSeed`)
+and re-stages; every Picked Days toggle reshuffles too, so the same set of days
+gives a new split each time. The seed starts at the configured `seed`, or a
+clock-derived one, and the logged redate command carries the current seed.
 
 Wizards listed in zone.go `zoneWizards` (the commit editor, reword, squash, retitle, reauthor, purge, the split progress) draw inside the flow
 zone as a titled pane beside the list instead of as a centered popup; their
