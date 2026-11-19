@@ -72,6 +72,8 @@ func newEditorState(c model.Commit, plan *model.Plan, loc *time.Location) editor
 	// Enter saves the editor, so the body never sees it; a new line comes from
 	// newLineKeys in update instead.
 	body.KeyMap.InsertNewline.SetEnabled(false)
+	// A commit body needs every column for its text, not a line-number gutter.
+	body.ShowLineNumbers = false
 	if e.DropBody {
 		body.SetValue("")
 	} else if e.NewBody != nil {
@@ -193,7 +195,7 @@ func (s editorState) buildEdit(c model.Commit, loc *time.Location, linkDates boo
 var editorKeyHints = [editorFieldCount]string{
 	editorFieldTitle: "enter save · tab next · ctrl+d drop body · esc cancel",
 	editorFieldDate:  "enter save · tab next · ctrl+d drop body · esc cancel",
-	editorFieldBody:  "enter save · shift+enter or ctrl+j new line · tab next · ctrl+d drop body · esc cancel",
+	editorFieldBody:  "enter save · shift+enter/ctrl+j new line · tab next · ctrl+d drop body · esc cancel",
 }
 
 // render draws the editor form for the flow zone.

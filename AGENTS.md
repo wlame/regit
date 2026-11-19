@@ -104,7 +104,10 @@ the strategy and time model from the calendar or strategy pane
 Wizards listed in zone.go `zoneWizards` (the commit editor, reword, squash, retitle, reauthor, purge, the split progress) draw inside the flow
 zone as a titled pane beside the list instead of as a centered popup; their
 mode still owns every key, the keybar switches to the empty exclusive
-`ctxWizard`, and the flow column widens to `zoneWizardMinWidth`.
+`ctxWizard`, and the flow column widens to the wizard's minimum
+(`zoneWizardMinWidthFor`; the editor and reword need `commitMessageZoneWidth`
+for a 72-column title and body, so below about 134 columns they take the full
+width in the one-column layout).
 
 The commit editor (`e`/`enter` on a commit, editor.go) saves on `enter` from
 every field. Its body takes a new line from `newLineKeys` (`ctrl+j`,

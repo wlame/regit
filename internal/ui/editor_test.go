@@ -194,3 +194,31 @@ func TestEditor_longTitleScrollsInsideItsField(t *testing.T) {
 		t.Errorf("the title field shows %d columns, its width allows %d", shown, limit)
 	}
 }
+
+// commitBodyWidth is the column most commit bodies are wrapped at.
+const commitBodyWidth = 72
+
+// TestEditor_fitsA72ColumnBodyAndTitle: a body wrapped at 72 columns and a
+// 72-character title must show without extra wrapping wherever the editor is
+// drawn — beside the list on a wide screen, or full width on a narrower one.
+func TestEditor_fitsA72ColumnBodyAndTitle(t *testing.T) {
+	for _, size := range [][2]int{{160, 40}, {120, 40}, {100, 30}} {
+		m := send(resizeTo(newTestModelN(t, 3), size[0], size[1]), "e")
+
+		if w := m.editor.title.Width; w < commitBodyWidth {
+			t.Errorf("%dx%d: title field is %d columns, want at least %d", size[0], size[1], w, commitBodyWidth)
+		}
+		if w := m.editor.body.Width(); w < commitBodyWidth {
+			t.Errorf("%dx%d: body text area is %d columns, want at least %d", size[0], size[1], w, commitBodyWidth)
+		}
+		assertFrameFits(t, m, size[0], size[1])
+	}
+}
+
+func TestEditor_bodyHasNoLineNumbers(t *testing.T) {
+	m := send(resizeTo(newTestModelN(t, 3), 160, 40), "e")
+
+	if m.editor.body.ShowLineNumbers {
+		t.Error("line numbers take body columns a commit message does not need")
+	}
+}

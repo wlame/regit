@@ -11,34 +11,55 @@ import (
 // key through its mode; only where it renders changes.
 
 // zoneWizard is one wizard drawn in the flow zone: the title in its pane's
-// top border and a renderer for its body at an inner width and height.
+// top border, a renderer for its body at an inner width and height, and the
+// flow column's minimum width while it is open (0 means zoneWizardMinWidth).
 type zoneWizard struct {
-	title string
-	body  func(m Model, width, height int) string
+	title    string
+	body     func(m Model, width, height int) string
+	minWidth int
 }
 
 // zoneWizards maps each wizard mode drawn in the flow zone to its pane.
 var zoneWizards = map[mode]zoneWizard{
-	modeReword:   {title: "REWORD", body: Model.rewordWizardBody},
+	modeReword:   {title: "REWORD", body: Model.rewordWizardBody, minWidth: commitMessageZoneWidth},
 	modeSquash:   {title: "SQUASH", body: Model.squashWizardBody},
 	modeRetitle:  {title: "RETITLE", body: Model.retitleWizardBody},
 	modeReauthor: {title: "CHANGE AUTHOR", body: Model.reauthorWizardBody},
 	modeSplitGen: {title: "SPLIT", body: Model.splitProgressBody},
 	modePurge:    {title: "PURGE", body: Model.purgeWizardBody},
-	modeEditor:   {title: "EDIT", body: Model.editorWizardBody},
+	modeEditor:   {title: "EDIT", body: Model.editorWizardBody, minWidth: commitMessageZoneWidth},
 }
 
-// zoneWizardMinWidth is the flow column's minimum width while a wizard is in
-// it, matching the redate calendar: room for a commit title and its body
-// without heavy wrapping.
+// zoneWizardMinWidth is the flow column's default minimum width while a wizard
+// is in it, matching the redate calendar.
 const zoneWizardMinWidth = rightPaneWidth
+
+// commitMessageWidth is the column most commit messages are wrapped at.
+const commitMessageWidth = 72
+
+// commitMessageZoneWidth is the flow column width (border excluded) that shows
+// a commit title and body wrapped at commitMessageWidth without wrapping them
+// again: the editor's title row is the "▸ " cursor (2), the label column and
+// its gap, the title, and the field's cursor cell, inside the pane's padding.
+// A terminal too narrow for this beside the list gets the one-column layout,
+// where the wizard takes the full width.
+const commitMessageZoneWidth = 2 + 2 + editorLabelWidth + 1 + commitMessageWidth + 1
+
+// zoneWizardMinWidthFor is the flow column's minimum width while the wizard of
+// mode md is open.
+func zoneWizardMinWidthFor(md mode) int {
+	if w := zoneWizards[md].minWidth; w > 0 {
+		return w
+	}
+	return zoneWizardMinWidth
+}
 
 // zoneInputWidth is the width of a wizard text field in the flow zone, after
 // the pane's border and padding (4), the "▸ " cursor (2), a label column of
 // labelWidth and its gap (1), and the field's own cursor cell (1). A longer
 // value scrolls in the field instead of wrapping onto a second row.
-func (m Model) zoneInputWidth(labelWidth int) int {
-	return max(10, m.layoutWithWizard(true).flowWidth-4-2-labelWidth-1-1)
+func (m Model) zoneInputWidth(md mode, labelWidth int) int {
+	return max(10, m.layoutForMode(md).flowWidth-4-2-labelWidth-1-1)
 }
 
 // zoneWizardOpen reports whether the open mode draws a wizard in the flow zone.
@@ -103,7 +124,7 @@ func (m Model) editorWizardBody(_, _ int) string {
 // Called when the editor opens and when the terminal is resized under it.
 func (m *Model) fitEditorToZone() {
 	const paneBorderRows = 2
-	innerWidth := m.layoutWithWizard(true).flowWidth - 2 // the pane's padding
+	innerWidth := m.layoutForMode(modeEditor).flowWidth - 2 // the pane's padding
 	m.editor.setSize(innerWidth, editorMinBodyRows)
 	// Measure with the body focused: its key line is the longest and wraps most.
 	tallest := m.editor

@@ -28,7 +28,7 @@ func rewordWizardAt(t *testing.T, w, h int) Model {
 }
 
 func TestRewordWizard_drawsInTheFlowZoneBesideTheList(t *testing.T) {
-	m := rewordWizardAt(t, 120, 40)
+	m := rewordWizardAt(t, 160, 40) // wide enough for a 72-column body beside the list
 
 	view := stripANSI(m.View())
 
@@ -38,7 +38,7 @@ func TestRewordWizard_drawsInTheFlowZoneBesideTheList(t *testing.T) {
 	if !strings.Contains(view, short(m.commitAtCursor().Hash)) {
 		t.Errorf("the commit list should stay visible beside the wizard:\n%s", view)
 	}
-	assertFrameFits(t, m, 120, 40)
+	assertFrameFits(t, m, 160, 40)
 }
 
 func TestRewordWizard_narrowTerminalShowsTheWizard(t *testing.T) {
