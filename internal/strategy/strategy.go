@@ -124,9 +124,10 @@ type Params struct {
 	LunchStart  int // optional lunch gap start (minutes); 0 disables
 	LunchEnd    int
 
-	// Spread (0–100) makes Picked Days' per-day counts uneven: 0 scatters the
-	// commits uniformly (about the same count per day), higher values give
-	// the days random weights so some get many more commits than others.
+	// Spread (0–100) makes the per-day counts uneven, for Picked Days and the
+	// date-range strategies (Even Spread, Working Days, Weekends Only): 0 keeps
+	// their usual split, higher values give the days random weights so some
+	// get many more commits than others.
 	Spread int
 
 	// Seed makes randomized models reproducible. Equal seeds -> equal output.

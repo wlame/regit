@@ -101,8 +101,50 @@ func (EvenSpread) AssignDays(commits []model.Commit, p Params) ([]time.Time, err
 	if len(days) == 0 {
 		return nil, fmt.Errorf("no eligible days in the selected range")
 	}
-	idxs := distributeEvenly(len(commits), len(days))
-	return daysFromIndexes(idxs, days), nil
+	if p.Spread <= 0 {
+		idxs := distributeEvenly(len(commits), len(days))
+		return daysFromIndexes(idxs, days), nil
+	}
+	rng := rand.New(rand.NewSource(p.Seed))
+	counts := splitProportionally(len(commits), dayWeights(len(days), p.Spread, rng))
+	out := make([]time.Time, 0, len(commits))
+	for i, d := range days {
+		for range counts[i] {
+			out = append(out, d)
+		}
+	}
+	return out, nil
+}
+
+// splitProportionally divides n commits over the days in proportion to their
+// weights, rounding with the largest-remainder method so the counts add up to
+// n exactly. Unlike scatter it adds no draw noise of its own: with weights
+// close to equal (a small spread) the result stays close to the even split.
+func splitProportionally(n int, weights []float64) []int {
+	total := 0.0
+	for _, w := range weights {
+		total += w
+	}
+	counts := make([]int, len(weights))
+	remainders := make([]float64, len(weights))
+	placed := 0
+	for i, w := range weights {
+		share := float64(n) * w / total
+		counts[i] = int(share)
+		remainders[i] = share - float64(counts[i])
+		placed += counts[i]
+	}
+	// Hand the commits lost to rounding down to the largest remainders; a
+	// stable sort breaks ties by day order, so the result is deterministic.
+	order := make([]int, len(weights))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool { return remainders[order[a]] > remainders[order[b]] })
+	for _, i := range order[:n-placed] {
+		counts[i]++
+	}
+	return counts
 }
 
 // --- Manual Pin -------------------------------------------------------------
@@ -206,7 +248,8 @@ func (PickedDays) AssignDays(commits []model.Commit, p Params) ([]time.Time, err
 	return out, nil
 }
 
-// maxSpread is the top of the Spread scale; maxSpreadSigma is the log-normal
+// maxSpread is the top of the Spread scale (Picked Days, Even Spread, Working
+// Days, Weekends Only); maxSpreadSigma is the log-normal
 // sigma it maps to. At sigma 1.5 one day can easily get several times another's
 // share, which is about as uneven as a split still worth calling random.
 const (

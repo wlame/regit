@@ -1,6 +1,7 @@
 package capability
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -106,5 +107,29 @@ func TestRedateArgMap_spreadRoundTrips(t *testing.T) {
 	}
 	if parsed.Int("spread") != 40 {
 		t.Errorf("spread lost: %q", line)
+	}
+}
+
+func TestRedate_spreadAppliesToTheRandomizableStrategiesOnly(t *testing.T) {
+	cases := []struct {
+		strategy string
+		ok       bool
+	}{
+		{"Picked-Days", true}, {"Even-Spread", true}, {"Working-Days", true}, {"Weekends-Only", true},
+		{"Rate-Fill", false}, {"Manual-Pin", false},
+	}
+	for _, tc := range cases {
+		args := []string{"--strategy=" + tc.strategy, "--spread=40",
+			"--start=2026-03-02", "--end=2026-03-15", "--pick=2026-03-02", "--pin=2026-03-02=1"}
+		if tc.strategy != "Picked-Days" {
+			args = slices.DeleteFunc(args, func(a string) bool { return strings.HasPrefix(a, "--pick") })
+		}
+		if tc.strategy != "Manual-Pin" {
+			args = slices.DeleteFunc(args, func(a string) bool { return strings.HasPrefix(a, "--pin") })
+		}
+		_, err := Parse(mustLookup(t, "redate"), args)
+		if (err == nil) != tc.ok {
+			t.Errorf("%s with --spread: err = %v, want ok=%v", tc.strategy, err, tc.ok)
+		}
 	}
 }

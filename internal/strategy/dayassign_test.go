@@ -427,3 +427,79 @@ func TestPickedDays_higherSpreadMakesDaysMoreUneven(t *testing.T) {
 		t.Errorf("average max-min per day: spread 0 = %.1f, 50 = %.1f, 100 = %.1f; want clearly growing", even, medium, wide)
 	}
 }
+
+// rangeDayCounts runs a date-range strategy over n commits from 2026-03-02
+// (Monday) to 2026-03-15 and returns the commits per calendar day.
+func rangeDayCounts(t *testing.T, s Strategy, n, spread int, seed int64) map[string]int {
+	t.Helper()
+	p := paramsRange("2026-03-02", "2026-03-15")
+	p.WeekdayMask = WeekdayMask{} // let Working Days and Weekends Only apply their own days
+	p.Spread, p.Seed = spread, seed
+	out, err := s.AssignDays(make([]model.Commit, n), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	counts := map[string]int{}
+	for i, ts := range out {
+		if i > 0 && ts.Before(out[i-1]) {
+			t.Fatalf("%s: days are not in chronological order at %d", s.Name(), i)
+		}
+		counts[ts.Format("2006-01-02")]++
+	}
+	if len(out) != n {
+		t.Fatalf("%s: %d commits placed, want %d", s.Name(), len(out), n)
+	}
+	return counts
+}
+
+func countsRange(counts map[string]int, days int) int {
+	values := make([]int, 0, days)
+	for _, c := range counts {
+		values = append(values, c)
+	}
+	for len(values) < days { // days that got no commit
+		values = append(values, 0)
+	}
+	return slices.Max(values) - slices.Min(values)
+}
+
+// TestRangeStrategies_spreadMakesDaysUnevenAndGrowsSmoothly covers Even
+// Spread and the two strategies built on it: spread 0 is the exact even split,
+// a small spread changes it a little, a large one a lot.
+func TestRangeStrategies_spreadMakesDaysUnevenAndGrowsSmoothly(t *testing.T) {
+	cases := []struct {
+		strategy Strategy
+		days     int // eligible days in 2026-03-02..15
+	}{
+		{EvenSpread{}, 14},
+		{WorkingDays{}, 10},
+		{Weekends{}, 4},
+	}
+	for _, tc := range cases {
+		t.Run(tc.strategy.Name(), func(t *testing.T) {
+			averageRange := func(spread int) float64 {
+				total := 0
+				for seed := int64(1); seed <= 30; seed++ {
+					total += countsRange(rangeDayCounts(t, tc.strategy, 140, spread, seed), tc.days)
+				}
+				return float64(total) / 30
+			}
+			even, small, wide := averageRange(0), averageRange(10), averageRange(80)
+			if even > 1 {
+				t.Errorf("spread 0 should be the even split, max-min = %.1f", even)
+			}
+			if !(even < small && small < wide) || small > wide/3 {
+				t.Errorf("max-min per day: spread 0 = %.1f, 10 = %.1f, 80 = %.1f; want small then large growth", even, small, wide)
+			}
+		})
+	}
+}
+
+func TestWorkingDays_spreadKeepsWeekendsFree(t *testing.T) {
+	for day, n := range rangeDayCounts(t, WorkingDays{}, 140, 100, 3) {
+		d, _ := time.Parse("2006-01-02", day)
+		if wd := d.Weekday(); n > 0 && (wd == time.Saturday || wd == time.Sunday) {
+			t.Errorf("Working Days with spread placed %d commits on %s (%s)", n, day, wd)
+		}
+	}
+}

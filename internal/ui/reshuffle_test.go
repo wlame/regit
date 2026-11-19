@@ -117,3 +117,23 @@ func TestPickedDays_badSpreadShowsAnError(t *testing.T) {
 		t.Errorf("spread 150 should show a range error, got %q", m.activeStrat().form.errMsg)
 	}
 }
+
+// TestEvenSpread_spreadFieldChangesTheSplit: the date-range strategies take a
+// Spread field too, and the logged command carries it.
+func TestEvenSpread_spreadFieldChangesTheSplit(t *testing.T) {
+	m := selectStrategy(newTestModelN(t, 30), 0) // Even Spread, strategy pane on the carousel
+	m = send(m, "down")                          // Start date
+	m = send(m, strings.Split("2026-06-01", "")...)
+	m = send(m, "down") // End date
+	m = send(m, strings.Split("2026-06-10", "")...)
+	even := m.dayCounts()
+
+	m = send(m, "down", "backspace", "8", "0") // Spread
+
+	if !strings.Contains(m.redateCmd, "--spread=80") {
+		t.Fatalf("the logged command should carry the spread: %s", m.redateCmd)
+	}
+	if uneven := m.dayCounts(); fmt.Sprint(uneven) == fmt.Sprint(even) {
+		t.Errorf("spread 80 left the split unchanged: %v", uneven)
+	}
+}

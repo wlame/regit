@@ -122,7 +122,7 @@ func runRedate(ctx *RunContext, a ParsedArgs) error {
 	return applyOrPreview(ctx, plan, a, previewDates(loc))
 }
 
-// maxSpread is the top of the --spread scale (Picked Days' unevenness).
+// maxSpread is the top of the --spread scale (how uneven the per-day counts are).
 const maxSpread = 100
 
 // redateParams builds strategy.Params from flags, falling back to config.

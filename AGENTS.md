@@ -103,9 +103,12 @@ the strategy and time model from the calendar or strategy pane
 and re-stages; every Picked Days toggle reshuffles too, so the same set of days
 gives a new split each time. The seed starts at the configured `seed`, or a
 clock-derived one, and the logged redate command carries the current seed.
-Picked Days has a `Spread (0-100)` field (`Params.Spread`, `--spread`): 0 is
-the uniform scatter, higher values draw a log-normal weight per day
-(`dayWeights`, `scatter` in dayassign.go) for uneven counts.
+Picked Days, Even Spread, Working Days and Weekends Only have a `Spread
+(0-100)` field (`Params.Spread`, `--spread`): 0 keeps the usual split, higher
+values draw a log-normal weight per day (`dayWeights` in dayassign.go). Picked
+Days scatters commits by those weights (`scatter`, at least one per picked day);
+Even Spread divides them in proportion (`splitProportionally`), so a small
+spread stays close to the even split.
 
 Wizards listed in zone.go `zoneWizards` (the commit editor, reword, squash, retitle, reauthor, purge, the split progress) draw inside the flow
 zone as a titled pane beside the list instead of as a centered popup; their

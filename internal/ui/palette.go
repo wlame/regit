@@ -179,7 +179,7 @@ func fieldSpecs(strat strategy.Strategy, cursor time.Time) ([]fieldSpec, bool) {
 		// random per-day counts are.
 		return []fieldSpec{{spreadLabel, "0", "", false}}, true
 	default: // Even Spread, Working Days, Weekends
-		return []fieldSpec{dateField("Start date", start), dateField("End date", end)}, true
+		return []fieldSpec{dateField("Start date", start), dateField("End date", end), {spreadLabel, "0", "", false}}, true
 	}
 }
 
@@ -331,15 +331,21 @@ func (f paramsForm) buildParams(cfg config.Config, quotas map[string]int, picked
 		p.Spread = spread
 	case "Manual Pin":
 		// No date fields: the pinned days themselves define the range.
-	default:
+	default: // Even Spread, Working Days, Weekends
 		if err := setRange(&p, parseDate); err != nil {
 			return p, err
 		}
+		spread, err := parseSpread(val(spreadLabel))
+		if err != nil {
+			return p, err
+		}
+		p.Spread = spread
 	}
 	return p, nil
 }
 
-// spreadLabel names Picked Days' unevenness field.
+// spreadLabel names the unevenness field of Picked Days and the date-range
+// strategies (Even Spread, Working Days, Weekends).
 const spreadLabel = "Spread (0-100)"
 
 // maxSpread is the top of the Spread scale.
