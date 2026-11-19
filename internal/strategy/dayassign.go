@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 	"sort"
 	"time"
@@ -194,9 +195,7 @@ func (PickedDays) AssignDays(commits []model.Commit, p Params) ([]time.Time, err
 		rest -= len(days)
 	}
 	rng := rand.New(rand.NewSource(p.Seed))
-	for i := 0; i < rest; i++ {
-		counts[rng.Intn(len(days))]++
-	}
+	scatter(counts, rest, dayWeights(len(days), p.Spread, rng), rng)
 
 	out := make([]time.Time, 0, len(commits))
 	for i, d := range days {
@@ -205,6 +204,59 @@ func (PickedDays) AssignDays(commits []model.Commit, p Params) ([]time.Time, err
 		}
 	}
 	return out, nil
+}
+
+// maxSpread is the top of the Spread scale; maxSpreadSigma is the log-normal
+// sigma it maps to. At sigma 1.5 one day can easily get several times another's
+// share, which is about as uneven as a split still worth calling random.
+const (
+	maxSpread      = 100
+	maxSpreadSigma = 1.5
+)
+
+// dayWeights returns a random weight per day for the given spread (0–100).
+// Spread 0 returns nil: every day is equally likely. Otherwise each weight is
+// log-normal, exp(sigma·N(0,1)), with sigma growing with the spread, so the
+// higher the spread, the more some days outweigh others.
+func dayWeights(days, spread int, rng *rand.Rand) []float64 {
+	spread = min(max(spread, 0), maxSpread)
+	if spread == 0 {
+		return nil
+	}
+	sigma := maxSpreadSigma * float64(spread) / maxSpread
+	weights := make([]float64, days)
+	for i := range weights {
+		weights[i] = math.Exp(sigma * rng.NormFloat64())
+	}
+	return weights
+}
+
+// scatter adds n commits to counts at random, each landing on day i with
+// probability proportional to weights[i]. nil weights mean uniform, drawn
+// exactly as before Spread existed, so spread-0 splits replay unchanged.
+func scatter(counts []int, n int, weights []float64, rng *rand.Rand) {
+	if weights == nil {
+		for range n {
+			counts[rng.Intn(len(counts))]++
+		}
+		return
+	}
+	total := 0.0
+	for _, w := range weights {
+		total += w
+	}
+	for range n {
+		r := rng.Float64() * total
+		day := len(weights) - 1 // floating-point slack lands on the last day
+		for i, w := range weights {
+			if r < w {
+				day = i
+				break
+			}
+			r -= w
+		}
+		counts[day]++
+	}
 }
 
 // sortedDayKeys parses a map's "2006-01-02" keys into midnight timestamps in

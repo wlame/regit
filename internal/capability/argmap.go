@@ -37,6 +37,9 @@ func RedateArgMap(
 	if len(p.Picked) > 0 {
 		m["pick"] = pickedToString(p.Picked)
 	}
+	if p.Spread > 0 {
+		m["spread"] = strconv.Itoa(p.Spread)
+	}
 	if p.PerDayMin > 0 {
 		m["per-day-min"] = strconv.Itoa(p.PerDayMin)
 	}

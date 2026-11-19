@@ -94,3 +94,17 @@ func TestMaskSecretArgs_hidesTheSecretInEveryValue(t *testing.T) {
 		t.Error("MaskSecretArgs must not modify its input map")
 	}
 }
+
+func TestRedateArgMap_spreadRoundTrips(t *testing.T) {
+	p := strategy.Params{Picked: map[string]bool{"2026-03-02": true}, Spread: 40, Seed: 9}
+
+	line := Render("redate", RedateArgMap("Picked Days", "Working hours", p, true, ""))
+	parsed, err := Parse(mustLookup(t, "redate"), tokenize(line)[2:])
+
+	if err != nil {
+		t.Fatalf("re-parse %q: %v", line, err)
+	}
+	if parsed.Int("spread") != 40 {
+		t.Errorf("spread lost: %q", line)
+	}
+}

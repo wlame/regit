@@ -168,6 +168,7 @@ var registry = []Command{
 			{Name: "link-dates", Type: ParamBool, Default: "true", Help: "keep committer date == author date"},
 			{Name: "pin", Type: ParamKeyVals, AppliesIf: "strategy=Manual-Pin", Required: true, Help: "DAY=N per-day quotas"},
 			{Name: "pick", Type: ParamStringList, AppliesIf: "strategy=Picked-Days", Required: true, Help: "DAY,DAY chosen days"},
+			{Name: "spread", Type: ParamInt, Default: "0", AppliesIf: "strategy=Picked-Days", Help: "0-100: how uneven the per-day counts are (0 = about the same per day)"},
 			{Name: "per-day-min", Type: ParamInt, AppliesIf: "strategy=Rate-Fill", Help: "min commits per active day"},
 			{Name: "per-day-max", Type: ParamInt, AppliesIf: "strategy=Rate-Fill", Help: "max commits per active day"},
 			{Name: "offset-days", Type: ParamInt, AppliesIf: "strategy=Offset-Shift", Help: "shift every commit by N days"},

@@ -1,8 +1,11 @@
 package strategy
 
 import (
+	"slices"
 	"testing"
 	"time"
+
+	"github.com/wlame/regit/internal/model"
 )
 
 func day(s string) time.Time { return ts(s + "T00:00:00Z") }
@@ -355,5 +358,72 @@ func TestEvenSpread_emptyRangeErrors(t *testing.T) {
 	}
 	if _, err := (EvenSpread{}).AssignDays(commits, p); err == nil {
 		t.Fatal("expected error for range with no eligible days")
+	}
+}
+
+// pickedDayCounts runs Picked Days over n commits on five picked days and
+// returns the commits per day, in day order.
+func pickedDayCounts(t *testing.T, n, spread int, seed int64) []int {
+	t.Helper()
+	commits := make([]model.Commit, n)
+	picked := map[string]bool{}
+	days := []string{"2026-03-02", "2026-03-03", "2026-03-04", "2026-03-05", "2026-03-06"}
+	for _, d := range days {
+		picked[d] = true
+	}
+	out, err := PickedDays{}.AssignDays(commits, Params{Picked: picked, Spread: spread, Seed: seed, Location: time.UTC})
+	if err != nil {
+		t.Fatal(err)
+	}
+	counts := make([]int, len(days))
+	for i, ts := range out {
+		if i > 0 && ts.Before(out[i-1]) {
+			t.Fatalf("days are not in chronological order at %d", i)
+		}
+		counts[slices.Index(days, ts.Format("2006-01-02"))]++
+	}
+	return counts
+}
+
+func TestPickedDays_spreadKeepsEveryCommitAndAtLeastOnePerDay(t *testing.T) {
+	for _, spread := range []int{0, 30, 100} {
+		for seed := int64(1); seed <= 20; seed++ {
+			counts := pickedDayCounts(t, 100, spread, seed)
+			total := 0
+			for _, c := range counts {
+				total += c
+				if c < 1 {
+					t.Errorf("spread %d seed %d: a picked day got no commit: %v", spread, seed, counts)
+				}
+			}
+			if total != 100 {
+				t.Errorf("spread %d seed %d: %d commits placed, want 100", spread, seed, total)
+			}
+		}
+	}
+}
+
+// TestPickedDays_zeroSpreadIsTheOriginalSplit pins that spread 0 keeps the
+// existing distribution, so a logged command without --spread replays the
+// same dates it always did.
+func TestPickedDays_zeroSpreadIsTheOriginalSplit(t *testing.T) {
+	got := pickedDayCounts(t, 100, 0, 7)
+	if want := []int{23, 17, 24, 19, 17}; !slices.Equal(got, want) {
+		t.Errorf("spread 0, seed 7 = %v, want the original split %v", got, want)
+	}
+}
+
+func TestPickedDays_higherSpreadMakesDaysMoreUneven(t *testing.T) {
+	averageRange := func(spread int) float64 {
+		total := 0
+		for seed := int64(1); seed <= 50; seed++ {
+			counts := pickedDayCounts(t, 100, spread, seed)
+			total += slices.Max(counts) - slices.Min(counts)
+		}
+		return float64(total) / 50
+	}
+	even, medium, wide := averageRange(0), averageRange(50), averageRange(100)
+	if !(even < medium && medium < wide) || wide < 2*even {
+		t.Errorf("average max-min per day: spread 0 = %.1f, 50 = %.1f, 100 = %.1f; want clearly growing", even, medium, wide)
 	}
 }

@@ -90,3 +90,30 @@ func TestHelpText_documentsTheReshuffleKey(t *testing.T) {
 		t.Error("help should document the r reshuffle key")
 	}
 }
+
+// TestPickedDays_spreadFieldChangesTheSplit: the strategy pane's Spread field
+// re-stages the same days with uneven counts, and the logged command carries it.
+func TestPickedDays_spreadFieldChangesTheSplit(t *testing.T) {
+	m := pickedDaysOnCalendar(t, newTestModelN(t, 30), 3)
+	even := countsOnPickedDays(m)
+
+	m = send(m, "t", "down") // strategy pane, Spread field
+	m = send(m, "backspace", "9", "0")
+
+	if !strings.Contains(m.redateCmd, "--spread=90") {
+		t.Errorf("the logged command should carry the spread: %s", m.redateCmd)
+	}
+	if uneven := countsOnPickedDays(m); uneven == even {
+		t.Errorf("spread 90 left the split unchanged: %s", uneven)
+	}
+}
+
+func TestPickedDays_badSpreadShowsAnError(t *testing.T) {
+	m := pickedDaysOnCalendar(t, newTestModelN(t, 10), 2)
+
+	m = send(m, "t", "down", "backspace", "1", "5", "0")
+
+	if !strings.Contains(m.activeStrat().form.errMsg, "0 to 100") {
+		t.Errorf("spread 150 should show a range error, got %q", m.activeStrat().form.errMsg)
+	}
+}

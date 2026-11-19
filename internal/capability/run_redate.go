@@ -122,6 +122,9 @@ func runRedate(ctx *RunContext, a ParsedArgs) error {
 	return applyOrPreview(ctx, plan, a, previewDates(loc))
 }
 
+// maxSpread is the top of the --spread scale (Picked Days' unevenness).
+const maxSpread = 100
+
 // redateParams builds strategy.Params from flags, falling back to config.
 func redateParams(ctx *RunContext, a ParsedArgs) (strategy.Params, error) {
 	loc := ctx.Cfg.Location()
@@ -155,6 +158,10 @@ func redateParams(ctx *RunContext, a ParsedArgs) (strategy.Params, error) {
 		for _, d := range picks {
 			p.Picked[d] = true
 		}
+	}
+	p.Spread = a.Int("spread")
+	if p.Spread < 0 || p.Spread > maxSpread {
+		return p, usageErr("--spread must be a whole number from 0 to %d, got %d", maxSpread, p.Spread)
 	}
 	p.PerDayMin, p.PerDayMax = a.Int("per-day-min"), a.Int("per-day-max")
 	p.OffsetDays, p.OffsetHours = a.Int("offset-days"), a.Int("offset-hours")

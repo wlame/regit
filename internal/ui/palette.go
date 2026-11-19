@@ -170,10 +170,14 @@ func fieldSpecs(strat strategy.Strategy, cursor time.Time) ([]fieldSpec, bool) {
 		return []fieldSpec{dateField("Target day", cursor.Format(dateLayout))}, true
 	case "Rate Fill":
 		return []fieldSpec{dateField("Start date", start), dateField("End date", end), {"Min/day", "1", "", false}, {"Max/day", "3", "", false}}, true
-	case "Manual Pin", "Picked Days":
-		// The pinned/picked days themselves define the range; only the
-		// time-of-day model is configurable. No date fields.
+	case "Manual Pin":
+		// The pinned days themselves define the range; only the time-of-day
+		// model is configurable. No date fields.
 		return nil, true
+	case "Picked Days":
+		// The picked days define the range; Spread tunes how uneven the
+		// random per-day counts are.
+		return []fieldSpec{{spreadLabel, "0", "", false}}, true
 	default: // Even Spread, Working Days, Weekends
 		return []fieldSpec{dateField("Start date", start), dateField("End date", end)}, true
 	}
@@ -319,14 +323,38 @@ func (f paramsForm) buildParams(cfg config.Config, quotas map[string]int, picked
 		}
 		p.PerDayMin, _ = strconv.Atoi(val("Min/day"))
 		p.PerDayMax, _ = strconv.Atoi(val("Max/day"))
-	case "Manual Pin", "Picked Days":
-		// No date fields: the pinned/picked days themselves define the range.
+	case "Picked Days":
+		spread, err := parseSpread(val(spreadLabel))
+		if err != nil {
+			return p, err
+		}
+		p.Spread = spread
+	case "Manual Pin":
+		// No date fields: the pinned days themselves define the range.
 	default:
 		if err := setRange(&p, parseDate); err != nil {
 			return p, err
 		}
 	}
 	return p, nil
+}
+
+// spreadLabel names Picked Days' unevenness field.
+const spreadLabel = "Spread (0-100)"
+
+// maxSpread is the top of the Spread scale.
+const maxSpread = 100
+
+// parseSpread reads the Spread field: empty means 0 (about even).
+func parseSpread(value string) (int, error) {
+	if value == "" {
+		return 0, nil
+	}
+	spread, err := strconv.Atoi(value)
+	if err != nil || spread < 0 || spread > maxSpread {
+		return 0, fmt.Errorf("spread must be a whole number from 0 to %d", maxSpread)
+	}
+	return spread, nil
 }
 
 // setRange fills Start/End from "Start date"/"End date" fields.

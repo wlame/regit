@@ -510,3 +510,17 @@ func TestRedate_FrozenCommitInCommitsFails(t *testing.T) {
 		t.Errorf("error should mention \"frozen\", got: %v", err)
 	}
 }
+
+func TestRedateParams_spread(t *testing.T) {
+	ctx := &RunContext{Cfg: config.Default(), Now: time.Unix(1000, 0)}
+	p, err := redateParams(ctx, newParsedArgs(map[string]any{"spread": 60}, nil))
+	if err != nil || p.Spread != 60 {
+		t.Fatalf("--spread=60: Spread = %d, err = %v", p.Spread, err)
+	}
+	for _, bad := range []int{-1, 101} {
+		if _, err := redateParams(ctx, newParsedArgs(map[string]any{"spread": bad}, nil)); err == nil ||
+			ExitCode(err) != 1 {
+			t.Errorf("--spread=%d should be a usage error, got %v", bad, err)
+		}
+	}
+}

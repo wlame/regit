@@ -48,6 +48,7 @@ by it):
 |---|---|---|---|---|
 | `--pin` | K=N,… | required | `DAY=N` per-day quotas. | `--strategy=Manual-Pin` |
 | `--pick` | A,B | required | `DAY,DAY` chosen days. | `--strategy=Picked-Days` |
+| `--spread` | N | `0` | 0–100: how uneven the per-day counts are. `0` scatters the commits evenly (about the same count per day); higher values give the days random weights, so some get many more commits. Every picked day still gets at least one. | `--strategy=Picked-Days` |
 | `--per-day-min` | N | — | Min commits per active day. | `--strategy=Rate-Fill` |
 | `--per-day-max` | N | — | Max commits per active day. | `--strategy=Rate-Fill` |
 | `--offset-days` | N | — | Shift every commit by N days. | `--strategy=Offset-Shift` |
