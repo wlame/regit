@@ -106,6 +106,25 @@ it has this effect on the next `purge` or `redact`.
 The TUI reads the working tree again each time you apply, so cleaning it in
 another terminal is enough; there is no need to restart.
 
+### A commit would be dated before its parent
+
+```
+regit: 1 commit(s) would be dated before their parent: 71fd785f is dated before its parent 836500b0; change those dates before applying
+```
+
+**Cause**: An edit puts a commit's author date before its parent's (or moves a
+commit past the dates of commits after it). regit never writes history in which
+a child is older than its parent. This is about dates only; `git status` shows
+nothing.
+
+Commits that were already out of date order before you edited anything — common
+after `git rebase` or `git cherry-pick`, which keep each commit's original author
+date — do not block an edit elsewhere. They only count when one of your edits
+moves one of the two commits.
+
+**Fix**: Change the date of one of the two named commits so the child is not
+older than its parent, or reset the edit (`R` in the TUI).
+
 ---
 
 ### Branch moved since the plan was created (HEAD moved)

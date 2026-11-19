@@ -31,8 +31,8 @@ func TestCheckGuards_sequenceViolationBlocks(t *testing.T) {
 	if !g.Blocked {
 		t.Fatal("sequence violation should block")
 	}
-	if !strings.Contains(g.BlockReason, "conflicting") {
-		t.Errorf("block reason should mention conflicting commits, got %q", g.BlockReason)
+	if !strings.Contains(g.BlockReason, "before its parent") {
+		t.Errorf("block reason should say a commit is dated before its parent, got %q", g.BlockReason)
 	}
 }
 
@@ -152,5 +152,18 @@ func TestCheckGuards_confirmsOnlyWhenRewriteTouchesPushed(t *testing.T) {
 	planPushed.SetEdit("aaa", model.Edit{NewAuthorDate: &d})
 	if g := CheckGuards(model.RepoState{Branch: "main"}, planPushed); !g.NeedsConfirmation {
 		t.Error("rewrite touching a pushed commit must need confirmation")
+	}
+}
+
+// TestCheckGuards_blockMessageNamesTheCommits: the user cannot see date order
+// in git status, so the message must say which commit sits before which.
+func TestCheckGuards_blockMessageNamesTheCommits(t *testing.T) {
+	p := planWithEdit(false)
+	p.Violations = []model.SequenceViolation{{ChildHash: "c1c1c1c1c1c1", ParentHash: "p2p2p2p2p2p2"}}
+
+	g := CheckGuards(model.RepoState{}, p)
+
+	if !strings.Contains(g.BlockReason, "c1c1c1c1 is dated before its parent p2p2p2p2") {
+		t.Errorf("BlockReason should name the pair, got %q", g.BlockReason)
 	}
 }

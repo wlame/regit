@@ -8,6 +8,7 @@ package safety
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/wlame/regit/internal/model"
 )
@@ -49,18 +50,10 @@ func CheckGuards(state model.RepoState, plan *model.Plan) Guard {
 		return Guard{Blocked: true, BlockReason: reason}
 	}
 	if !plan.IsValid() {
-		// Count Violations, not Shifted: IsValid gates on Violations being
-		// non-empty, but Shifted only lists commits the enforcement cascade
-		// would actually move (see Plan.Shifted's doc comment) — a violation
-		// with no target caught in its own blast radius (e.g. two anchors
-		// whose dates are out of order) leaves Shifted empty while Violations
-		// is not, which used to render as the nonsensical "plan has 0
-		// commit(s) conflicting".
-		return Guard{
-			Blocked: true,
-			BlockReason: fmt.Sprintf("plan has %d commit(s) conflicting with your edits; resolve them before applying",
-				len(plan.Violations)),
-		}
+		// Report Violations, not Shifted: IsValid gates on Violations, while
+		// Shifted only lists the commits the enforcement cascade would move
+		// and can be empty when Violations is not.
+		return Guard{Blocked: true, BlockReason: violationReason(plan.Violations)}
 	}
 	// plan.Active() is the TRUE rewrite set: the rewrite engine (Replay) re-emits
 	// every commit from the base boundary onward as a new git object, even one
@@ -78,4 +71,23 @@ func CheckGuards(state model.RepoState, plan *model.Plan) Guard {
 		}
 	}
 	return Guard{}
+}
+
+// maxNamedViolations caps how many out-of-order pairs the block message names.
+const maxNamedViolations = 3
+
+// violationReason says which commits are out of date order. The date order is
+// invisible in `git status`, so naming the pairs is what lets the user find
+// and fix them.
+func violationReason(violations []model.SequenceViolation) string {
+	var pairs []string
+	for _, v := range violations[:min(len(violations), maxNamedViolations)] {
+		pairs = append(pairs, fmt.Sprintf("%s is dated before its parent %s",
+			shortHash(v.ChildHash), shortHash(v.ParentHash)))
+	}
+	if extra := len(violations) - len(pairs); extra > 0 {
+		pairs = append(pairs, fmt.Sprintf("%d more", extra))
+	}
+	return fmt.Sprintf("%d commit(s) would be dated before their parent: %s; change those dates before applying",
+		len(violations), strings.Join(pairs, ", "))
 }
